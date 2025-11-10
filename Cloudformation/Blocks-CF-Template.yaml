@@ -1,0 +1,1003 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Blocks - CloudOptimisation - CUR 2.0 to S3 + comprehensive cross-account role + best-effort Support backfill. Deploy in us-east-1.'
+
+Parameters:
+  UseExistingBucket:
+    Type: String
+    Default: 'FALSE'
+    AllowedValues: ['TRUE','FALSE']
+    Description: 'TRUE to use an already-existing bucket'
+  ExistingBucketName:
+    Type: String
+    Default: ''
+    Description: 'Exact name of the pre-existing bucket (required if UseExistingBucket=TRUE)'
+  BucketNamePrefix:
+    Type: String
+    Default: 'blocks-cur-data'
+    Description: 'Prefix if creating a new bucket; stack suffixes with account and region'
+  ExportName:
+    Type: String
+    Default: 'hourly-cost-usage-cur2'
+    Description: 'Base name for the Data Exports (CUR 2.0) export; template appends account/region/stack to avoid collisions'
+  TimeGranularity:
+    Type: String
+    Default: 'HOURLY'
+    AllowedValues: ['HOURLY','DAILY','MONTHLY']
+    Description: 'CUR granularity'
+  IncludeResources:
+    Type: String
+    Default: 'TRUE'
+    AllowedValues: ['TRUE','FALSE']
+    Description: 'Include resource IDs'
+  BackfillMonths:
+    Type: Number
+    Default: 12
+    MinValue: 1
+    MaxValue: 36
+    Description: 'Months of historical data to request via Support'
+  SupportSeverity:
+    Type: String
+    Default: 'low'
+    AllowedValues: ['low','normal','high','urgent','critical']
+    Description: 'Support case severity'
+  ExternalAccountId:
+    Type: String
+    Default: "503132503926"
+    Description: 'Your AWS account ID (12 digits) that will assume the role'
+  ExternalId:
+    Type: String
+    NoEcho: true
+    Default: "blocks-shared-secret"
+    Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: 'Optional CMK ARN for bucket encryption; if set, also update the CMK key policy to allow S3 and bcm-data-exports'
+
+Conditions:
+  CreateBucket: !Equals [!Ref UseExistingBucket, 'FALSE']
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+
+Resources:
+  CURBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBucket
+    Properties:
+      BucketName: !Sub '${BucketNamePrefix}-${AWS::AccountId}-${AWS::Region}'
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - !If
+            - HasKms
+            - { ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms, KMSMasterKeyID: !Ref KmsKeyArn } }
+            - { ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }
+
+  CURBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBCMDataExportsPut
+            Effect: Allow
+            Principal: { Service: bcm-data-exports.amazonaws.com }
+            Action: s3:PutObject
+            Resource:
+              !Sub
+                - 'arn:${AWS::Partition}:s3:::${B}/*'
+                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+              StringLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*'
+          - Sid: AllowBCMDataExportsBucketMeta
+            Effect: Allow
+            Principal: { Service: bcm-data-exports.amazonaws.com }
+            Action:
+              - s3:GetBucketAcl
+              - s3:GetBucketPolicy
+              - s3:GetBucketLocation
+              - s3:ListBucket
+            Resource:
+              !Sub
+                - 'arn:${AWS::Partition}:s3:::${B}'
+                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+              StringLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*'
+          - Sid: AllowReadRoleGetObject
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BlocksBillingReadRole.Arn
+            Action: ['s3:GetObject']
+            Resource:
+              !Sub
+                - 'arn:${AWS::Partition}:s3:::${B}/cur2/*'
+                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+
+  Cur20Export:
+    Type: AWS::BCMDataExports::Export
+    DependsOn: CURBucketPolicy
+    Properties:
+      Export:
+        Name: !Sub '${ExportName}-${AWS::AccountId}'
+        Description: 'CUR 2.0 export to S3 (Parquet), hourly with resource IDs'
+        DataQuery:
+          QueryStatement: |
+            SELECT bill_bill_type, 
+              bill_billing_entity, 
+              bill_billing_period_end_date, 
+              bill_billing_period_start_date, 
+              bill_invoice_id, 
+              bill_invoicing_entity, 
+              bill_payer_account_id,
+              bill_payer_account_name, 
+              cost_category, 
+              discount, 
+              discount_bundled_discount, 
+              discount_total_discount, 
+              identity_line_item_id, 
+              identity_time_interval, 
+              line_item_availability_zone, 
+              line_item_blended_cost, 
+              line_item_blended_rate, 
+              line_item_currency_code, 
+              line_item_legal_entity, 
+              line_item_line_item_description, 
+              line_item_line_item_type, 
+              line_item_net_unblended_cost, 
+              line_item_net_unblended_rate, 
+              line_item_normalization_factor, 
+              line_item_normalized_usage_amount, 
+              line_item_operation, 
+              line_item_product_code, 
+              line_item_resource_id, 
+              line_item_tax_type, 
+              line_item_unblended_cost, 
+              line_item_unblended_rate, 
+              line_item_usage_account_id, 
+              line_item_usage_account_name, 
+              line_item_usage_amount, 
+              line_item_usage_end_date, 
+              line_item_usage_start_date, 
+              line_item_usage_type, 
+              pricing_currency, 
+              pricing_lease_contract_length, 
+              pricing_offering_class, 
+              pricing_public_on_demand_cost, 
+              pricing_public_on_demand_rate, 
+              pricing_purchase_option, 
+              pricing_rate_code, 
+              pricing_rate_id, 
+              pricing_term, 
+              pricing_unit, 
+              product, 
+              product_comment, 
+              product_fee_code, 
+              product_fee_description, 
+              product_from_location, 
+              product_from_location_type, 
+              product_from_region_code, 
+              product_instance_family,
+              product_instance_type, 
+              product_instancesku, 
+              product_location, 
+              product_location_type,
+              product_operation, 
+              product_pricing_unit, 
+              product_product_family, 
+              product_region_code,
+              product_servicecode,
+              product_sku,
+              product_to_location, 
+              product_to_location_type,
+              product_to_region_code, 
+              product_usagetype, 
+              reservation_amortized_upfront_cost_for_usage, 
+              reservation_amortized_upfront_fee_for_billing_period, 
+              reservation_availability_zone, 
+              reservation_effective_cost, 
+              reservation_end_time, 
+              reservation_modification_status, 
+              reservation_net_amortized_upfront_cost_for_usage, 
+              reservation_net_amortized_upfront_fee_for_billing_period, 
+              reservation_net_effective_cost, 
+              reservation_net_recurring_fee_for_usage,
+              reservation_net_unused_amortized_upfront_fee_for_billing_period, 
+              reservation_net_unused_recurring_fee, reservation_net_upfront_value, 
+              reservation_normalized_units_per_reservation, 
+              reservation_number_of_reservations,
+              reservation_recurring_fee_for_usage, 
+              reservation_reservation_a_r_n, 
+              reservation_start_time,
+              reservation_subscription_id,
+              reservation_total_reserved_normalized_units, 
+              reservation_total_reserved_units, 
+              reservation_units_per_reservation, 
+              reservation_unused_amortized_upfront_fee_for_billing_period,
+              reservation_unused_normalized_unit_quantity, 
+              reservation_unused_quantity,
+              reservation_unused_recurring_fee, 
+              reservation_upfront_value, 
+              resource_tags, 
+              savings_plan_amortized_upfront_commitment_for_billing_period, 
+              savings_plan_end_time, savings_plan_instance_type_family, 
+              savings_plan_net_amortized_upfront_commitment_for_billing_period, 
+              savings_plan_net_recurring_commitment_for_billing_period, 
+              savings_plan_net_savings_plan_effective_cost, 
+              savings_plan_offering_type, 
+              savings_plan_payment_option,
+              savings_plan_purchase_term, 
+              savings_plan_recurring_commitment_for_billing_period, 
+              savings_plan_region, 
+              savings_plan_savings_plan_a_r_n,
+              savings_plan_savings_plan_effective_cost,
+              savings_plan_savings_plan_rate, 
+              savings_plan_start_time, 
+              savings_plan_total_commitment_to_date,
+              savings_plan_used_commitment, 
+              split_line_item_actual_usage, 
+              split_line_item_net_split_cost, 
+              split_line_item_net_unused_cost, 
+              split_line_item_parent_resource_id, 
+              split_line_item_public_on_demand_split_cost,
+              split_line_item_public_on_demand_unused_cost, 
+              split_line_item_reserved_usage, 
+              split_line_item_split_cost, 
+              split_line_item_split_usage,
+              split_line_item_split_usage_ratio, 
+              split_line_item_unused_cost
+            FROM COST_AND_USAGE_REPORT
+          TableConfigurations:
+            COST_AND_USAGE_REPORT:
+              INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY: 'FALSE'
+              TIME_GRANULARITY: !Ref TimeGranularity
+              INCLUDE_RESOURCES: !Ref IncludeResources
+              INCLUDE_SPLIT_COST_ALLOCATION_DATA: 'TRUE'
+        DestinationConfigurations:
+          S3Destination:
+            S3Bucket: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+            S3Prefix: 'cur2'
+            S3Region: !Ref AWS::Region
+            S3OutputConfigurations:
+              Compression: PARQUET
+              Format: PARQUET
+              OutputType: CUSTOM
+              Overwrite: OVERWRITE_REPORT
+        RefreshCadence: { Frequency: SYNCHRONOUS }
+
+  BackfillRequesterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SupportCaseBackfill
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - support:CreateCase
+                  - support:DescribeServices
+                  - support:DescribeSeverityLevels
+                Resource: "*"
+
+  BackfillRequesterFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt BackfillRequesterRole.Arn
+      Timeout: 120
+      FunctionName: !Sub '${AWS::StackName}-BackfillRequesterFn'
+      Environment:
+        Variables:
+          EXPORT_NAME: !Ref ExportName
+          BACKFILL_MONTHS: !Ref BackfillMonths
+          SEVERITY: !Ref SupportSeverity
+      Code:
+        ZipFile: |
+          import boto3, json, os, urllib.request, logging
+          from botocore.exceptions import ClientError
+          log = logging.getLogger()
+          log.setLevel(logging.INFO)
+
+          def send_response(event, context, status, reason=None, data=None, phys_id=None):
+              try:
+                  data = data or {}
+                  if 'CaseId' not in data:
+                      data['CaseId'] = ''
+                  body = json.dumps({
+                      'Status': status,
+                      'Reason': (reason or 'OK')[:4096],
+                      'PhysicalResourceId': phys_id or context.log_stream_name,
+                      'StackId': event['StackId'],
+                      'RequestId': event['RequestId'],
+                      'LogicalResourceId': event['LogicalResourceId'],
+                      'Data': data
+                  }).encode('utf-8')
+                  req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT',
+                                               headers={'content-type':'', 'content-length': str(len(body))})
+                  with urllib.request.urlopen(req) as f:
+                      f.read()
+              except Exception:
+                  log.exception("Failed sending CFN response")
+
+          def find_billing_service_code(support):
+              for s in support.describe_services()['services']:
+                  name = (s.get('name') or '').lower()
+                  if 'billing' in name or 'account' in name:
+                      cat = (s.get('categories') or [{}])[0].get('code') or 'other-account-billing-questions'
+                      return s['code'], cat
+              return 'account-and-billing-support','other-account-billing-questions'
+
+          def handler(event, context):
+              log.info("Event: %s", json.dumps(event))
+              status, reason, data, phys = 'SUCCESS', 'OK', {'CaseId': ''}, None
+              try:
+                  if event['RequestType'] == 'Delete':
+                      reason = 'No action on delete'
+                      send_response(event, context, 'SUCCESS', reason, data, phys); return
+                  support = boto3.client('support', region_name='us-east-1')
+                  export_name = os.environ['EXPORT_NAME']
+                  months = int(os.environ.get('BACKFILL_MONTHS','12'))
+                  severity = os.environ.get('SEVERITY','low')
+                  try:
+                      svc_code, cat_code = find_billing_service_code(support)
+                      subject = f"Request backfill for CUR 2.0 export '{export_name}'"
+                      body = f"Please backfill {months} months of historical data into CUR 2.0 export '{export_name}'."
+                      resp = support.create_case(
+                          subject=subject, serviceCode=svc_code, severityCode=severity,
+                          categoryCode=cat_code, communicationBody=body, language='en',
+                          issueType='customer-service'
+                      )
+                      phys = resp.get('caseId','unknown')
+                      data.update({'CaseId': phys, 'BackfillRequested': True})
+                  except ClientError as ce:
+                      code = ce.response.get('Error',{}).get('Code','')
+                      if code in ('SubscriptionRequiredException','AccessDeniedException') or 'AccessDenied' in code:
+                          reason = f'Support API not available ({code}). Skipping backfill request.'
+                          data.update({'BackfillRequested': False, 'Reason': reason})
+                      else:
+                          status = 'FAILED'
+                          reason = f'Unexpected Support API error: {code}'
+              except Exception as e:
+                  status = 'FAILED'
+                  reason = f'Unhandled error: {e}'
+              finally:
+                  send_response(event, context, status, reason, data, phys)
+
+  BackfillInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackfillRequesterFn
+      Action: lambda:InvokeFunction
+      Principal: cloudformation.amazonaws.com
+
+  RequestBackfill:
+    Type: Custom::RequestCurBackfill
+    DependsOn: Cur20Export
+    Properties:
+      ServiceToken: !GetAtt BackfillRequesterFn.Arn
+      ExportName: !Ref ExportName
+      BackfillMonths: !Ref BackfillMonths
+      Severity: !Ref SupportSeverity
+
+  BlocksBillingReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ExportName}-${AWS::AccountId}-billing-read-role'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${ExternalAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ServiceQuotasReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsandTagEditorReadOnlyAccess
+
+      Policies:
+        # Cost Explorer - Full Read Access
+        - PolicyName: CostExplorerFullRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CeReadAll
+                Effect: Allow
+                Action:
+                  - ce:Get*
+                  - ce:List*
+                  - ce:Describe*
+                Resource: "*"
+
+        # Savings Plans - Full Read Access
+        - PolicyName: SavingsPlansFullRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: SavingsPlansReadAll
+                Effect: Allow
+                Action:
+                  - savingsplans:Describe*
+                  - savingsplans:List*
+                Resource: "*"
+
+        # Trusted Advisor - Best Effort (works only if customer has Business/Enterprise support)
+        - PolicyName: TrustedAdvisorRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: TrustedAdvisorReadAll
+                Effect: Allow
+                Action:
+                  - support:DescribeTrustedAdvisorChecks
+                  - support:DescribeTrustedAdvisorCheckResult
+                  - support:DescribeTrustedAdvisorCheckSummaries
+                  - support:DescribeTrustedAdvisorCheckRefreshStatuses
+                  - support:RefreshTrustedAdvisorCheck
+                Resource: "*"
+
+        # Pricing API
+        - PolicyName: PricingRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: PricingGetProducts
+                Effect: Allow
+                Action:
+                  - pricing:GetProducts
+                  - pricing:DescribeServices
+                  - pricing:GetAttributeValues
+                Resource: "*"
+
+        # Account Information
+        - PolicyName: AccountRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AccountMetaRead
+                Effect: Allow
+                Action:
+                  - account:ListRegions
+                  - account:GetAlternateContact
+                  - account:GetContactInformation
+                  - account:ListAlternateContacts
+                Resource: "*"
+
+        # Identity
+        - PolicyName: StsWhoami
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+
+        # EC2 - Comprehensive Read for Right-Sizing
+        - PolicyName: Ec2ComputeRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Ec2DescribeAll
+                Effect: Allow
+                Action:
+                  - ec2:Describe*
+                  - ec2:Get*
+                  - ec2:SearchTransitGatewayRoutes
+                  - elasticloadbalancing:Describe*
+                  - autoscaling:Describe*
+                  - autoscaling:Get*
+                  - autoscaling:List*
+                Resource: "*"
+
+        # RDS - Database Right-Sizing
+        - PolicyName: RdsRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: RdsDescribeAll
+                Effect: Allow
+                Action:
+                  - rds:Describe*
+                  - rds:List*
+                Resource: "*"
+
+        # ElastiCache - Cache Right-Sizing
+        - PolicyName: ElastiCacheRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ElastiCacheDescribeAll
+                Effect: Allow
+                Action:
+                  - elasticache:Describe*
+                  - elasticache:List*
+                Resource: "*"
+
+        # Redshift - Data Warehouse Optimization
+        - PolicyName: RedshiftRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: RedshiftDescribeAll
+                Effect: Allow
+                Action:
+                  - redshift:Describe*
+                  - redshift:List*
+                  - redshift:ViewQueriesInConsole
+                Resource: "*"
+
+        # Lambda - Serverless Optimization
+        - PolicyName: LambdaRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaReadAll
+                Effect: Allow
+                Action:
+                  - lambda:List*
+                  - lambda:Get*
+                Resource: "*"
+
+        # DynamoDB - NoSQL Optimization
+        - PolicyName: DynamoDbRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DynamoDbDescribeAll
+                Effect: Allow
+                Action:
+                  - dynamodb:List*
+                  - dynamodb:Describe*
+                Resource: "*"
+
+        # ECS/EKS - Container Optimization
+        - PolicyName: ContainerServicesRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EcsEksDescribeAll
+                Effect: Allow
+                Action:
+                  - ecs:List*
+                  - ecs:Describe*
+                  - eks:List*
+                  - eks:Describe*
+                Resource: "*"
+
+        # CloudWatch - Metrics and Logs
+        - PolicyName: CloudWatchMetricsAndLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudWatchReadAll
+                Effect: Allow
+                Action:
+                  - cloudwatch:Describe*
+                  - cloudwatch:Get*
+                  - cloudwatch:List*
+                  - logs:Describe*
+                  - logs:Get*
+                  - logs:List*
+                  - logs:StartQuery
+                  - logs:StopQuery
+                  - logs:TestMetricFilter
+                  - logs:FilterLogEvents
+                Resource: "*"
+
+        # CloudFormation - Stack Inventory
+        - PolicyName: CloudFormationRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CfnDescribeAll
+                Effect: Allow
+                Action:
+                  - cloudformation:Describe*
+                  - cloudformation:List*
+                  - cloudformation:Get*
+                  - cloudformation:DetectStackDrift
+                  - cloudformation:DetectStackResourceDrift
+                Resource: "*"
+
+        # Systems Manager - Inventory and Compliance
+        - PolicyName: SystemsManagerRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: SsmReadAll
+                Effect: Allow
+                Action:
+                  - ssm:Describe*
+                  - ssm:Get*
+                  - ssm:List*
+                Resource: "*"
+
+        # Config - Resource Compliance
+        - PolicyName: ConfigRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ConfigDescribeAll
+                Effect: Allow
+                Action:
+                  - config:Describe*
+                  - config:Get*
+                  - config:List*
+                  - config:Select*
+                  - config:BatchGet*
+                Resource: "*"
+
+        # CloudFront - CDN Optimization
+        - PolicyName: CloudFrontRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudFrontReadAll
+                Effect: Allow
+                Action:
+                  - cloudfront:Get*
+                  - cloudfront:List*
+                Resource: "*"
+
+        # Route53 - DNS Costs
+        - PolicyName: Route53Read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Route53ReadAll
+                Effect: Allow
+                Action:
+                  - route53:Get*
+                  - route53:List*
+                  - route53domains:Get*
+                  - route53domains:List*
+                Resource: "*"
+
+        # License Manager
+        - PolicyName: LicenseManagerRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LicenseManagerReadAll
+                Effect: Allow
+                Action:
+                  - license-manager:Get*
+                  - license-manager:List*
+                Resource: "*"
+
+        # Backup - Backup Costs
+        - PolicyName: BackupRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: BackupReadAll
+                Effect: Allow
+                Action:
+                  - backup:Describe*
+                  - backup:Get*
+                  - backup:List*
+                Resource: "*"
+
+        # Health - Service Health Events
+        - PolicyName: HealthRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: HealthReadAll
+                Effect: Allow
+                Action:
+                  - health:Describe*
+                Resource: "*"
+
+        # Application Auto Scaling
+        - PolicyName: ApplicationAutoScalingRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AppAutoScalingReadAll
+                Effect: Allow
+                Action:
+                  - application-autoscaling:Describe*
+                Resource: "*"
+
+        # ElasticBeanstalk
+        - PolicyName: ElasticBeanstalkRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: BeanstalkReadAll
+                Effect: Allow
+                Action:
+                  - elasticbeanstalk:Describe*
+                  - elasticbeanstalk:List*
+                Resource: "*"
+
+        # Kinesis - Streaming Costs
+        - PolicyName: KinesisRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: KinesisReadAll
+                Effect: Allow
+                Action:
+                  - kinesis:Describe*
+                  - kinesis:List*
+                  - firehose:Describe*
+                  - firehose:List*
+                  - kinesisanalytics:Describe*
+                  - kinesisanalytics:List*
+                Resource: "*"
+
+        # SNS/SQS - Messaging Costs
+        - PolicyName: MessagingRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: MessagingReadAll
+                Effect: Allow
+                Action:
+                  - sns:Get*
+                  - sns:List*
+                  - sqs:Get*
+                  - sqs:List*
+                Resource: "*"
+
+        # API Gateway
+        - PolicyName: ApiGatewayRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ApiGwReadAll
+                Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: "*"
+
+        # Step Functions
+        - PolicyName: StepFunctionsRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: StepFunctionsReadAll
+                Effect: Allow
+                Action:
+                  - states:Describe*
+                  - states:List*
+                  - states:Get*
+                Resource: "*"
+
+        # Glue - ETL Costs
+        - PolicyName: GlueRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: GlueReadAll
+                Effect: Allow
+                Action:
+                  - glue:Get*
+                  - glue:List*
+                  - glue:BatchGet*
+                Resource: "*"
+
+        # Athena - Query Costs
+        - PolicyName: AthenaRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AthenaReadAll
+                Effect: Allow
+                Action:
+                  - athena:Get*
+                  - athena:List*
+                  - athena:BatchGet*
+                Resource: "*"
+
+        # EMR - Big Data Costs
+        - PolicyName: EmrRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EmrReadAll
+                Effect: Allow
+                Action:
+                  - elasticmapreduce:Describe*
+                  - elasticmapreduce:List*
+                  - elasticmapreduce:View*
+                  - elasticmapreduce:Get*
+                Resource: "*"
+
+        # SageMaker - ML Costs
+        - PolicyName: SageMakerRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: SageMakerReadAll
+                Effect: Allow
+                Action:
+                  - sagemaker:Describe*
+                  - sagemaker:List*
+                  - sagemaker:Get*
+                Resource: "*"
+
+        # OpenSearch/Elasticsearch
+        - PolicyName: OpenSearchRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OpenSearchReadAll
+                Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:Get*
+                Resource: "*"
+
+        # WorkSpaces - VDI Costs
+        - PolicyName: WorkSpacesRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WorkSpacesReadAll
+                Effect: Allow
+                Action:
+                  - workspaces:Describe*
+                Resource: "*"
+
+        # AppStream - Streaming Costs
+        - PolicyName: AppStreamRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AppStreamReadAll
+                Effect: Allow
+                Action:
+                  - appstream:Describe*
+                  - appstream:List*
+                Resource: "*"
+
+        # FSx - File Systems
+        - PolicyName: FsxRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: FsxReadAll
+                Effect: Allow
+                Action:
+                  - fsx:Describe*
+                  - fsx:List*
+                Resource: "*"
+
+        # EFS - Elastic File System
+        - PolicyName: EfsRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EfsReadAll
+                Effect: Allow
+                Action:
+                  - elasticfilesystem:Describe*
+                  - elasticfilesystem:List*
+                Resource: "*"
+
+        # Storage Gateway
+        - PolicyName: StorageGatewayRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: StorageGatewayReadAll
+                Effect: Allow
+                Action:
+                  - storagegateway:Describe*
+                  - storagegateway:List*
+                Resource: "*"
+
+        # Direct Connect - Network Costs
+        - PolicyName: DirectConnectRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DxReadAll
+                Effect: Allow
+                Action:
+                  - directconnect:Describe*
+                Resource: "*"
+
+        # Transfer Family - SFTP Costs
+        - PolicyName: TransferRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: TransferReadAll
+                Effect: Allow
+                Action:
+                  - transfer:Describe*
+                  - transfer:List*
+                Resource: "*"
+
+        # CUR S3 Bucket Access - RESTRICTED to cur2/* prefix only
+        - PolicyName: CurS3Read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListCurPrefix
+                Effect: Allow
+                Action: 's3:ListBucket'
+                Resource:
+                  !Sub
+                    - 'arn:${AWS::Partition}:s3:::${B}'
+                    - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+                Condition:
+                  StringLike:
+                    s3:prefix: ['cur2/*']
+              - Sid: ReadCurObjects
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource:
+                  !Sub
+                    - 'arn:${AWS::Partition}:s3:::${B}/cur2/*'
+                    - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+
+        # KMS Decrypt for Encrypted CUR Bucket
+        - !If
+          - HasKms
+          - PolicyName: CurKmsDecrypt
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:DescribeKey
+                  Resource: !Ref KmsKeyArn
+          - !Ref 'AWS::NoValue'
+
+Outputs:
+  CURBucketName:
+    Value: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+  CURBucketArn:
+    Value:
+      !Sub
+        - 'arn:${AWS::Partition}:s3:::${B}'
+        - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+  ExportNameOut:
+    Value: !Sub '${ExportName}-${AWS::AccountId}'
+  BackfillCaseId:
+    Description: 'Present if Support API allowed; empty otherwise'
+    Value: !GetAtt RequestBackfill.CaseId
+  BillingReadRoleArn:
+    Description: 'Cross-account role to assume for S3 CUR reads, CE/Org/Budgets/Pricing/ComputeOptimizer read, and comprehensive AWS resource inventory'
+    Value: !GetAtt BlocksBillingReadRole.Arn
+  BillingReadRoleName:
+    Description: 'Name of the cross-account billing read role'
+    Value: !Ref BlocksBillingReadRole
+  ImportantNotes:
+    Value: 'Deploy in us-east-1. Role includes 40+ AWS services for complete cost optimization analysis.'
