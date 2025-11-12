@@ -347,14 +347,6 @@ Resources:
               except Exception:
                   log.exception("Failed sending CFN response")
 
-          def find_billing_service_code(support):
-              for s in support.describe_services()['services']:
-                  name = (s.get('name') or '').lower()
-                  if 'billing' in name or 'account' in name:
-                      cat = (s.get('categories') or [{}])[0].get('code') or 'other-account-billing-questions'
-                      return s['code'], cat
-              return 'account-and-billing-support','other-account-billing-questions'
-
           def handler(event, context):
               log.info("Event: %s", json.dumps(event))
               status, reason, data, phys = 'SUCCESS', 'OK', {'CaseId': ''}, None
@@ -367,13 +359,20 @@ Resources:
                   months = int(os.environ.get('BACKFILL_MONTHS','12'))
                   severity = os.environ.get('SEVERITY','low')
                   try:
-                      svc_code, cat_code = find_billing_service_code(support)
+                      svc_code = "service-cost-and-usage-report-cur"
+                      cat_code = "backfill-a-report"
+                      issue_type = "customer-service"
+                      language = "en"
                       subject = f"Request backfill for CUR 2.0 export '{export_name}'"
                       body = f"Please backfill {months} months of historical data into CUR 2.0 export '{export_name}'."
                       resp = support.create_case(
-                          subject=subject, serviceCode=svc_code, severityCode=severity,
-                          categoryCode=cat_code, communicationBody=body, language='en',
-                          issueType='customer-service'
+                          subject=subject,
+                          serviceCode=svc_code,
+                          severityCode=severity,
+                          categoryCode=cat_code,
+                          communicationBody=body,
+                          language=language,
+                          issueType=issue_type,
                       )
                       phys = resp.get('caseId','unknown')
                       data.update({'CaseId': phys, 'BackfillRequested': True})
