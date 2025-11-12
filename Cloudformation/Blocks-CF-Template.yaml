@@ -559,7 +559,6 @@ Resources:
                 Action:
                   - redshift:Describe*
                   - redshift:List*
-                  - redshift:ViewQueriesInConsole
                 Resource: "*"
 
         # Lambda - Serverless Optimization
@@ -617,7 +616,6 @@ Resources:
                   - logs:StartQuery
                   - logs:StopQuery
                   - logs:TestMetricFilter
-                  - logs:FilterLogEvents
                 Resource: "*"
 
         # CloudFormation - Stack Inventory
