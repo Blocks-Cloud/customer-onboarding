@@ -40,7 +40,7 @@ Parameters:
     Default: 'low'
     AllowedValues: ['low','normal','high','urgent','critical']
     Description: 'Support case severity'
-  ExternalAccountId:
+  BlocksExternalAccountId:
     Type: String
     Default: "503132503926"
     Description: 'Your AWS account ID (12 digits) that will assume the role'
@@ -409,7 +409,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${ExternalAccountId}:root'
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${BlocksExternalAccountId}:root'
             Action: 'sts:AssumeRole'
             Condition:
               StringEquals:
