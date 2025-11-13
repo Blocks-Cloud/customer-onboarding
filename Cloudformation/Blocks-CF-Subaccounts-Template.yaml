@@ -16,8 +16,315 @@ Parameters:
     NoEcho: true
     Default: "blocks-shared-secret"
     Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
-    
+
 Resources:
+  BlocksSubaccountCustomReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'BlocksSubaccountCustomReadPolicy-${AWS::StackName}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CeReadAll
+            Effect: Allow
+            Action:
+              - ce:Get*
+              - ce:List*
+              - ce:Describe*
+            Resource: "*"
+          - Sid: ReservationsFullRead
+            Effect: Allow
+            Action:
+              - ec2:DescribeReserved*
+              - elasticache:DescribeReserved*
+              - redshift:DescribeReserved*
+              - rds:DescribeReserved*
+            Resource: "*"
+          - Sid: TrustedAdvisorReadAll
+            Effect: Allow
+            Action:   
+              - trustedadvisor:Describe*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
+              - support:DescribeTrustedAdvisorCheckRefreshStatuses
+              - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
+          - Sid: PricingGetProducts
+            Effect: Allow
+            Action:
+              - pricing:Describe*
+              - pricing:Get*
+              - pricing:List* 
+            Resource: "*"
+          - Sid: Ec2DescribeAll
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+              - ec2:SearchTransitGatewayRoutes
+              - elasticloadbalancing:Describe*
+              - autoscaling:Describe*
+              - autoscaling:Get*
+              - autoscaling:List*
+            Resource: "*"
+          - Sid: RdsDescribeAll
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+            Resource: "*"
+          - Sid: ElastiCacheDescribeAll
+            Effect: Allow
+            Action:
+              - elasticache:Describe*
+              - elasticache:List*
+            Resource: "*"
+          - Sid: RedshiftDescribeAll
+            Effect: Allow
+            Action:
+              - redshift:Describe*
+              - redshift:List*
+            Resource: "*"
+          - Sid: LambdaReadAll
+            Effect: Allow
+            Action:
+              - lambda:List*
+              - lambda:Get*
+            Resource: "*"
+          - Sid: DynamoDbDescribeAll
+            Effect: Allow
+            Action:
+              - dynamodb:List*
+              - dynamodb:Describe*
+            Resource: "*"
+          - Sid: S3ReadAccess
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3:GetBucketVersioning
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLogging
+              - s3:GetBucketEncryption
+              - s3:GetBucketTagging
+              - s3:GetBucketLocation
+            Resource: "*"
+          - Sid: MQReadAccess
+            Effect: Allow
+            Action:
+             - mq:Describe*
+             - mq:List*
+            Resource: "*"
+          - Sid: EcsEksDescribeAll
+            Effect: Allow
+            Action:
+              - ecs:List*
+              - ecs:Describe*
+              - eks:List*
+              - eks:Describe*
+            Resource: "*"
+          - Sid: CloudWatchReadAll
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:Get*
+              - logs:List*
+              - logs:StartQuery
+              - logs:StopQuery
+              - logs:TestMetricFilter
+            Resource: "*"
+          - Sid: CloudTrailReadAccess
+            Effect: Allow
+            Action:
+              - cloudtrail:CancelQuery
+              - cloudtrail:Describe*
+              - cloudtrail:Get*
+              - cloudtrail:LookupEvents
+              - cloudtrail:StartQuery
+              - config:DescribeConfigurationRecorderStatus
+            Resource: "*"
+          - Sid: CfnDescribeAll
+            Effect: Allow
+            Action:
+              - cloudformation:Describe*
+              - cloudformation:List*
+              - cloudformation:Get*
+              - cloudformation:DetectStackDrift
+              - cloudformation:DetectStackResourceDrift
+            Resource: "*"
+          - Sid: SsmReadAll
+            Effect: Allow
+            Action:
+              - ssm:Describe*
+              - ssm:Get*
+              - ssm:List*
+            Resource: "*"
+          - Sid: ConfigDescribeAll
+            Effect: Allow
+            Action:
+              - config:Describe*
+              - config:Get*
+              - config:List*
+              - config:Select*
+              - config:BatchGet*
+            Resource: "*"
+          - Sid: CloudFrontReadAll
+            Effect: Allow
+            Action:
+              - cloudfront:Get*
+              - cloudfront:List*
+            Resource: "*"
+          - Sid: Route53ReadAll
+            Effect: Allow
+            Action:
+              - route53:Get*
+              - route53:List*
+              - route53domains:Get*
+              - route53domains:List*
+            Resource: "*"
+          - Sid: LicenseManagerReadAll
+            Effect: Allow
+            Action:
+              - license-manager:Get*
+              - license-manager:List*
+            Resource: "*"
+          - Sid: BackupReadAll
+            Effect: Allow
+            Action:
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+          - Sid: HealthReadAll
+            Effect: Allow
+            Action:
+              - health:Describe*
+            Resource: "*"
+          - Sid: AppAutoScalingReadAll
+            Effect: Allow
+            Action:
+              - application-autoscaling:Describe*
+            Resource: "*"
+          - Sid: BeanstalkReadAll
+            Effect: Allow
+            Action:
+              - elasticbeanstalk:Describe*
+              - elasticbeanstalk:List*
+            Resource: "*"
+          - Sid: KinesisReadAll
+            Effect: Allow
+            Action:
+              - kinesis:Describe*
+              - kinesis:List*
+              - firehose:Describe*
+              - firehose:List*
+              - kinesisanalytics:Describe*
+              - kinesisanalytics:List*
+            Resource: "*"
+          - Sid: MessagingReadAll
+            Effect: Allow
+            Action:
+              - sns:Get*
+              - sns:List*
+              - sqs:Get*
+              - sqs:List*
+            Resource: "*"
+          - Sid: ApiGwReadAll
+            Effect: Allow
+            Action:
+              - apigateway:GET
+            Resource: "*"
+          - Sid: StepFunctionsReadAll
+            Effect: Allow
+            Action:
+              - states:Describe*
+              - states:List*
+              - states:Get*
+            Resource: "*"
+          - Sid: GlueReadAll
+            Effect: Allow
+            Action:
+              - glue:Get*
+              - glue:List*
+              - glue:BatchGet*
+            Resource: "*"
+          - Sid: AthenaReadAll
+            Effect: Allow
+            Action:
+              - athena:Get*
+              - athena:List*
+              - athena:BatchGet*
+            Resource: "*"
+          - Sid: EmrReadAll
+            Effect: Allow
+            Action:
+              - elasticmapreduce:Describe*
+              - elasticmapreduce:List*
+              - elasticmapreduce:View*
+              - elasticmapreduce:Get*
+            Resource: "*"
+          - Sid: SageMakerReadAll
+            Effect: Allow
+            Action:
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Get*
+            Resource: "*"
+          - Sid: OpenSearchReadAll
+            Effect: Allow
+            Action:
+              - es:Describe*
+              - es:List*
+              - es:Get*
+            Resource: "*"
+          - Sid: WorkSpacesReadAll
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+            Resource: "*"
+          - Sid: AppStreamReadAll
+            Effect: Allow
+            Action:
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+          - Sid: FsxReadAll
+            Effect: Allow
+            Action:
+              - fsx:Describe*
+              - fsx:List*
+            Resource: "*"
+          - Sid: EfsReadAll
+            Effect: Allow
+            Action:
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+            Resource: "*"
+          - Sid: StorageGatewayReadAll
+            Effect: Allow
+            Action:
+              - storagegateway:Describe*
+              - storagegateway:List*
+            Resource: "*"
+          - Sid: DxReadAll
+            Effect: Allow
+            Action:
+              - directconnect:Describe*
+            Resource: "*"
+          - Sid: TransferReadAll
+            Effect: Allow
+            Action:
+              - transfer:Describe*
+              - transfer:List*
+            Resource: "*"
+            
   BlocksBillingReadRole:
     Type: AWS::IAM::Role
     Properties:
@@ -35,6 +342,7 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
 
       ManagedPolicyArns:
+        - !Ref BlocksSubaccountCustomReadPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ServiceQuotasReadOnlyAccess
@@ -43,64 +351,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
 
       Policies:
-        # Cost Explorer - Full Read Access
-        - PolicyName: CostExplorerFullRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: CeReadAll
-                Effect: Allow
-                Action:
-                  - ce:Get*
-                  - ce:List*
-                  - ce:Describe*
-                Resource: "*"
-
-        # Reservations - Full Read Access
-        - PolicyName: ReservationsFullRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ReservationsFullRead
-                Effect: Allow
-                Action:
-                  - ec2:DescribeReserved*
-                  - elasticache:DescribeReserved*
-                  - redshift:DescribeReserved*
-                  - rds:DescribeReserved*
-                Resource: "*"
-
-        # Trusted Advisor - Best Effort (works only if customer has Business/Enterprise support)
-        - PolicyName: TrustedAdvisorRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: TrustedAdvisorReadAll
-                Effect: Allow
-                Action:      
-                  - trustedadvisor:Describe*
-                  - trustedadvisor:Get*
-                  - trustedadvisor:List*
-                  - support:DescribeTrustedAdvisorChecks
-                  - support:DescribeTrustedAdvisorCheckResult
-                  - support:DescribeTrustedAdvisorCheckSummaries
-                  - support:DescribeTrustedAdvisorCheckRefreshStatuses
-                  - support:RefreshTrustedAdvisorCheck
-                Resource: "*"
-
-        # Pricing API
-        - PolicyName: PricingRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: PricingGetProducts
-                Effect: Allow
-                Action:
-                  - pricing:Describe*
-                  - pricing:Get*
-                  - pricing:List* 
-                Resource: "*"
-
         # Identity
         - PolicyName: StsWhoami
           PolicyDocument:
@@ -109,493 +359,6 @@ Resources:
               - Effect: Allow
                 Action:
                   - sts:GetCallerIdentity
-                Resource: "*"
-
-        # EC2 - Comprehensive Read for Right-Sizing
-        - PolicyName: Ec2ComputeRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: Ec2DescribeAll
-                Effect: Allow
-                Action:
-                  - ec2:Describe*
-                  - ec2:Get*
-                  - ec2:List*
-                  - ec2:SearchTransitGatewayRoutes
-                  - elasticloadbalancing:Describe*
-                  - autoscaling:Describe*
-                  - autoscaling:Get*
-                  - autoscaling:List*
-                Resource: "*"
-
-        # RDS - Database Right-Sizing
-        - PolicyName: RdsRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: RdsDescribeAll
-                Effect: Allow
-                Action:
-                  - rds:Describe*
-                  - rds:List*
-                Resource: "*"
-
-        # ElastiCache - Cache Right-Sizing
-        - PolicyName: ElastiCacheRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ElastiCacheDescribeAll
-                Effect: Allow
-                Action:
-                  - elasticache:Describe*
-                  - elasticache:List*
-                Resource: "*"
-
-        # Redshift - Data Warehouse Optimization
-        - PolicyName: RedshiftRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: RedshiftDescribeAll
-                Effect: Allow
-                Action:
-                  - redshift:Describe*
-                  - redshift:List*
-                Resource: "*"
-
-        # Lambda - Serverless Optimization
-        - PolicyName: LambdaRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: LambdaReadAll
-                Effect: Allow
-                Action:
-                  - lambda:List*
-                  - lambda:Get*
-                Resource: "*"
-
-        # DynamoDB - NoSQL Optimization
-        - PolicyName: DynamoDbRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: DynamoDbDescribeAll
-                Effect: Allow
-                Action:
-                  - dynamodb:List*
-                  - dynamodb:Describe*
-                Resource: "*"
-
-        # S3 - Read Bucket Configurations (No Data Access)
-        - PolicyName: S3Read
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: S3ReadAccess
-                Effect: Allow
-                Action:
-                  - s3:List*
-                  - s3:GetBucketVersioning
-                  - s3:GetLifecycleConfiguration
-                  - s3:GetBucketLogging
-                  - s3:GetBucketEncryption
-                  - s3:GetBucketTagging
-                  - s3:GetBucketLocation
-                Resource: "*"
-
-        # MQ - MQ Right Sizing
-        - PolicyName: MQRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: MQReadAccess
-                Effect: Allow
-                Action:
-                 - mq:Describe*
-                 - mq:List*
-                Resource: "*"
-
-        # ECS/EKS - Container Optimization
-        - PolicyName: ContainerServicesRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: EcsEksDescribeAll
-                Effect: Allow
-                Action:
-                  - ecs:List*
-                  - ecs:Describe*
-                  - eks:List*
-                  - eks:Describe*
-                Resource: "*"
-
-        # CloudWatch - Metrics and Logs
-        - PolicyName: CloudWatchMetricsAndLogs
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: CloudWatchReadAll
-                Effect: Allow
-                Action:
-                  - cloudwatch:Describe*
-                  - cloudwatch:Get*
-                  - cloudwatch:List*
-                  - oam:ListSinks
-                  - logs:Describe*
-                  - logs:Get*
-                  - logs:List*
-                  - logs:StartQuery
-                  - logs:StopQuery
-                  - logs:TestMetricFilter
-                Resource: "*"
-
-        # Cloudtrail - Logs
-        - PolicyName: CloudtrailLogs
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: CloudTrailReadAccess
-                Effect: Allow
-                Action:
-                  - cloudtrail:CancelQuery
-                  - cloudtrail:Describe*
-                  - cloudtrail:Get*
-                  - cloudtrail:LookupEvents
-                  - cloudtrail:StartQuery
-                  - config:DescribeConfigurationRecorderStatus
-                Resource: "*"
-
-        # CloudFormation - Stack Inventory
-        - PolicyName: CloudFormationRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: CfnDescribeAll
-                Effect: Allow
-                Action:
-                  - cloudformation:Describe*
-                  - cloudformation:List*
-                  - cloudformation:Get*
-                  - cloudformation:DetectStackDrift
-                  - cloudformation:DetectStackResourceDrift
-                Resource: "*"
-
-        # Systems Manager - Inventory and Compliance
-        - PolicyName: SystemsManagerRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: SsmReadAll
-                Effect: Allow
-                Action:
-                  - ssm:Describe*
-                  - ssm:Get*
-                  - ssm:List*
-                Resource: "*"
-
-        # Config - Resource Compliance
-        - PolicyName: ConfigRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ConfigDescribeAll
-                Effect: Allow
-                Action:
-                  - config:Describe*
-                  - config:Get*
-                  - config:List*
-                  - config:Select*
-                  - config:BatchGet*
-                Resource: "*"
-
-        # CloudFront - CDN Optimization
-        - PolicyName: CloudFrontRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: CloudFrontReadAll
-                Effect: Allow
-                Action:
-                  - cloudfront:Get*
-                  - cloudfront:List*
-                Resource: "*"
-
-        # Route53 - DNS Costs
-        - PolicyName: Route53Read
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: Route53ReadAll
-                Effect: Allow
-                Action:
-                  - route53:Get*
-                  - route53:List*
-                  - route53domains:Get*
-                  - route53domains:List*
-                Resource: "*"
-
-        # License Manager
-        - PolicyName: LicenseManagerRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: LicenseManagerReadAll
-                Effect: Allow
-                Action:
-                  - license-manager:Get*
-                  - license-manager:List*
-                Resource: "*"
-
-        # Backup - Backup Costs
-        - PolicyName: BackupRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: BackupReadAll
-                Effect: Allow
-                Action:
-                  - backup:Describe*
-                  - backup:Get*
-                  - backup:List*
-                Resource: "*"
-
-        # Health - Service Health Events
-        - PolicyName: HealthRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: HealthReadAll
-                Effect: Allow
-                Action:
-                  - health:Describe*
-                Resource: "*"
-
-        # Application Auto Scaling
-        - PolicyName: ApplicationAutoScalingRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AppAutoScalingReadAll
-                Effect: Allow
-                Action:
-                  - application-autoscaling:Describe*
-                Resource: "*"
-
-        # ElasticBeanstalk
-        - PolicyName: ElasticBeanstalkRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: BeanstalkReadAll
-                Effect: Allow
-                Action:
-                  - elasticbeanstalk:Describe*
-                  - elasticbeanstalk:List*
-                Resource: "*"
-
-        # Kinesis - Streaming Costs
-        - PolicyName: KinesisRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: KinesisReadAll
-                Effect: Allow
-                Action:
-                  - kinesis:Describe*
-                  - kinesis:List*
-                  - firehose:Describe*
-                  - firehose:List*
-                  - kinesisanalytics:Describe*
-                  - kinesisanalytics:List*
-                Resource: "*"
-
-        # SNS/SQS - Messaging Costs
-        - PolicyName: MessagingRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: MessagingReadAll
-                Effect: Allow
-                Action:
-                  - sns:Get*
-                  - sns:List*
-                  - sqs:Get*
-                  - sqs:List*
-                Resource: "*"
-
-        # API Gateway
-        - PolicyName: ApiGatewayRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ApiGwReadAll
-                Effect: Allow
-                Action:
-                  - apigateway:GET
-                Resource: "*"
-
-        # Step Functions
-        - PolicyName: StepFunctionsRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: StepFunctionsReadAll
-                Effect: Allow
-                Action:
-                  - states:Describe*
-                  - states:List*
-                  - states:Get*
-                Resource: "*"
-
-        # Glue - ETL Costs
-        - PolicyName: GlueRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: GlueReadAll
-                Effect: Allow
-                Action:
-                  - glue:Get*
-                  - glue:List*
-                  - glue:BatchGet*
-                Resource: "*"
-
-        # Athena - Query Costs
-        - PolicyName: AthenaRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AthenaReadAll
-                Effect: Allow
-                Action:
-                  - athena:Get*
-                  - athena:List*
-                  - athena:BatchGet*
-                Resource: "*"
-
-        # EMR - Big Data Costs
-        - PolicyName: EmrRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: EmrReadAll
-                Effect: Allow
-                Action:
-                  - elasticmapreduce:Describe*
-                  - elasticmapreduce:List*
-                  - elasticmapreduce:View*
-                  - elasticmapreduce:Get*
-                Resource: "*"
-
-        # SageMaker - ML Costs
-        - PolicyName: SageMakerRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: SageMakerReadAll
-                Effect: Allow
-                Action:
-                  - sagemaker:Describe*
-                  - sagemaker:List*
-                  - sagemaker:Get*
-                Resource: "*"
-
-        # OpenSearch/Elasticsearch
-        - PolicyName: OpenSearchRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: OpenSearchReadAll
-                Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:Get*
-                Resource: "*"
-
-        # WorkSpaces - VDI Costs
-        - PolicyName: WorkSpacesRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: WorkSpacesReadAll
-                Effect: Allow
-                Action:
-                  - workspaces:Describe*
-                Resource: "*"
-
-        # AppStream - Streaming Costs
-        - PolicyName: AppStreamRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AppStreamReadAll
-                Effect: Allow
-                Action:
-                  - appstream:Describe*
-                  - appstream:List*
-                Resource: "*"
-
-        # FSx - File Systems
-        - PolicyName: FsxRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: FsxReadAll
-                Effect: Allow
-                Action:
-                  - fsx:Describe*
-                  - fsx:List*
-                Resource: "*"
-
-        # EFS - Elastic File System
-        - PolicyName: EfsRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: EfsReadAll
-                Effect: Allow
-                Action:
-                  - elasticfilesystem:Describe*
-                  - elasticfilesystem:List*
-                Resource: "*"
-
-        # Storage Gateway
-        - PolicyName: StorageGatewayRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: StorageGatewayReadAll
-                Effect: Allow
-                Action:
-                  - storagegateway:Describe*
-                  - storagegateway:List*
-                Resource: "*"
-
-        # Direct Connect - Network Costs
-        - PolicyName: DirectConnectRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: DxReadAll
-                Effect: Allow
-                Action:
-                  - directconnect:Describe*
-                Resource: "*"
-
-        # Transfer Family - SFTP Costs
-        - PolicyName: TransferRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: TransferReadAll
-                Effect: Allow
-                Action:
-                  - transfer:Describe*
-                  - transfer:List*
                 Resource: "*"
 
 Outputs:
