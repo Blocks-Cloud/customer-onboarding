@@ -14,16 +14,29 @@ Parameters:
 
 Resources:
   BlocksBillingReadRole:
-    Type: 'AWS::IAM::Role'
+    Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ExportName}-${AWS::AccountId}-billing-read-role'
+      RoleName: !Sub '${AWS::AccountId}-billing-read-role'
+      MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Effect: 'Allow'
+          - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${BlocksExternalAccountId}:root'
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${BlocksExternalAccountId}:root'
             Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ServiceQuotasReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsandTagEditorReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+
       Policies:
         # Cost Explorer - Full Read Access
         - PolicyName: CostExplorerFullRead
@@ -38,61 +51,18 @@ Resources:
                   - ce:Describe*
                 Resource: "*"
 
-        # Budgets - Cost Tracking
-        - PolicyName: BudgetsRead
+        # Reservations - Full Read Access
+        - PolicyName: ReservationsFullRead
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: BudgetsReadAll
+              - Sid: ReservationsFullRead
                 Effect: Allow
                 Action:
-                  - budgets:ViewBudget
-                  - budgets:Describe*
-                Resource: "*"
-
-        # Compute Optimizer - Right-Sizing Recommendations
-        - PolicyName: ComputeOptimizerRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ComputeOptimizerReadAll
-                Effect: Allow
-                Action:
-                  - compute-optimizer:Get*
-                  - compute-optimizer:Describe*
-                Resource: "*"
-
-        # S3 - Read Bucket Configurations (No Data Access)
-        - PolicyName: S3ConfigRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: S3ListAllBuckets
-                Effect: Allow
-                Action:
-                  - s3:ListAllMyBuckets
-                Resource: "*"
-              - Sid: S3ReadBucketConfiguration
-                Effect: Allow
-                Action:
-                  - s3:GetBucketVersioning
-                  - s3:GetLifecycleConfiguration
-                  - s3:GetBucketLogging
-                  - s3:GetBucketEncryption
-                  - s3:GetBucketTagging
-                  - s3:GetBucketLocation
-                Resource: "arn:aws:s3:::*"
-
-        # Savings Plans - Full Read Access
-        - PolicyName: SavingsPlansFullRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: SavingsPlansReadAll
-                Effect: Allow
-                Action:
-                  - savingsplans:Describe*
-                  - savingsplans:List*
+                  - ec2:DescribeReserved*
+                  - elasticache:DescribeReserved*
+                  - redshift:DescribeReserved*
+                  - rds:DescribeReserved*
                 Resource: "*"
 
         # Trusted Advisor - Best Effort (works only if customer has Business/Enterprise support)
@@ -102,7 +72,10 @@ Resources:
             Statement:
               - Sid: TrustedAdvisorReadAll
                 Effect: Allow
-                Action:
+                Action:      
+                  - trustedadvisor:Describe*
+                  - trustedadvisor:Get*
+                  - trustedadvisor:List*
                   - support:DescribeTrustedAdvisorChecks
                   - support:DescribeTrustedAdvisorCheckResult
                   - support:DescribeTrustedAdvisorCheckSummaries
@@ -118,23 +91,9 @@ Resources:
               - Sid: PricingGetProducts
                 Effect: Allow
                 Action:
-                  - pricing:GetProducts
-                  - pricing:DescribeServices
-                  - pricing:GetAttributeValues
-                Resource: "*"
-
-        # Account Information
-        - PolicyName: AccountRead
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AccountMetaRead
-                Effect: Allow
-                Action:
-                  - account:ListRegions
-                  - account:GetAlternateContact
-                  - account:GetContactInformation
-                  - account:ListAlternateContacts
+                  - pricing:Describe*
+                  - pricing:Get*
+                  - pricing:List* 
                 Resource: "*"
 
         # Identity
@@ -157,6 +116,7 @@ Resources:
                 Action:
                   - ec2:Describe*
                   - ec2:Get*
+                  - ec2:List*
                   - ec2:SearchTransitGatewayRoutes
                   - elasticloadbalancing:Describe*
                   - autoscaling:Describe*
@@ -224,6 +184,35 @@ Resources:
                   - dynamodb:Describe*
                 Resource: "*"
 
+        # S3 - Read Bucket Configurations (No Data Access)
+        - PolicyName: S3Read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3ReadAccess
+                Effect: Allow
+                Action:
+                  - s3:List*
+                  - s3:GetBucketVersioning
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetBucketLogging
+                  - s3:GetBucketEncryption
+                  - s3:GetBucketTagging
+                  - s3:GetBucketLocation
+                Resource: "*"
+
+        # MQ - MQ Right Sizing
+        - PolicyName: MQRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: MQReadAccess
+                Effect: Allow
+                Action:
+                 - mq:Describe*
+                 - mq:List*
+                Resource: "*"
+
         # ECS/EKS - Container Optimization
         - PolicyName: ContainerServicesRead
           PolicyDocument:
@@ -249,12 +238,29 @@ Resources:
                   - cloudwatch:Describe*
                   - cloudwatch:Get*
                   - cloudwatch:List*
+                  - oam:ListSinks
                   - logs:Describe*
                   - logs:Get*
                   - logs:List*
                   - logs:StartQuery
                   - logs:StopQuery
                   - logs:TestMetricFilter
+                Resource: "*"
+
+        # Cloudtrail - Logs
+        - PolicyName: CloudtrailLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudTrailReadAccess
+                Effect: Allow
+                Action:
+                  - cloudtrail:CancelQuery
+                  - cloudtrail:Describe*
+                  - cloudtrail:Get*
+                  - cloudtrail:LookupEvents
+                  - cloudtrail:StartQuery
+                  - config:DescribeConfigurationRecorderStatus
                 Resource: "*"
 
         # CloudFormation - Stack Inventory
@@ -586,8 +592,6 @@ Resources:
                   - transfer:Describe*
                   - transfer:List*
                 Resource: "*"
-
-      Path: '/'
 
 Outputs:
   BillingReadRoleArn:
