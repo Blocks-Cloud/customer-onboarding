@@ -11,7 +11,12 @@ Parameters:
     Type: String
     Default: "503132503926"
     Description: The 12-digit AWS account ID of the Blocks external account that will be trusted.
-
+  ExternalId:
+    Type: String
+    NoEcho: true
+    Default: "blocks-shared-secret"
+    Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
+    
 Resources:
   BlocksBillingReadRole:
     Type: AWS::IAM::Role

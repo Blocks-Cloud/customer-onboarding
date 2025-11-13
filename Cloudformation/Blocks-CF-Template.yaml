@@ -73,8 +73,7 @@ Resources:
         RestrictPublicBuckets: true
       LifecycleConfiguration:
         Rules:
-          - ID: DeleteOldFilesAfter7Days
-            Status: Enabled
+          - Status: Enabled
             ExpirationInDays: 7
             NoncurrentVersionExpirationInDays: 7
             AbortIncompleteMultipartUpload:
