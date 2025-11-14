@@ -53,7 +53,26 @@ Parameters:
     Type: String
     Default: ''
     Description: 'Optional CMK ARN for bucket encryption; if set, also update the CMK key policy to allow S3 and bcm-data-exports'
-
+  StackSetName:
+    Type: String
+    Default: 'Blocks-Subaccount-IAM-Roles'
+    Description: 'The name for the CloudFormation StackSet that deploys IAM roles to sub-accounts.'
+  SubAccountsStacksetTemplateUrl:
+    Type: String
+    Default: 'https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml'
+    Description: 'The URL for the StackSet template that creates IAM roles in sub-accounts.'
+  MaxConcurrentCount:
+    Type: Number
+    Default: 20
+    Description: 'The maximum number of accounts to operate on at the same time for the StackSet.'
+  FailureToleranceCount:
+    Type: Number
+    Default: 5
+    Description: 'The number of accounts that can fail before stopping the StackSet operation.'
+  StackSetLambdaVersion:
+    Type: Number
+    Default: 1
+    Description: 'A version number for the StackSet Lambda. Increment this to force the lambda to run on stack update.'
 Conditions:
   CreateBucket: !Equals [!Ref UseExistingBucket, 'FALSE']
   HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
@@ -124,7 +143,7 @@ Resources:
           - Sid: AllowReadRoleGetObject
             Effect: Allow
             Principal:
-              AWS: !GetAtt BlocksBillingReadRole.Arn
+              AWS: !GetAtt BlocksReadRole.Arn
             Action: ['s3:GetObject']
             Resource:
               !Sub
@@ -282,9 +301,10 @@ Resources:
               Overwrite: OVERWRITE_REPORT
         RefreshCadence: { Frequency: SYNCHRONOUS }
 
-  BackfillRequesterRole:
+  BlocksCustomResourceExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${AWS::AccountId}-Blocks-Lambda-StackSet-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -294,15 +314,39 @@ Resources:
       ManagedPolicyArns:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: SupportCaseBackfill
+        - PolicyName: CustomResourcePermissions
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
                   - support:CreateCase
                   - support:DescribeServices
                   - support:DescribeSeverityLevels
+                  - cloudformation:CreateStackSet
+                  - cloudformation:UpdateStackSet
+                  - cloudformation:DeleteStackSet
+                  - cloudformation:CreateStackInstances
+                  - cloudformation:UpdateStackInstances
+                  - cloudformation:DeleteStackInstances
+                  - cloudformation:DescribeStackSet
+                  - cloudformation:DescribeStackSetOperation
+                  - cloudformation:ListStackInstances
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - organizations:ListRoots
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:ListAccounts
+                  - organizations:ListAccountsForParent
+                  - organizations:DescribeOrganization
                 Resource: "*"
 
   BackfillRequesterFn:
@@ -310,7 +354,7 @@ Resources:
     Properties:
       Runtime: python3.12
       Handler: index.handler
-      Role: !GetAtt BackfillRequesterRole.Arn
+      Role: !GetAtt BlocksCustomResourceExecutionRole.Arn
       Timeout: 120
       FunctionName: !Sub '${AWS::StackName}-BackfillRequesterFn'
       Environment:
@@ -348,11 +392,16 @@ Resources:
 
           def handler(event, context):
               log.info("Event: %s", json.dumps(event))
+
+              # Handle Delete event separately and exit early.
+              if event['RequestType'] == 'Delete':
+                  log.info("RequestType is Delete. No action to perform.")
+                  send_response(event, context, 'SUCCESS', reason='No action on delete')
+                  return
+
+              # Handle Create/Update events
               status, reason, data, phys = 'SUCCESS', 'OK', {'CaseId': ''}, None
               try:
-                  if event['RequestType'] == 'Delete':
-                      reason = 'No action on delete'
-                      send_response(event, context, 'SUCCESS', reason, data, phys); return
                   support = boto3.client('support', region_name='us-east-1')
                   export_name = os.environ['EXPORT_NAME']
                   months = int(os.environ.get('BACKFILL_MONTHS','12'))
@@ -389,13 +438,6 @@ Resources:
               finally:
                   send_response(event, context, status, reason, data, phys)
 
-  BackfillInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref BackfillRequesterFn
-      Action: lambda:InvokeFunction
-      Principal: cloudformation.amazonaws.com
-
   RequestBackfill:
     Type: Custom::RequestCurBackfill
     DependsOn: Cur20Export
@@ -404,6 +446,220 @@ Resources:
       ExportName: !Ref ExportName
       BackfillMonths: !Ref BackfillMonths
       Severity: !Ref SupportSeverity
+
+  StackSetLambda:
+      Type: AWS::Lambda::Function
+      Properties:
+        Handler: index.handler
+        Runtime: python3.11
+        Timeout: 900
+        Role: !GetAtt BlocksCustomResourceExecutionRole.Arn
+        FunctionName: !Sub '${AWS::StackName}-StackSet'
+        Environment:
+          Variables:
+            STACKSET_NAME: !Ref StackSetName
+            SUB_ACCOUNTS_STACKSET_TEMPLATE_URL: !Ref SubAccountsStacksetTemplateUrl
+            MAX_CONCURRENT_COUNT: !Ref MaxConcurrentCount
+            FAILURE_TOLERANCE_COUNT: !Ref FailureToleranceCount
+        Code:
+          ZipFile: |
+            import json, boto3, urllib3, traceback, os, time
+            from botocore.exceptions import ClientError
+            http = urllib3.PoolManager()
+
+            def send_response(event, context, status, data=None, reason=None, physical_resource_id=None):
+                response_body = {
+                    'Status': status,
+                    'Reason': reason or f'See CloudWatch Log Stream: {context.log_stream_name}',
+                    'PhysicalResourceId': physical_resource_id or context.log_stream_name,
+                    'StackId': event['StackId'],
+                    'RequestId': event['RequestId'],
+                    'LogicalResourceId': event['LogicalResourceId'],
+                    'Data': data or {}
+                }
+                json_body = json.dumps(response_body)
+                print("Sending response:", json_body)
+                http.request('PUT', event['ResponseURL'], body=json_body, headers={'Content-Type': ''})
+
+            def wait_for_operation(cf, stackset_name, operation_id):
+                """Waits for a StackSet operation to complete."""
+                while True:
+                    try:
+                        response = cf.describe_stack_set_operation(
+                            StackSetName=stackset_name,
+                            OperationId=operation_id
+                        )
+                        status = response['StackSetOperation']['Status']
+                        print(f"Operation {operation_id} status: {status}")
+                        if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
+                            return status
+                        time.sleep(15)
+                    except Exception as e:
+                        print(f"Error checking operation status: {e}")
+                        time.sleep(15)
+
+            def handler(event, context):
+                print("Event received:", json.dumps(event))
+                cf = boto3.client('cloudformation')
+                org = boto3.client('organizations')
+                
+                physical_resource_id = event.get('PhysicalResourceId')
+
+                try:
+                    request_type = event['RequestType']
+
+                    if request_type == 'Create' and not physical_resource_id:
+                        physical_resource_id = f"StackSet-{event['StackId']}-{event['LogicalResourceId']}"
+
+                    stackset_name = os.environ['STACKSET_NAME']
+                    template_url = os.environ['SUB_ACCOUNTS_STACKSET_TEMPLATE_URL']
+                    max_concurrent = int(os.environ['MAX_CONCURRENT_COUNT'])
+                    failure_tolerance = int(os.environ['FAILURE_TOLERANCE_COUNT'])
+
+                    operation_preferences = {
+                        'FailureToleranceCount': failure_tolerance,
+                        'MaxConcurrentCount': max_concurrent
+                    }
+
+                    if request_type == 'Create' or request_type == 'Update':
+                        operation_id = None
+                        try:
+                            cf.describe_stack_set(StackSetName=stackset_name)
+                            # UPDATE PATH
+                            print("StackSet exists, updating...")
+                            update_set_response = cf.update_stack_set(
+                                StackSetName=stackset_name,
+                                TemplateURL=template_url,
+                                PermissionModel='SERVICE_MANAGED',
+                                Capabilities=['CAPABILITY_NAMED_IAM'],
+                                AutoDeployment={
+                                    'Enabled': True,
+                                    'RetainStacksOnAccountRemoval': False
+                                },
+                                OperationPreferences=operation_preferences
+                            )
+                            if 'OperationId' in update_set_response:
+                                print(f"Update stack set definition operation started: {update_set_response['OperationId']}")
+                                status = wait_for_operation(cf, stackset_name, update_set_response['OperationId'])
+                                if status != 'SUCCEEDED':
+                                    raise Exception(f"StackSet definition update failed with status: {status}")
+                            
+                            root_id = org.list_roots()['Roots'][0]['Id']
+                            paginator = cf.get_paginator('list_stack_instances')
+                            pages = paginator.paginate(StackSetName=stackset_name)
+                            summaries = []
+                            for page in pages:
+                                summaries.extend(page['Summaries'])
+
+                            if not summaries:
+                                print("No stack instances found, creating them...")
+                                create_instances_response = cf.create_stack_instances(
+                                    StackSetName=stackset_name,
+                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
+                                    Regions=['us-east-1'],
+                                    OperationPreferences=operation_preferences
+                                )
+                                operation_id = create_instances_response['OperationId']
+                                print(f"Create instances operation started: {operation_id}")
+                            else:
+                                print("Existing stack instances found, updating them...")
+                                regions = list(set(inst['Region'] for inst in summaries))
+                                print(f"Updating instances in regions: {regions}")
+                                update_instances_response = cf.update_stack_instances(
+                                    StackSetName=stackset_name,
+                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
+                                    Regions=regions,
+                                    OperationPreferences=operation_preferences
+                                )
+                                operation_id = update_instances_response['OperationId']
+                                print(f"Update instances operation started: {operation_id}")
+
+                        except cf.exceptions.StackSetNotFoundException:
+                            # CREATE PATH
+                            print("Creating StackSet...")
+                            cf.create_stack_set(
+                                StackSetName=stackset_name,
+                                Description='Deploys IAM roles to all sub-accounts within the AWS Organization for cross-account access.',
+                                TemplateURL=template_url,
+                                PermissionModel='SERVICE_MANAGED',
+                                AutoDeployment={
+                                    'Enabled': True,
+                                    'RetainStacksOnAccountRemoval': False
+                                },
+                                Capabilities=['CAPABILITY_NAMED_IAM']
+                            )
+
+                            root_id = org.list_roots()['Roots'][0]['Id']
+
+                            print("Creating stack instances...")
+                            create_instances_response = cf.create_stack_instances(
+                                StackSetName=stackset_name,
+                                DeploymentTargets={'OrganizationalUnitIds': [root_id]},
+                                Regions=['us-east-1'],
+                                OperationPreferences=operation_preferences
+                            )
+                            operation_id = create_instances_response['OperationId']
+                            print(f"Create instances operation started: {operation_id}")
+
+                        if operation_id:
+                            status = wait_for_operation(cf, stackset_name, operation_id)
+                            if status == 'SUCCEEDED':
+                                send_response(event, context, 'SUCCESS', {'Message': f'StackSet {request_type} operation SUCCEEDED'}, physical_resource_id=physical_resource_id)
+                            else:
+                                send_response(event, context, 'FAILED', {'Message': f'StackSet {request_type} operation {status}'}, physical_resource_id=physical_resource_id)
+                        else:
+                             send_response(event, context, 'SUCCESS', {'Message': 'StackSet is already up to date.'}, physical_resource_id=physical_resource_id)
+
+                    elif request_type == 'Delete':
+                        print("Deleting StackSet instances and then the StackSet...")
+                        try:
+                            paginator = cf.get_paginator('list_stack_instances')
+                            pages = paginator.paginate(StackSetName=stackset_name)
+                            regions = set()
+                            has_instances = False
+                            for page in pages:
+                                if page['Summaries']:
+                                    has_instances = True
+                                    for instance in page['Summaries']:
+                                        regions.add(instance['Region'])
+
+                            if has_instances:
+                                root_id = org.list_roots()['Roots'][0]['Id']
+                                print(f"Deleting instances from root OU in regions: {list(regions)}")
+                                delete_instances_response = cf.delete_stack_instances(
+                                    StackSetName=stackset_name,
+                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
+                                    Regions=list(regions),
+                                    RetainStacks=False,
+                                    OperationPreferences=operation_preferences
+                                )
+                                operation_id = delete_instances_response['OperationId']
+                                print(f"Delete instances operation started: {operation_id}")
+                                status = wait_for_operation(cf, stackset_name, operation_id)
+                                if status != 'SUCCEEDED':
+                                    raise Exception(f"Failed to delete stack instances, operation status: {status}")
+
+                            print("All instances deleted. Deleting StackSet...")
+                            cf.delete_stack_set(StackSetName=stackset_name)
+                            print("StackSet deletion initiated.")
+                            send_response(event, context, 'SUCCESS', {'Message': 'StackSet deletion initiated'}, physical_resource_id=physical_resource_id)
+
+                        except cf.exceptions.StackSetNotFoundException:
+                            print("StackSet not found, nothing to delete.")
+                            send_response(event, context, 'SUCCESS', {'Message': 'StackSet not found, nothing to delete'}, physical_resource_id=physical_resource_id)
+
+                    else:
+                        send_response(event, context, 'FAILED', {'Message': f'Unknown request type: {request_type}'}, physical_resource_id=physical_resource_id)
+
+                except Exception as e:
+                    traceback.print_exc()
+                    send_response(event, context, 'FAILED', {'Error': str(e)}, physical_resource_id=physical_resource_id)
+
+  StackSetCustomResource:
+    Type: Custom::StackSet
+    Properties:
+      ServiceToken: !GetAtt StackSetLambda.Arn
+      Version: !Ref StackSetLambdaVersion
 
   BlocksCustomReadPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -712,10 +968,10 @@ Resources:
               - transfer:List*
             Resource: "*"
 
-  BlocksBillingReadRole:
+  BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ExportName}-${AWS::AccountId}-billing-read-role'
+      RoleName: !Sub '${AWS::AccountId}-Blocks-read-role'
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -799,11 +1055,11 @@ Outputs:
   BackfillCaseId:
     Description: 'Present if Support API allowed; empty otherwise'
     Value: !GetAtt RequestBackfill.CaseId
-  BillingReadRoleArn:
+  BlocksReadRoleArn:
     Description: 'Cross-account role to assume for S3 CUR reads, CE/Org/Budgets/Pricing/ComputeOptimizer read, and comprehensive AWS resource inventory'
-    Value: !GetAtt BlocksBillingReadRole.Arn
-  BillingReadRoleName:
-    Description: 'Name of the cross-account billing read role'
-    Value: !Ref BlocksBillingReadRole
+    Value: !GetAtt BlocksReadRole.Arn
+  BlocksReadRoleName:
+    Description: 'Name of the cross-account read role'
+    Value: !Ref BlocksReadRole
   ImportantNotes:
     Value: 'Deploy in us-east-1. Role includes 40+ AWS services for complete cost optimization analysis.'

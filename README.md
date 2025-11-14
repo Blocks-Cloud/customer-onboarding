@@ -52,20 +52,6 @@ aws cloudformation create-stack \
 
 **⚠️ Important:** Must be deployed in **us-east-1** (CUR 2.0 requirement)
 
-#### Sub-account Template
-
-For AWS Organizations member accounts:
-
-```bash
-aws cloudformation create-stack \
-  --stack-name blocks-subaccount-role \
-  --template-body file://Cloudformation/Blocks-CF-Subaccounts-Template.yaml \
-  --parameters \
-    ParameterKey=BlocksExternalAccountId,ParameterValue=503132503926 \
-    ParameterKey=ExternalId,ParameterValue=your-secure-external-id \
-  --capabilities CAPABILITY_NAMED_IAM
-```
-
 ### Option 2: Terraform (For Infrastructure-as-Code Workflows)
 
 More flexible configuration options with version control integration.

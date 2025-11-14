@@ -325,10 +325,10 @@ Resources:
               - transfer:List*
             Resource: "*"
             
-  BlocksBillingReadRole:
+  BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${AWS::AccountId}-billing-read-role'
+      RoleName: !Sub '${AWS::AccountId}-Blocks-read-role'
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -362,9 +362,9 @@ Resources:
                 Resource: "*"
 
 Outputs:
-  BillingReadRoleArn:
+  BlocksReadRoleArn:
     Description: 'Cross-account role for cost and resource optimization analysis within a sub-account'
-    Value: !GetAtt BlocksBillingReadRole.Arn
-  BillingReadRoleName:
-    Description: 'Name of the cross-account billing read role'
-    Value: !Ref BlocksBillingReadRole
+    Value: !GetAtt BlocksReadRole.Arn
+  BlocksReadRoleName:
+    Description: 'Name of the cross-account Blocks read role'
+    Value: !Ref BlocksReadRole
