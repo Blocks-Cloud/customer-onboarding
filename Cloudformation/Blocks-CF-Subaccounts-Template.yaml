@@ -54,13 +54,6 @@ Resources:
               - support:DescribeTrustedAdvisorCheckRefreshStatuses
               - support:RefreshTrustedAdvisorCheck
             Resource: "*"
-          # - Sid: PricingGetProducts
-          #   Effect: Allow
-          #   Action:
-          #     - pricing:Describe*
-          #     - pricing:Get*
-          #     - pricing:List* 
-            Resource: "*"
           - Sid: Ec2ReadOnly
             Effect: Allow
             Action:
@@ -89,7 +82,14 @@ Resources:
             Effect: Allow
             Action:
               - redshift:Describe*
+              - redshift:Get*
               - redshift:List*
+            Resource: "*"
+          - Sid: RedshiftServerlessReadOnly
+            Effect: Allow
+            Action:
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
             Resource: "*"
           - Sid: LambdaReadOnly
             Effect: Allow
@@ -103,13 +103,23 @@ Resources:
               - dynamodb:List*
               - dynamodb:Describe*
             Resource: "*"
+          - Sid: DynamoDBAcceleratorReadOnly
+            Effect: Allow
+            Action:
+              - dax:DescribeClusters
+              - dax:ListTags
+              - dax:DescribeDefaultParameters
+              - dax:DescribeParameters
+            Resource: "*"  
           - Sid: S3ReadOnly
             Effect: Allow
             Action:
               - s3:List*
+              - s3vectors:ListVectorBuckets
               - s3:GetLifecycleConfiguration
               - s3:GetBucketLocation
               - s3:GetObjectRetention
+              - s3:GetBucketTagging
             Resource: "*"
           - Sid: EcsEksEcrReadOnly
             Effect: Allow
@@ -162,13 +172,6 @@ Resources:
             Action:
               - apigateway:GET
             Resource: "*"
-          - Sid: AthenaReadOnly
-            Effect: Allow
-            Action:
-              - athena:Get*
-              - athena:List*
-              - athena:BatchGet*
-            Resource: "*"
           - Sid: ElasticSearchReadOnly
             Effect: Allow
             Action:
@@ -218,6 +221,137 @@ Resources:
               - Glue:Get*
               - Glue:List*
             Resource: "*"
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Action:
+              - cloudfront:Get*
+              - cloudfront:List*
+            Resource: "*"
+          - Sid: ApprunnerReadOnly
+            Effect: Allow
+            Action:
+              - apprunner:ListServices
+              - apprunner:DescribeService
+              - apprunner:ListAutoScalingConfigurations
+              - apprunner:DescribeAutoScalingConfiguration
+              - apprunner:ListTagsForResource
+            Resource: "*"
+          - Sid: AuroraDSQLReadOnly
+            Effect: Allow
+            Action:
+              - dsql:Get*
+              - dsql:List*
+            Resource: "*"           
+          - Sid: BatchReadOnly
+            Effect: Allow
+            Action:
+              - batch:Get*
+              - batch:List*
+            Resource: "*"  
+          - Sid: CodeBuildReadOnly
+            Effect: Allow
+            Action:
+              - codebuild:ListProjects
+              - codebuild:BatchGetProjects
+              - codebuild:ListBuilds
+              - codebuild:ListBuildsForProject
+              - codebuild:ListTagsForResource
+            Resource: "*"  
+          - Sid: CodePipelineReadOnly
+            Effect: Allow
+            Action:
+              - codepipeline:GetPipeline
+              - codepipeline:ListPipelines
+              - codepipeline:ListTagsForResource
+            Resource: "*"  
+          - Sid: KinesisReadOnly
+            Effect: Allow
+            Action:
+              - kinesis:ListShards
+              - kinesis:ListStreamConsumers
+              - kinesis:ListStreams
+              - kinesis:DescribeLimits
+              - kinesis:DescribeStreamConsumer
+              - kinesis:DescribeStreamSummary
+              - kinesis:ListTagsForResource
+            Resource: "*"  
+          - Sid: KinesisAnalyticsReadOnly
+            Effect: Allow
+            Action:
+              - kinesisanalytics:ListApplications
+              - kinesisanalytics:DescribeApplication
+              - kinesisanalytics:ListTagsForResource
+            Resource: "*"  
+          - Sid: FirhoseReadOnly
+            Effect: Allow
+            Action:
+              - firehose:ListDeliveryStreams
+              - firehose:DescribeDeliveryStream
+              - firehose:ListTagsForDeliveryStream
+            Resource: "*"  
+          - Sid: GrafanaReadOnly
+            Effect: Allow
+            Action:
+              - grafana:ListWorkspaces
+              - grafana:DescribeWorkspace
+              - grafana:DescribeWorkspaceConfiguration
+              - grafana:ListTagsForResource
+            Resource: "*"  
+          - Sid: AirflowReadOnly
+            Effect: Allow
+            Action:
+              - airflow:ListEnvironments
+              - airflow:GetEnvironment
+              - airflow:ListTagsForResource
+            Resource: "*"  
+          - Sid: MemoryDBReadOnly
+            Effect: Allow
+            Action:
+              - memorydb:DescribeClusters
+              - memorydb:DescribeReservedNodes
+              - memorydb:DescribeReservedNodesOfferings
+              - memorydb:DescribeSnapshots
+              - memorydb:DescribeMultiRegionParameters
+              - memorydb:DescribeMultiRegionParameterGroups
+              - memorydb:DescribeMultiRegionClusters
+              - memorydb:DescribeEngineVersions
+              - memorydb:ListAllowedNodeTypeUpdates
+              - memorydb:ListTags
+            Resource: "*"  
+          - Sid: NeptuneReadOnly
+            Effect: Allow
+            Action:
+              - neptune:DescribeDBClusters
+              - neptune:DescribeDBInstances
+              - neptune:DescribeDBClusterSnapshots
+              - neptune:DescribeDBParameterGroups
+              - neptune:DescribeDBClusterParameterGroups
+              - neptune:ListTagsForResource
+              - neptune-graph:GetEngineStatus
+              - neptune-graph:GetGraphSummary
+              - neptune-db:GetEngineStatus
+              - neptune-db:GetGraphSummary
+            Resource: "*"  
+          - Sid: TimeStreamReadOnly
+            Effect: Allow
+            Action:
+              - timestream:ListDatabases
+              - timestream:ListTables
+              - timestream:DescribeDatabase
+              - timestream:DescribeTable
+              - timestream:ListTagsForResource
+              - timestream-influxdb:Get*
+              - timestream-influxdb:List*
+            Resource: "*"
+          - Sid: WafReadOnly
+            Effect: Allow
+            Action:
+              - wafv2:ListWebACLs
+              - wafv2:GetWebACL
+              - wafv2:GetWebACLForResource
+              - wafv2:ListResourcesForWebACL
+              - wafv2:ListTagsForResource
+            Resource: "*"  
             
   BlocksReadRole:
     Type: AWS::IAM::Role
@@ -243,6 +377,7 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsandTagEditorReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
 
       Policies:
         # Identity
