@@ -61,18 +61,12 @@ Parameters:
     Type: String
     Default: 'https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml'
     Description: 'The URL for the StackSet template that creates IAM roles in sub-accounts.'
-  MaxConcurrentCount:
-    Type: Number
-    Default: 20
-    Description: 'The maximum number of accounts to operate on at the same time for the StackSet.'
-  FailureToleranceCount:
-    Type: Number
-    Default: 5
-    Description: 'The number of accounts that can fail before stopping the StackSet operation.'
-  StackSetLambdaVersion:
-    Type: Number
-    Default: 1
-    Description: 'A version number for the StackSet Lambda. Increment this to force the lambda to run on stack update.'
+  OrganizationRootId:
+    Type: String
+    Description: 'AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console.'
+    AllowedPattern: '^r-[a-z0-9]{4,32}$'
+    ConstraintDescription: 'Must be a valid Organization Root ID starting with r-'
+
 Conditions:
   CreateBucket: !Equals [!Ref UseExistingBucket, 'FALSE']
   HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
@@ -340,14 +334,6 @@ Resources:
                   - cloudformation:ListStackInstances
                   - iam:PassRole
                 Resource: "*"
-              - Effect: Allow
-                Action:
-                  - organizations:ListRoots
-                  - organizations:ListOrganizationalUnitsForParent
-                  - organizations:ListAccounts
-                  - organizations:ListAccountsForParent
-                  - organizations:DescribeOrganization
-                Resource: "*"
 
   BackfillRequesterFn:
     Type: AWS::Lambda::Function
@@ -447,219 +433,29 @@ Resources:
       BackfillMonths: !Ref BackfillMonths
       Severity: !Ref SupportSeverity
 
-  StackSetLambda:
-      Type: AWS::Lambda::Function
-      Properties:
-        Handler: index.handler
-        Runtime: python3.11
-        Timeout: 900
-        Role: !GetAtt BlocksCustomResourceExecutionRole.Arn
-        FunctionName: !Sub '${AWS::StackName}-StackSet'
-        Environment:
-          Variables:
-            STACKSET_NAME: !Ref StackSetName
-            SUB_ACCOUNTS_STACKSET_TEMPLATE_URL: !Ref SubAccountsStacksetTemplateUrl
-            MAX_CONCURRENT_COUNT: !Ref MaxConcurrentCount
-            FAILURE_TOLERANCE_COUNT: !Ref FailureToleranceCount
-        Code:
-          ZipFile: |
-            import json, boto3, urllib3, traceback, os, time
-            from botocore.exceptions import ClientError
-            http = urllib3.PoolManager()
-
-            def send_response(event, context, status, data=None, reason=None, physical_resource_id=None):
-                response_body = {
-                    'Status': status,
-                    'Reason': reason or f'See CloudWatch Log Stream: {context.log_stream_name}',
-                    'PhysicalResourceId': physical_resource_id or context.log_stream_name,
-                    'StackId': event['StackId'],
-                    'RequestId': event['RequestId'],
-                    'LogicalResourceId': event['LogicalResourceId'],
-                    'Data': data or {}
-                }
-                json_body = json.dumps(response_body)
-                print("Sending response:", json_body)
-                http.request('PUT', event['ResponseURL'], body=json_body, headers={'Content-Type': ''})
-
-            def wait_for_operation(cf, stackset_name, operation_id):
-                """Waits for a StackSet operation to complete."""
-                while True:
-                    try:
-                        response = cf.describe_stack_set_operation(
-                            StackSetName=stackset_name,
-                            OperationId=operation_id
-                        )
-                        status = response['StackSetOperation']['Status']
-                        print(f"Operation {operation_id} status: {status}")
-                        if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
-                            return status
-                        time.sleep(15)
-                    except Exception as e:
-                        print(f"Error checking operation status: {e}")
-                        time.sleep(15)
-
-            def handler(event, context):
-                print("Event received:", json.dumps(event))
-                cf = boto3.client('cloudformation')
-                org = boto3.client('organizations')
-                
-                physical_resource_id = event.get('PhysicalResourceId')
-
-                try:
-                    request_type = event['RequestType']
-
-                    if request_type == 'Create' and not physical_resource_id:
-                        physical_resource_id = f"StackSet-{event['StackId']}-{event['LogicalResourceId']}"
-
-                    stackset_name = os.environ['STACKSET_NAME']
-                    template_url = os.environ['SUB_ACCOUNTS_STACKSET_TEMPLATE_URL']
-                    max_concurrent = int(os.environ['MAX_CONCURRENT_COUNT'])
-                    failure_tolerance = int(os.environ['FAILURE_TOLERANCE_COUNT'])
-
-                    operation_preferences = {
-                        'FailureToleranceCount': failure_tolerance,
-                        'MaxConcurrentCount': max_concurrent
-                    }
-
-                    if request_type == 'Create' or request_type == 'Update':
-                        operation_id = None
-                        try:
-                            cf.describe_stack_set(StackSetName=stackset_name)
-                            # UPDATE PATH
-                            print("StackSet exists, updating...")
-                            update_set_response = cf.update_stack_set(
-                                StackSetName=stackset_name,
-                                TemplateURL=template_url,
-                                PermissionModel='SERVICE_MANAGED',
-                                Capabilities=['CAPABILITY_NAMED_IAM'],
-                                AutoDeployment={
-                                    'Enabled': True,
-                                    'RetainStacksOnAccountRemoval': False
-                                },
-                                OperationPreferences=operation_preferences
-                            )
-                            if 'OperationId' in update_set_response:
-                                print(f"Update stack set definition operation started: {update_set_response['OperationId']}")
-                                status = wait_for_operation(cf, stackset_name, update_set_response['OperationId'])
-                                if status != 'SUCCEEDED':
-                                    raise Exception(f"StackSet definition update failed with status: {status}")
-                            
-                            root_id = org.list_roots()['Roots'][0]['Id']
-                            paginator = cf.get_paginator('list_stack_instances')
-                            pages = paginator.paginate(StackSetName=stackset_name)
-                            summaries = []
-                            for page in pages:
-                                summaries.extend(page['Summaries'])
-
-                            if not summaries:
-                                print("No stack instances found, creating them...")
-                                create_instances_response = cf.create_stack_instances(
-                                    StackSetName=stackset_name,
-                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
-                                    Regions=['us-east-1'],
-                                    OperationPreferences=operation_preferences
-                                )
-                                operation_id = create_instances_response['OperationId']
-                                print(f"Create instances operation started: {operation_id}")
-                            else:
-                                print("Existing stack instances found, updating them...")
-                                regions = list(set(inst['Region'] for inst in summaries))
-                                print(f"Updating instances in regions: {regions}")
-                                update_instances_response = cf.update_stack_instances(
-                                    StackSetName=stackset_name,
-                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
-                                    Regions=regions,
-                                    OperationPreferences=operation_preferences
-                                )
-                                operation_id = update_instances_response['OperationId']
-                                print(f"Update instances operation started: {operation_id}")
-
-                        except cf.exceptions.StackSetNotFoundException:
-                            # CREATE PATH
-                            print("Creating StackSet...")
-                            cf.create_stack_set(
-                                StackSetName=stackset_name,
-                                Description='Deploys IAM roles to all sub-accounts within the AWS Organization for cross-account access.',
-                                TemplateURL=template_url,
-                                PermissionModel='SERVICE_MANAGED',
-                                AutoDeployment={
-                                    'Enabled': True,
-                                    'RetainStacksOnAccountRemoval': False
-                                },
-                                Capabilities=['CAPABILITY_NAMED_IAM']
-                            )
-
-                            root_id = org.list_roots()['Roots'][0]['Id']
-
-                            print("Creating stack instances...")
-                            create_instances_response = cf.create_stack_instances(
-                                StackSetName=stackset_name,
-                                DeploymentTargets={'OrganizationalUnitIds': [root_id]},
-                                Regions=['us-east-1'],
-                                OperationPreferences=operation_preferences
-                            )
-                            operation_id = create_instances_response['OperationId']
-                            print(f"Create instances operation started: {operation_id}")
-
-                        if operation_id:
-                            status = wait_for_operation(cf, stackset_name, operation_id)
-                            if status == 'SUCCEEDED':
-                                send_response(event, context, 'SUCCESS', {'Message': f'StackSet {request_type} operation SUCCEEDED'}, physical_resource_id=physical_resource_id)
-                            else:
-                                send_response(event, context, 'FAILED', {'Message': f'StackSet {request_type} operation {status}'}, physical_resource_id=physical_resource_id)
-                        else:
-                             send_response(event, context, 'SUCCESS', {'Message': 'StackSet is already up to date.'}, physical_resource_id=physical_resource_id)
-
-                    elif request_type == 'Delete':
-                        print("Deleting StackSet instances and then the StackSet...")
-                        try:
-                            paginator = cf.get_paginator('list_stack_instances')
-                            pages = paginator.paginate(StackSetName=stackset_name)
-                            regions = set()
-                            has_instances = False
-                            for page in pages:
-                                if page['Summaries']:
-                                    has_instances = True
-                                    for instance in page['Summaries']:
-                                        regions.add(instance['Region'])
-
-                            if has_instances:
-                                root_id = org.list_roots()['Roots'][0]['Id']
-                                print(f"Deleting instances from root OU in regions: {list(regions)}")
-                                delete_instances_response = cf.delete_stack_instances(
-                                    StackSetName=stackset_name,
-                                    DeploymentTargets={'OrganizationalUnitIds': [root_id]},
-                                    Regions=list(regions),
-                                    RetainStacks=False,
-                                    OperationPreferences=operation_preferences
-                                )
-                                operation_id = delete_instances_response['OperationId']
-                                print(f"Delete instances operation started: {operation_id}")
-                                status = wait_for_operation(cf, stackset_name, operation_id)
-                                if status != 'SUCCEEDED':
-                                    raise Exception(f"Failed to delete stack instances, operation status: {status}")
-
-                            print("All instances deleted. Deleting StackSet...")
-                            cf.delete_stack_set(StackSetName=stackset_name)
-                            print("StackSet deletion initiated.")
-                            send_response(event, context, 'SUCCESS', {'Message': 'StackSet deletion initiated'}, physical_resource_id=physical_resource_id)
-
-                        except cf.exceptions.StackSetNotFoundException:
-                            print("StackSet not found, nothing to delete.")
-                            send_response(event, context, 'SUCCESS', {'Message': 'StackSet not found, nothing to delete'}, physical_resource_id=physical_resource_id)
-
-                    else:
-                        send_response(event, context, 'FAILED', {'Message': f'Unknown request type: {request_type}'}, physical_resource_id=physical_resource_id)
-
-                except Exception as e:
-                    traceback.print_exc()
-                    send_response(event, context, 'FAILED', {'Error': str(e)}, physical_resource_id=physical_resource_id)
-
-  StackSetCustomResource:
-    Type: Custom::StackSet
+  SubAccountStackSet:
+    Type: AWS::CloudFormation::StackSet
     Properties:
-      ServiceToken: !GetAtt StackSetLambda.Arn
-      Version: !Ref StackSetLambdaVersion
+      StackSetName: Blocks-SubAccounts
+      Description: 'Deploy read-only roles to all sub-accounts (no CUR accounts)'
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment:
+        Enabled: true
+        RetainStacksOnAccountRemoval: false
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      TemplateURL: !Ref SubAccountsStacksetTemplateUrl
+      StackInstancesGroup:
+        - DeploymentTargets:
+            OrganizationalUnitIds:
+              - !Ref OrganizationRootId
+          Regions:
+            - us-east-1
+      OperationPreferences:
+        FailureTolerancePercentage: 100
+        MaxConcurrentPercentage: 100
+        RegionConcurrencyType: PARALLEL
+      CallAs: SELF
 
   BlocksCustomReadPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -668,24 +464,26 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: CeReadAll
+          - Sid: CostReadOnly
             Effect: Allow
             Action:
               - ce:Get*
               - ce:List*
               - ce:Describe*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
             Resource: "*"
-          - Sid: ReservationsFullRead
+          - Sid: ReservationsReadOnly
             Effect: Allow
             Action:
-              - ec2:DescribeReserved*
               - elasticache:DescribeReserved*
               - redshift:DescribeReserved*
               - rds:DescribeReserved*
+              - ec2:DescribeReserved*
             Resource: "*"
-          - Sid: TrustedAdvisorReadAll
+          - Sid: TrustedAdvisorReadOnly
             Effect: Allow
-            Action:      
+            Action:
               - trustedadvisor:Describe*
               - trustedadvisor:Get*
               - trustedadvisor:List*
@@ -695,81 +493,75 @@ Resources:
               - support:DescribeTrustedAdvisorCheckRefreshStatuses
               - support:RefreshTrustedAdvisorCheck
             Resource: "*"
-          - Sid: PricingGetProducts
-            Effect: Allow
-            Action:
-              - pricing:Describe*
-              - pricing:Get*
-              - pricing:List* 
+          # - Sid: PricingGetProducts
+          #   Effect: Allow
+          #   Action:
+          #     - pricing:Describe*
+          #     - pricing:Get*
+          #     - pricing:List* 
             Resource: "*"
-          - Sid: Ec2DescribeAll
+          - Sid: Ec2ReadOnly
             Effect: Allow
             Action:
               - ec2:Describe*
               - ec2:Get*
               - ec2:List*
-              - ec2:SearchTransitGatewayRoutes
+              - dlm:Get*
               - elasticloadbalancing:Describe*
               - autoscaling:Describe*
               - autoscaling:Get*
               - autoscaling:List*
             Resource: "*"
-          - Sid: RdsDescribeAll
+          - Sid: RdsReadOnly
             Effect: Allow
             Action:
               - rds:Describe*
               - rds:List*
             Resource: "*"
-          - Sid: ElastiCacheDescribeAll
+          - Sid: ElastiCacheReadOnly
             Effect: Allow
             Action:
               - elasticache:Describe*
               - elasticache:List*
             Resource: "*"
-          - Sid: RedshiftDescribeAll
+          - Sid: RedshiftReadOnly
             Effect: Allow
             Action:
               - redshift:Describe*
               - redshift:List*
             Resource: "*"
-          - Sid: LambdaReadAll
+          - Sid: LambdaReadOnly
             Effect: Allow
             Action:
               - lambda:List*
               - lambda:Get*
             Resource: "*"
-          - Sid: DynamoDbDescribeAll
+          - Sid: DynamoDbReadOnly
             Effect: Allow
             Action:
               - dynamodb:List*
               - dynamodb:Describe*
             Resource: "*"
-          - Sid: S3ReadAccess
+          - Sid: S3ReadOnly
             Effect: Allow
             Action:
               - s3:List*
-              - s3:GetBucketVersioning
               - s3:GetLifecycleConfiguration
-              - s3:GetBucketLogging
-              - s3:GetBucketEncryption
-              - s3:GetBucketTagging
               - s3:GetBucketLocation
+              - s3:GetObjectRetention
             Resource: "*"
-          - Sid: MQReadAccess
-            Effect: Allow
-            Action:
-             - mq:Describe*
-             - mq:List*
-            Resource: "*"
-          - Sid: EcsEksDescribeAll
+          - Sid: EcsEksEcrReadOnly
             Effect: Allow
             Action:
               - ecs:List*
               - ecs:Describe*
               - eks:List*
               - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
             Resource: "*"
-          - Sid: CloudWatchReadAll
+          - Sid: CloudWatchReadOnly
             Effect: Allow
             Action:
               - cloudwatch:Describe*
@@ -779,52 +571,8 @@ Resources:
               - logs:Describe*
               - logs:Get*
               - logs:List*
-              - logs:StartQuery
-              - logs:StopQuery
-              - logs:TestMetricFilter
             Resource: "*"
-          - Sid: CloudTrailReadAccess
-            Effect: Allow
-            Action:
-              - cloudtrail:CancelQuery
-              - cloudtrail:Describe*
-              - cloudtrail:Get*
-              - cloudtrail:LookupEvents
-              - cloudtrail:StartQuery
-              - config:DescribeConfigurationRecorderStatus
-            Resource: "*"
-          - Sid: CfnDescribeAll
-            Effect: Allow
-            Action:
-              - cloudformation:Describe*
-              - cloudformation:List*
-              - cloudformation:Get*
-              - cloudformation:DetectStackDrift
-              - cloudformation:DetectStackResourceDrift
-            Resource: "*"
-          - Sid: SsmReadAll
-            Effect: Allow
-            Action:
-              - ssm:Describe*
-              - ssm:Get*
-              - ssm:List*
-            Resource: "*"
-          - Sid: ConfigDescribeAll
-            Effect: Allow
-            Action:
-              - config:Describe*
-              - config:Get*
-              - config:List*
-              - config:Select*
-              - config:BatchGet*
-            Resource: "*"
-          - Sid: CloudFrontReadAll
-            Effect: Allow
-            Action:
-              - cloudfront:Get*
-              - cloudfront:List*
-            Resource: "*"
-          - Sid: Route53ReadAll
+          - Sid: Route53ReadOnly
             Effect: Allow
             Action:
               - route53:Get*
@@ -832,140 +580,75 @@ Resources:
               - route53domains:Get*
               - route53domains:List*
             Resource: "*"
-          - Sid: LicenseManagerReadAll
-            Effect: Allow
-            Action:
-              - license-manager:Get*
-              - license-manager:List*
-            Resource: "*"
-          - Sid: BackupReadAll
+          - Sid: BackupReadOnly
             Effect: Allow
             Action:
               - backup:Describe*
               - backup:Get*
               - backup:List*
             Resource: "*"
-          - Sid: HealthReadAll
-            Effect: Allow
-            Action:
-              - health:Describe*
-            Resource: "*"
-          - Sid: AppAutoScalingReadAll
+          - Sid: AppAutoScalingReadOnly
             Effect: Allow
             Action:
               - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
             Resource: "*"
-          - Sid: BeanstalkReadAll
-            Effect: Allow
-            Action:
-              - elasticbeanstalk:Describe*
-              - elasticbeanstalk:List*
-            Resource: "*"
-          - Sid: KinesisReadAll
-            Effect: Allow
-            Action:
-              - kinesis:Describe*
-              - kinesis:List*
-              - firehose:Describe*
-              - firehose:List*
-              - kinesisanalytics:Describe*
-              - kinesisanalytics:List*
-            Resource: "*"
-          - Sid: MessagingReadAll
-            Effect: Allow
-            Action:
-              - sns:Get*
-              - sns:List*
-              - sqs:Get*
-              - sqs:List*
-            Resource: "*"
-          - Sid: ApiGwReadAll
+          - Sid: ApiGwReadOnly
             Effect: Allow
             Action:
               - apigateway:GET
             Resource: "*"
-          - Sid: StepFunctionsReadAll
-            Effect: Allow
-            Action:
-              - states:Describe*
-              - states:List*
-              - states:Get*
-            Resource: "*"
-          - Sid: GlueReadAll
-            Effect: Allow
-            Action:
-              - glue:Get*
-              - glue:List*
-              - glue:BatchGet*
-            Resource: "*"
-          - Sid: AthenaReadAll
-            Effect: Allow
-            Action:
-              - athena:Get*
-              - athena:List*
-              - athena:BatchGet*
-            Resource: "*"
-          - Sid: EmrReadAll
-            Effect: Allow
-            Action:
-              - elasticmapreduce:Describe*
-              - elasticmapreduce:List*
-              - elasticmapreduce:View*
-              - elasticmapreduce:Get*
-            Resource: "*"
-          - Sid: SageMakerReadAll
-            Effect: Allow
-            Action:
-              - sagemaker:Describe*
-              - sagemaker:List*
-              - sagemaker:Get*
-            Resource: "*"
-          - Sid: OpenSearchReadAll
+          - Sid: ElasticSearchReadOnly
             Effect: Allow
             Action:
               - es:Describe*
               - es:List*
               - es:Get*
             Resource: "*"
-          - Sid: WorkSpacesReadAll
+          - Sid: WorkSpacesReadOnly
             Effect: Allow
             Action:
               - workspaces:Describe*
             Resource: "*"
-          - Sid: AppStreamReadAll
-            Effect: Allow
-            Action:
-              - appstream:Describe*
-              - appstream:List*
-            Resource: "*"
-          - Sid: FsxReadAll
+          - Sid: FsxReadOnly
             Effect: Allow
             Action:
               - fsx:Describe*
               - fsx:List*
             Resource: "*"
-          - Sid: EfsReadAll
+          - Sid: EfsReadOnly
             Effect: Allow
             Action:
               - elasticfilesystem:Describe*
               - elasticfilesystem:List*
             Resource: "*"
-          - Sid: StorageGatewayReadAll
+          - Sid: AppstreamReadOnly
             Effect: Allow
             Action:
-              - storagegateway:Describe*
-              - storagegateway:List*
+              - appstream:Describe*
+              - appstream:List*
             Resource: "*"
-          - Sid: DxReadAll
+          - Sid: EmrReadOnly
             Effect: Allow
             Action:
-              - directconnect:Describe*
+              - elasticmapreduce:Describe*
+              - elasticmapreduce:List*
             Resource: "*"
-          - Sid: TransferReadAll
+          - Sid: SageMakerReadOnly
             Effect: Allow
             Action:
-              - transfer:Describe*
-              - transfer:List*
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Search
+            Resource: "*"
+          - Sid: GlueReadOnly
+            Effect: Allow
+            Action:
+              - Glue:Get*
+              - Glue:List*
             Resource: "*"
 
   BlocksReadRole:

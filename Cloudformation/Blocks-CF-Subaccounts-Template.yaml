@@ -25,24 +25,26 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: CeReadAll
+          - Sid: CostReadOnly
             Effect: Allow
             Action:
               - ce:Get*
               - ce:List*
               - ce:Describe*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
             Resource: "*"
-          - Sid: ReservationsFullRead
+          - Sid: ReservationsReadOnly
             Effect: Allow
             Action:
-              - ec2:DescribeReserved*
               - elasticache:DescribeReserved*
               - redshift:DescribeReserved*
               - rds:DescribeReserved*
+              - ec2:DescribeReserved*
             Resource: "*"
-          - Sid: TrustedAdvisorReadAll
+          - Sid: TrustedAdvisorReadOnly
             Effect: Allow
-            Action:   
+            Action:
               - trustedadvisor:Describe*
               - trustedadvisor:Get*
               - trustedadvisor:List*
@@ -52,81 +54,75 @@ Resources:
               - support:DescribeTrustedAdvisorCheckRefreshStatuses
               - support:RefreshTrustedAdvisorCheck
             Resource: "*"
-          - Sid: PricingGetProducts
-            Effect: Allow
-            Action:
-              - pricing:Describe*
-              - pricing:Get*
-              - pricing:List* 
+          # - Sid: PricingGetProducts
+          #   Effect: Allow
+          #   Action:
+          #     - pricing:Describe*
+          #     - pricing:Get*
+          #     - pricing:List* 
             Resource: "*"
-          - Sid: Ec2DescribeAll
+          - Sid: Ec2ReadOnly
             Effect: Allow
             Action:
               - ec2:Describe*
               - ec2:Get*
               - ec2:List*
-              - ec2:SearchTransitGatewayRoutes
+              - dlm:Get*
               - elasticloadbalancing:Describe*
               - autoscaling:Describe*
               - autoscaling:Get*
               - autoscaling:List*
             Resource: "*"
-          - Sid: RdsDescribeAll
+          - Sid: RdsReadOnly
             Effect: Allow
             Action:
               - rds:Describe*
               - rds:List*
             Resource: "*"
-          - Sid: ElastiCacheDescribeAll
+          - Sid: ElastiCacheReadOnly
             Effect: Allow
             Action:
               - elasticache:Describe*
               - elasticache:List*
             Resource: "*"
-          - Sid: RedshiftDescribeAll
+          - Sid: RedshiftReadOnly
             Effect: Allow
             Action:
               - redshift:Describe*
               - redshift:List*
             Resource: "*"
-          - Sid: LambdaReadAll
+          - Sid: LambdaReadOnly
             Effect: Allow
             Action:
               - lambda:List*
               - lambda:Get*
             Resource: "*"
-          - Sid: DynamoDbDescribeAll
+          - Sid: DynamoDbReadOnly
             Effect: Allow
             Action:
               - dynamodb:List*
               - dynamodb:Describe*
             Resource: "*"
-          - Sid: S3ReadAccess
+          - Sid: S3ReadOnly
             Effect: Allow
             Action:
               - s3:List*
-              - s3:GetBucketVersioning
               - s3:GetLifecycleConfiguration
-              - s3:GetBucketLogging
-              - s3:GetBucketEncryption
-              - s3:GetBucketTagging
               - s3:GetBucketLocation
+              - s3:GetObjectRetention
             Resource: "*"
-          - Sid: MQReadAccess
-            Effect: Allow
-            Action:
-             - mq:Describe*
-             - mq:List*
-            Resource: "*"
-          - Sid: EcsEksDescribeAll
+          - Sid: EcsEksEcrReadOnly
             Effect: Allow
             Action:
               - ecs:List*
               - ecs:Describe*
               - eks:List*
               - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
             Resource: "*"
-          - Sid: CloudWatchReadAll
+          - Sid: CloudWatchReadOnly
             Effect: Allow
             Action:
               - cloudwatch:Describe*
@@ -136,52 +132,8 @@ Resources:
               - logs:Describe*
               - logs:Get*
               - logs:List*
-              - logs:StartQuery
-              - logs:StopQuery
-              - logs:TestMetricFilter
             Resource: "*"
-          - Sid: CloudTrailReadAccess
-            Effect: Allow
-            Action:
-              - cloudtrail:CancelQuery
-              - cloudtrail:Describe*
-              - cloudtrail:Get*
-              - cloudtrail:LookupEvents
-              - cloudtrail:StartQuery
-              - config:DescribeConfigurationRecorderStatus
-            Resource: "*"
-          - Sid: CfnDescribeAll
-            Effect: Allow
-            Action:
-              - cloudformation:Describe*
-              - cloudformation:List*
-              - cloudformation:Get*
-              - cloudformation:DetectStackDrift
-              - cloudformation:DetectStackResourceDrift
-            Resource: "*"
-          - Sid: SsmReadAll
-            Effect: Allow
-            Action:
-              - ssm:Describe*
-              - ssm:Get*
-              - ssm:List*
-            Resource: "*"
-          - Sid: ConfigDescribeAll
-            Effect: Allow
-            Action:
-              - config:Describe*
-              - config:Get*
-              - config:List*
-              - config:Select*
-              - config:BatchGet*
-            Resource: "*"
-          - Sid: CloudFrontReadAll
-            Effect: Allow
-            Action:
-              - cloudfront:Get*
-              - cloudfront:List*
-            Resource: "*"
-          - Sid: Route53ReadAll
+          - Sid: Route53ReadOnly
             Effect: Allow
             Action:
               - route53:Get*
@@ -189,140 +141,82 @@ Resources:
               - route53domains:Get*
               - route53domains:List*
             Resource: "*"
-          - Sid: LicenseManagerReadAll
-            Effect: Allow
-            Action:
-              - license-manager:Get*
-              - license-manager:List*
-            Resource: "*"
-          - Sid: BackupReadAll
+          - Sid: BackupReadOnly
             Effect: Allow
             Action:
               - backup:Describe*
               - backup:Get*
               - backup:List*
             Resource: "*"
-          - Sid: HealthReadAll
-            Effect: Allow
-            Action:
-              - health:Describe*
-            Resource: "*"
-          - Sid: AppAutoScalingReadAll
+          - Sid: AppAutoScalingReadOnly
             Effect: Allow
             Action:
               - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
             Resource: "*"
-          - Sid: BeanstalkReadAll
-            Effect: Allow
-            Action:
-              - elasticbeanstalk:Describe*
-              - elasticbeanstalk:List*
-            Resource: "*"
-          - Sid: KinesisReadAll
-            Effect: Allow
-            Action:
-              - kinesis:Describe*
-              - kinesis:List*
-              - firehose:Describe*
-              - firehose:List*
-              - kinesisanalytics:Describe*
-              - kinesisanalytics:List*
-            Resource: "*"
-          - Sid: MessagingReadAll
-            Effect: Allow
-            Action:
-              - sns:Get*
-              - sns:List*
-              - sqs:Get*
-              - sqs:List*
-            Resource: "*"
-          - Sid: ApiGwReadAll
+          - Sid: ApiGwReadOnly
             Effect: Allow
             Action:
               - apigateway:GET
             Resource: "*"
-          - Sid: StepFunctionsReadAll
-            Effect: Allow
-            Action:
-              - states:Describe*
-              - states:List*
-              - states:Get*
-            Resource: "*"
-          - Sid: GlueReadAll
-            Effect: Allow
-            Action:
-              - glue:Get*
-              - glue:List*
-              - glue:BatchGet*
-            Resource: "*"
-          - Sid: AthenaReadAll
+          - Sid: AthenaReadOnly
             Effect: Allow
             Action:
               - athena:Get*
               - athena:List*
               - athena:BatchGet*
             Resource: "*"
-          - Sid: EmrReadAll
-            Effect: Allow
-            Action:
-              - elasticmapreduce:Describe*
-              - elasticmapreduce:List*
-              - elasticmapreduce:View*
-              - elasticmapreduce:Get*
-            Resource: "*"
-          - Sid: SageMakerReadAll
-            Effect: Allow
-            Action:
-              - sagemaker:Describe*
-              - sagemaker:List*
-              - sagemaker:Get*
-            Resource: "*"
-          - Sid: OpenSearchReadAll
+          - Sid: ElasticSearchReadOnly
             Effect: Allow
             Action:
               - es:Describe*
               - es:List*
               - es:Get*
             Resource: "*"
-          - Sid: WorkSpacesReadAll
+          - Sid: WorkSpacesReadOnly
             Effect: Allow
             Action:
               - workspaces:Describe*
             Resource: "*"
-          - Sid: AppStreamReadAll
-            Effect: Allow
-            Action:
-              - appstream:Describe*
-              - appstream:List*
-            Resource: "*"
-          - Sid: FsxReadAll
+          - Sid: FsxReadOnly
             Effect: Allow
             Action:
               - fsx:Describe*
               - fsx:List*
             Resource: "*"
-          - Sid: EfsReadAll
+          - Sid: EfsReadOnly
             Effect: Allow
             Action:
               - elasticfilesystem:Describe*
               - elasticfilesystem:List*
             Resource: "*"
-          - Sid: StorageGatewayReadAll
+          - Sid: AppstreamReadOnly
             Effect: Allow
             Action:
-              - storagegateway:Describe*
-              - storagegateway:List*
+              - appstream:Describe*
+              - appstream:List*
             Resource: "*"
-          - Sid: DxReadAll
+          - Sid: EmrReadOnly
             Effect: Allow
             Action:
-              - directconnect:Describe*
+              - elasticmapreduce:Describe*
+              - elasticmapreduce:List*
             Resource: "*"
-          - Sid: TransferReadAll
+          - Sid: SageMakerReadOnly
             Effect: Allow
             Action:
-              - transfer:Describe*
-              - transfer:List*
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Search
+            Resource: "*"
+          - Sid: GlueReadOnly
+            Effect: Allow
+            Action:
+              - Glue:Get*
+              - Glue:List*
             Resource: "*"
             
   BlocksReadRole:
