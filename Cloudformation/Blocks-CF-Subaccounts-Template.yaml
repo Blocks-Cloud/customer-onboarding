@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  This template creates a cross-account role for comprehensive cost and resource
+  This template creates a cross-account role that could be assumed by Blocks for comprehensive cost and resource
   optimization analysis within a sub-account. It provides read-only access to
   billing, cost management, resource configuration, and optimization services
   like Cost Explorer, Budgets, Compute Optimizer, and S3 bucket configurations,
@@ -18,10 +18,10 @@ Parameters:
     Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
 
 Resources:
-  BlocksSubaccountCustomReadPolicy:
+  CostAndReservationsReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub 'BlocksSubaccountCustomReadPolicy-${AWS::StackName}'
+      ManagedPolicyName: !Sub '${AWS::AccountId}-CostAndReservationsReadPolicy'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -34,6 +34,7 @@ Resources:
               - cost-optimization-hub:Get*
               - cost-optimization-hub:List*
             Resource: "*"
+
           - Sid: ReservationsReadOnly
             Effect: Allow
             Action:
@@ -42,18 +43,14 @@ Resources:
               - rds:DescribeReserved*
               - ec2:DescribeReserved*
             Resource: "*"
-          - Sid: TrustedAdvisorReadOnly
-            Effect: Allow
-            Action:
-              - trustedadvisor:Describe*
-              - trustedadvisor:Get*
-              - trustedadvisor:List*
-              - support:DescribeTrustedAdvisorChecks
-              - support:DescribeTrustedAdvisorCheckResult
-              - support:DescribeTrustedAdvisorCheckSummaries
-              - support:DescribeTrustedAdvisorCheckRefreshStatuses
-              - support:RefreshTrustedAdvisorCheck
-            Resource: "*"
+
+  ComputeAndDatabaseAnalyticsReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-ComputeReadPolicy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
           - Sid: Ec2ReadOnly
             Effect: Allow
             Action:
@@ -66,61 +63,14 @@ Resources:
               - autoscaling:Get*
               - autoscaling:List*
             Resource: "*"
-          - Sid: RdsReadOnly
-            Effect: Allow
-            Action:
-              - rds:Describe*
-              - rds:List*
-            Resource: "*"
-          - Sid: ElastiCacheReadOnly
-            Effect: Allow
-            Action:
-              - elasticache:Describe*
-              - elasticache:List*
-            Resource: "*"
-          - Sid: RedshiftReadOnly
-            Effect: Allow
-            Action:
-              - redshift:Describe*
-              - redshift:Get*
-              - redshift:List*
-            Resource: "*"
-          - Sid: RedshiftServerlessReadOnly
-            Effect: Allow
-            Action:
-              - redshift-serverless:Describe*
-              - redshift-serverless:List*
-            Resource: "*"
+
           - Sid: LambdaReadOnly
             Effect: Allow
             Action:
               - lambda:List*
               - lambda:Get*
             Resource: "*"
-          - Sid: DynamoDbReadOnly
-            Effect: Allow
-            Action:
-              - dynamodb:List*
-              - dynamodb:Describe*
-            Resource: "*"
-          - Sid: DynamoDBAcceleratorReadOnly
-            Effect: Allow
-            Action:
-              - dax:DescribeClusters
-              - dax:ListTags
-              - dax:DescribeDefaultParameters
-              - dax:DescribeParameters
-            Resource: "*"  
-          - Sid: S3ReadOnly
-            Effect: Allow
-            Action:
-              - s3:List*
-              - s3vectors:ListVectorBuckets
-              - s3:GetLifecycleConfiguration
-              - s3:GetBucketLocation
-              - s3:GetObjectRetention
-              - s3:GetBucketTagging
-            Resource: "*"
+
           - Sid: EcsEksEcrReadOnly
             Effect: Allow
             Action:
@@ -131,6 +81,107 @@ Resources:
               - ecr:DescribeRepositories
               - ecr:ListImages
               - ecr:DescribeImages
+            Resource: "*"
+
+          - Sid: RdsReadOnly
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+            Resource: "*"
+
+          - Sid: DynamoDbReadOnly
+            Effect: Allow
+            Action:
+              - dynamodb:List*
+              - dynamodb:Describe*
+            Resource: "*"
+
+          - Sid: DynamoDBAcceleratorReadOnly
+            Effect: Allow
+            Action:
+              - dax:DescribeClusters
+              - dax:ListTags
+              - dax:DescribeDefaultParameters
+              - dax:DescribeParameters
+            Resource: "*"
+
+          - Sid: RedshiftReadOnly
+            Effect: Allow
+            Action:
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+            Resource: "*"
+
+          - Sid: RedshiftServerlessReadOnly
+            Effect: Allow
+            Action:
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+            Resource: "*"
+            
+          - Sid: MemoryDBReadOnly
+            Effect: Allow
+            Action:
+              - memorydb:Describe*
+              - memorydb:List*
+              - memorydb:ListTags
+            Resource: "*"
+          
+          - Sid: AuroraDSQLReadOnly
+            Effect: Allow
+            Action:
+              - dsql:Get*
+              - dsql:List*
+            Resource: "*"  
+
+          - Sid: TimeStreamReadOnly
+            Effect: Allow
+            Action:
+              - timestream:List*
+              - timestream:Describe*
+              - timestream:ListTagsForResource
+              - timestream-influxdb:Get*
+              - timestream-influxdb:List*
+            Resource: "*"
+
+  BlocksCustomReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-BlocksCustomReadPolicy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: TrustedAdvisorReadOnly
+            Effect: Allow
+            Action:
+              - trustedadvisor:Describe*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
+              - support:DescribeTrustedAdvisorCheckRefreshStatuses
+              - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
+
+          - Sid: ElastiCacheReadOnly
+            Effect: Allow
+            Action:
+              - elasticache:Describe*
+              - elasticache:List*
+            Resource: "*" 
+ 
+          - Sid: S3ReadOnly
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
             Resource: "*"
           - Sid: CloudWatchReadOnly
             Effect: Allow
@@ -143,6 +194,7 @@ Resources:
               - logs:Get*
               - logs:List*
             Resource: "*"
+
           - Sid: Route53ReadOnly
             Effect: Allow
             Action:
@@ -151,6 +203,7 @@ Resources:
               - route53domains:Get*
               - route53domains:List*
             Resource: "*"
+
           - Sid: BackupReadOnly
             Effect: Allow
             Action:
@@ -167,11 +220,13 @@ Resources:
               - autoscaling-plans:Describe*
               - autoscaling-plans:Get*
             Resource: "*"
+
           - Sid: ApiGwReadOnly
             Effect: Allow
             Action:
               - apigateway:GET
             Resource: "*"
+
           - Sid: ElasticSearchReadOnly
             Effect: Allow
             Action:
@@ -179,35 +234,41 @@ Resources:
               - es:List*
               - es:Get*
             Resource: "*"
+
           - Sid: WorkSpacesReadOnly
             Effect: Allow
             Action:
               - workspaces:Describe*
             Resource: "*"
+
           - Sid: FsxReadOnly
             Effect: Allow
             Action:
               - fsx:Describe*
               - fsx:List*
             Resource: "*"
+
           - Sid: EfsReadOnly
             Effect: Allow
             Action:
               - elasticfilesystem:Describe*
               - elasticfilesystem:List*
             Resource: "*"
+
           - Sid: AppstreamReadOnly
             Effect: Allow
             Action:
               - appstream:Describe*
               - appstream:List*
             Resource: "*"
+
           - Sid: EmrReadOnly
             Effect: Allow
             Action:
               - elasticmapreduce:Describe*
               - elasticmapreduce:List*
             Resource: "*"
+
           - Sid: SageMakerReadOnly
             Effect: Allow
             Action:
@@ -215,18 +276,36 @@ Resources:
               - sagemaker:List*
               - sagemaker:Search
             Resource: "*"
+
           - Sid: GlueReadOnly
             Effect: Allow
             Action:
               - Glue:Get*
               - Glue:List*
             Resource: "*"
+
+          - Sid: BedrockReadOnly
+            Effect: Allow
+            Action:
+              - bedrock:GetProvisionedModelThroughput
+              - bedrock:ListProvisionedModelThroughputs
+            Resource: "*"
+
           - Sid: CloudFrontReadOnly
             Effect: Allow
             Action:
               - cloudfront:Get*
               - cloudfront:List*
             Resource: "*"
+
+          - Sid: CloudFormationReadOnly
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeStacks
+              - cloudformation:ListStackResources
+              - cloudformation:ListStacks
+            Resource: "*"
+
           - Sid: ApprunnerReadOnly
             Effect: Allow
             Action:
@@ -235,19 +314,15 @@ Resources:
               - apprunner:ListAutoScalingConfigurations
               - apprunner:DescribeAutoScalingConfiguration
               - apprunner:ListTagsForResource
-            Resource: "*"
-          - Sid: AuroraDSQLReadOnly
-            Effect: Allow
-            Action:
-              - dsql:Get*
-              - dsql:List*
-            Resource: "*"           
+            Resource: "*"   
+
           - Sid: BatchReadOnly
             Effect: Allow
             Action:
               - batch:Get*
               - batch:List*
             Resource: "*"  
+
           - Sid: CodeBuildReadOnly
             Effect: Allow
             Action:
@@ -257,6 +332,7 @@ Resources:
               - codebuild:ListBuildsForProject
               - codebuild:ListTagsForResource
             Resource: "*"  
+
           - Sid: CodePipelineReadOnly
             Effect: Allow
             Action:
@@ -264,6 +340,7 @@ Resources:
               - codepipeline:ListPipelines
               - codepipeline:ListTagsForResource
             Resource: "*"  
+
           - Sid: KinesisReadOnly
             Effect: Allow
             Action:
@@ -275,6 +352,7 @@ Resources:
               - kinesis:DescribeStreamSummary
               - kinesis:ListTagsForResource
             Resource: "*"  
+
           - Sid: KinesisAnalyticsReadOnly
             Effect: Allow
             Action:
@@ -282,6 +360,7 @@ Resources:
               - kinesisanalytics:DescribeApplication
               - kinesisanalytics:ListTagsForResource
             Resource: "*"  
+
           - Sid: FirhoseReadOnly
             Effect: Allow
             Action:
@@ -289,6 +368,7 @@ Resources:
               - firehose:DescribeDeliveryStream
               - firehose:ListTagsForDeliveryStream
             Resource: "*"  
+
           - Sid: GrafanaReadOnly
             Effect: Allow
             Action:
@@ -297,6 +377,7 @@ Resources:
               - grafana:DescribeWorkspaceConfiguration
               - grafana:ListTagsForResource
             Resource: "*"  
+
           - Sid: AirflowReadOnly
             Effect: Allow
             Action:
@@ -304,20 +385,7 @@ Resources:
               - airflow:GetEnvironment
               - airflow:ListTagsForResource
             Resource: "*"  
-          - Sid: MemoryDBReadOnly
-            Effect: Allow
-            Action:
-              - memorydb:DescribeClusters
-              - memorydb:DescribeReservedNodes
-              - memorydb:DescribeReservedNodesOfferings
-              - memorydb:DescribeSnapshots
-              - memorydb:DescribeMultiRegionParameters
-              - memorydb:DescribeMultiRegionParameterGroups
-              - memorydb:DescribeMultiRegionClusters
-              - memorydb:DescribeEngineVersions
-              - memorydb:ListAllowedNodeTypeUpdates
-              - memorydb:ListTags
-            Resource: "*"  
+
           - Sid: NeptuneReadOnly
             Effect: Allow
             Action:
@@ -332,17 +400,7 @@ Resources:
               - neptune-db:GetEngineStatus
               - neptune-db:GetGraphSummary
             Resource: "*"  
-          - Sid: TimeStreamReadOnly
-            Effect: Allow
-            Action:
-              - timestream:ListDatabases
-              - timestream:ListTables
-              - timestream:DescribeDatabase
-              - timestream:DescribeTable
-              - timestream:ListTagsForResource
-              - timestream-influxdb:Get*
-              - timestream-influxdb:List*
-            Resource: "*"
+
           - Sid: WafReadOnly
             Effect: Allow
             Action:
@@ -352,7 +410,7 @@ Resources:
               - wafv2:ListResourcesForWebACL
               - wafv2:ListTagsForResource
             Resource: "*"  
-            
+
   BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
@@ -370,12 +428,13 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
 
       ManagedPolicyArns:
-        - !Ref BlocksSubaccountCustomReadPolicy
+        - !Ref BlocksCustomReadPolicy
+        - !Ref CostAndReservationsReadPolicy
+        - !Ref ComputeAndDatabaseAnalyticsReadPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ServiceQuotasReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ResourceGroupsandTagEditorReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
 
