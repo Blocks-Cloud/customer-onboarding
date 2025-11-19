@@ -14,9 +14,8 @@ locals {
   common_tags = merge(
     var.default_tags,
     {
-      ManagedBy = "Terraform"
-      OwnedBy   = "Blocks.cloud"
-      Purpose   = "CostAndUsageReport"
+      OwnedBy = "Blocks.cloud"
+      Purpose = "CostAndUsageReport"
     }
   )
 }

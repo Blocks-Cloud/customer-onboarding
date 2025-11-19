@@ -23,22 +23,10 @@ def lambda_handler(event, context):
     
     try:
         # Discover available services and categories
-        service_code = "account-and-billing-support"
-        category_code = "other-account-billing-questions"
-        
-        try:
-            services = support.describe_services().get("services", [])
-            for service in services:
-                name = (service.get("name") or "").lower()
-                if "billing" in name or "account" in name:
-                    service_code = service["code"]
-                    categories = service.get("categories") or []
-                    if categories:
-                        category_code = categories[0].get("code", category_code)
-                    break
-        except Exception as e:
-            print(f"Warning: Could not discover service codes: {e}")
-        
+        service_code = "service-cost-and-usage-report-cur"
+        category_code = "backfill-a-report"
+        issue_type = "customer-service"
+        language = "en"
         # Create the support case
         subject = f"Request historical data backfill for CUR 2.0 export '{export_name}'"
         body = (
@@ -56,8 +44,8 @@ def lambda_handler(event, context):
             severityCode=severity,
             categoryCode=category_code,
             communicationBody=body,
-            language="en",
-            issueType="customer-service"
+            language=language,
+            issueType=issue_type
         )
         
         case_id = response.get("caseId", "")

@@ -65,7 +65,7 @@ cd Terraform
 
 # Configure your variables
 cat > terraform.tfvars <<EOF
-external_account_id = "503132503926"
+blocks_external_account_id = "503132503926"
 external_id         = "your-secure-external-id"
 aws_region          = "us-east-1"
 EOF

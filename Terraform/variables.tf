@@ -68,9 +68,10 @@ variable "support_severity" {
   }
 }
 
-variable "external_account_id" {
+variable "blocks_external_account_id" {
   type        = string
-  description = "AWS account ID that will assume the billing read role"
+  description = "Blocks AWS account ID that will assume the Read Only role"
+  default     = "503132503926"
 }
 
 variable "external_id" {
@@ -99,11 +100,11 @@ variable "enable_lifecycle_rules" {
 
 variable "cur_data_retention_days" {
   type        = number
-  default     = 400
+  default     = 30
   description = "Days to retain CUR data in S3 before expiration"
   validation {
-    condition     = var.cur_data_retention_days >= 90
-    error_message = "cur_data_retention_days must be at least 90 days"
+    condition     = var.cur_data_retention_days >= 7
+    error_message = "cur_data_retention_days must be at least 7 days"
   }
 }
 
@@ -111,4 +112,74 @@ variable "default_tags" {
   type        = map(string)
   default     = {}
   description = "Default tags to apply to all resources"
+}
+
+############################
+# Stackset Variables
+############################
+
+variable "stack_set_name" {
+  description = "Name of the CloudFormation StackSet."
+  type        = string
+  default     = "Blocks-SubAccounts"
+}
+
+variable "stack_set_description" {
+  description = "StackSet that deploys IAM role to sub-accounts"
+  type        = string
+  default     = "StackSet that deploys IAM role to sub-accounts"
+}
+
+variable "permission_model" {
+  description = "The permission model for the StackSet."
+  type        = string
+  default     = "SERVICE_MANAGED"
+}
+
+variable "call_as" {
+  description = "Specifies whether you are acting as an administrator of the organization."
+  type        = string
+  default     = "SELF"
+}
+
+variable "capabilities" {
+  description = "A list of capabilities. Valid values: CAPABILITY_IAM, CAPABILITY_NAMED_IAM, CAPABILITY_AUTO_EXPAND."
+  type        = list(string)
+  default     = ["CAPABILITY_NAMED_IAM"]
+}
+
+variable "auto_deployment_enabled" {
+  description = "Whether or not auto-deployment is enabled."
+  type        = bool
+  default     = true
+}
+
+variable "retain_stacks_on_account_removal" {
+  description = "Whether or not to retain stacks on account removal."
+  type        = bool
+  default     = false
+}
+
+variable "template_url" {
+  description = "The URL of the template body."
+  type        = string
+  default     = "https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml"
+}
+
+variable "failure_tolerance_percentage" {
+  description = "The percentage of accounts per region for which this operation can fail before AWS CloudFormation stops the operation in that region."
+  type        = number
+  default     = 100
+}
+
+variable "max_concurrent_percentage" {
+  description = "The maximum percentage of accounts in which to perform this operation at one time."
+  type        = number
+  default     = 100
+}
+
+variable "region_concurrency_type" {
+  description = "The concurrency type of deploying StackSets operations in regions, could be SEQUENTIAL or PARALLEL."
+  type        = string
+  default     = "PARALLEL"
 }

@@ -1,13 +1,13 @@
-############################
-# IAM Role - Cross-Account Access
-############################
+########################################
+# IAM Role - Cross-Account Access.     #
+########################################
 
-data "aws_iam_policy_document" "assume_role" {
+data "aws_iam_policy_document" "blocks_read_role" {
   statement {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = ["arn:aws:iam::${var.external_account_id}:root"]
+      identifiers = ["arn:aws:iam::${var.blocks_external_account_id}:root"]
     }
     actions = ["sts:AssumeRole"]
     condition {
@@ -18,28 +18,26 @@ data "aws_iam_policy_document" "assume_role" {
   }
 }
 
-resource "aws_iam_role" "blocks_billing_read_role" {
-  name                 = "${local.export_name}-billing-read-role"
+resource "aws_iam_role" "blocks_read_role" {
+  name                 = "${data.aws_caller_identity.current.account_id}-Blocks-read-role"
   max_session_duration = 3600
-  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
+  assume_role_policy   = data.aws_iam_policy_document.blocks_read_role.json
   tags                 = local.common_tags
 }
 
-# Managed Policies
-resource "aws_iam_role_policy_attachment" "billing_read_managed" {
+resource "aws_iam_role_policy_attachment" "blocks_read_role" {
   for_each = toset([
     "arn:aws:iam::aws:policy/AWSBillingReadOnlyAccess",
     "arn:aws:iam::aws:policy/AWSBudgetsReadOnlyAccess",
-    "arn:aws:iam::aws:policy/ServiceQuotasReadOnlyAccess",
     "arn:aws:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:aws:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
-    "arn:aws:iam::aws:policy/ResourceGroupsandTagEditorReadOnlyAccess"
+    "arn:aws:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
+    "arn:aws:iam::aws:policy/AWSResourceGroupsReadOnlyAccess"
   ])
-  role       = aws_iam_role.blocks_billing_read_role.name
+  role       = aws_iam_role.blocks_read_role.name
   policy_arn = each.value
 }
 
-# S3 CUR Read Access
 data "aws_iam_policy_document" "cur_s3_read" {
   statement {
     sid    = "ListCurPrefix"
@@ -80,37 +78,193 @@ data "aws_iam_policy_document" "cur_s3_read" {
 
 resource "aws_iam_role_policy" "cur_s3_read" {
   name   = "CurS3Read"
-  role   = aws_iam_role.blocks_billing_read_role.id
+  role   = aws_iam_role.blocks_read_role.id
   policy = data.aws_iam_policy_document.cur_s3_read.json
 }
 
-# Cost Explorer & Billing
-data "aws_iam_policy_document" "billing_services" {
+data "aws_iam_policy_document" "cost_read_only" {
   statement {
-    sid    = "CostExplorerRead"
+    sid    = "CostReadOnly"
     effect = "Allow"
     actions = [
       "ce:Get*",
       "ce:List*",
-      "ce:Describe*"
+      "ce:Describe*",
+      "cost-optimization-hub:Get*",
+      "cost-optimization-hub:List*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "SavingsPlansRead"
+    sid    = "ReservationsReadOnly"
     effect = "Allow"
     actions = [
-      "savingsplans:Describe*",
-      "savingsplans:List*"
+      "elasticache:DescribeReserved*",
+      "redshift:DescribeReserved*",
+      "rds:DescribeReserved*",
+      "ec2:DescribeReserved*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "TrustedAdvisorRead"
+    sid    = "StsWhoami"
     effect = "Allow"
     actions = [
+      "sts:GetCallerIdentity"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "compute_and_database_analytics_read" {
+  name   = "${data.aws_caller_identity.current.account_id}-ComputeReadPolicy"
+  role   = aws_iam_role.blocks_read_role.id
+  policy = data.aws_iam_policy_document.cost_read_only.json
+}
+
+# AWS Services Read Access
+data "aws_iam_policy_document" "compute_and_database_analytics_read" {
+  statement {
+    sid    = "Ec2ReadOnly"
+    effect = "Allow"
+    actions = [
+      "ec2:Describe*",
+      "ec2:Get*",
+      "ec2:List*",
+      "dlm:Get*",
+      "elasticloadbalancing:Describe*",
+      "autoscaling:Describe*",
+      "autoscaling:Get*",
+      "autoscaling:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "LambdaReadOnly"
+    effect = "Allow"
+    actions = [
+      "lambda:List*",
+      "lambda:Get*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ElastiCEcsEksEcrReadOnlycheReadOnly"
+    effect = "Allow"
+    actions = [
+      "ecs:List*",
+      "ecs:Describe*",
+      "eks:List*",
+      "eks:Describe*",
+      "ecr:DescribeRepositories",
+      "ecr:ListImages",
+      "ecr:DescribeImages"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "RdsReadOnly"
+    effect = "Allow"
+    actions = [
+      "rds:Describe*",
+      "rds:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "DynamoDbReadOnly"
+    effect = "Allow"
+    actions = [
+      "dynamodb:List*",
+      "dynamodb:Describe*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "DynamoDBAcceleratorReadOnly"
+    effect = "Allow"
+    actions = [
+      "dax:DescribeClusters",
+      "dax:ListTags",
+      "dax:DescribeDefaultParameters",
+      "dax:DescribeParameters"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "RedshiftReadOnly"
+    effect = "Allow"
+    actions = [
+      "redshift:Describe*",
+      "redshift:Get*",
+      "redshift:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "RedshiftServerlessReadOnly"
+    effect = "Allow"
+    actions = [
+      "redshift-serverless:Describe*",
+      "redshift-serverless:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "MemoryDBReadOnly"
+    effect = "Allow"
+    actions = [
+      "memorydb:Describe*",
+      "memorydb:List*",
+      "memorydb:ListTags"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AuroraDSQLReadOnly"
+    effect = "Allow"
+    actions = [
+      "dsql:Get*",
+      "dsql:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "TimeStreamReadOnly"
+    effect = "Allow"
+    actions = [
+      "timestream:ListDatabases",
+      "timestream:ListTables",
+      "timestream:DescribeDatabase",
+      "timestream:DescribeTable",
+      "timestream:ListTagsForResource",
+      "timestream-influxdb:Get*",
+      "timestream-influxdb:List*"
+    ]
+    resources = ["*"]
+  }
+}
+
+data "aws_iam_policy_document" "blocks_custom_read" {
+  statement {
+    sid    = "TrustedAdvisorReadOnly"
+    effect = "Allow"
+    actions = [
+      "trustedadvisor:Describe*",
+      "trustedadvisor:Get*",
+      "trustedadvisor:List*",
       "support:DescribeTrustedAdvisorChecks",
       "support:DescribeTrustedAdvisorCheckResult",
       "support:DescribeTrustedAdvisorCheckSummaries",
@@ -121,147 +275,60 @@ data "aws_iam_policy_document" "billing_services" {
   }
 
   statement {
-    sid    = "PricingRead"
+    sid    = "ElastiCacheReadOnly"
     effect = "Allow"
     actions = [
-      "pricing:GetProducts",
-      "pricing:DescribeServices",
-      "pricing:GetAttributeValues"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "AccountMetadata"
-    effect = "Allow"
-    actions = [
-      "account:ListRegions",
-      "account:GetAlternateContact",
-      "account:GetContactInformation",
-      "account:ListAlternateContacts",
-      "sts:GetCallerIdentity"
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role_policy" "billing_services" {
-  name   = "BillingServices"
-  role   = aws_iam_role.blocks_billing_read_role.id
-  policy = data.aws_iam_policy_document.billing_services.json
-}
-
-# AWS Services Read Access
-data "aws_iam_policy_document" "service_reads" {
-  statement {
-    sid    = "Compute"
-    effect = "Allow"
-    actions = [
-      "ec2:Describe*",
-      "ec2:Get*",
-      "ec2:SearchTransitGatewayRoutes",
-      "elasticloadbalancing:Describe*",
-      "autoscaling:Describe*",
-      "lambda:List*",
-      "lambda:Get*"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "Databases"
-    effect = "Allow"
-    actions = [
-      "rds:Describe*",
-      "rds:List*",
       "elasticache:Describe*",
-      "elasticache:List*",
-      "redshift:Describe*",
-      "redshift:List*",
-      "redshift:ViewQueriesInConsole",
-      "dynamodb:List*",
-      "dynamodb:Describe*"
+      "elasticache:List*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "Containers"
+    sid    = "S3ReadOnly"
     effect = "Allow"
     actions = [
-      "ecs:List*",
-      "ecs:Describe*",
-      "eks:List*",
-      "eks:Describe*"
+      "s3:List*",
+      "s3vectors:ListVectorBuckets",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketLocation",
+      "s3:GetObjectRetention",
+      "s3:GetBucketTagging"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "Monitoring"
+    sid    = "CloudWatchReadOnly"
     effect = "Allow"
     actions = [
       "cloudwatch:Describe*",
       "cloudwatch:Get*",
       "cloudwatch:List*",
+      "oam:ListSinks",
       "logs:Describe*",
       "logs:Get*",
-      "logs:List*",
-      "logs:StartQuery",
-      "logs:StopQuery",
-      "logs:TestMetricFilter",
-      "logs:FilterLogEvents"
+      "logs:List*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "Infrastructure"
+    sid    = "Route53ReadOnly"
     effect = "Allow"
     actions = [
-      "cloudformation:Describe*",
-      "cloudformation:List*",
-      "cloudformation:Get*",
-      "cloudformation:DetectStackDrift",
-      "cloudformation:DetectStackResourceDrift",
-      "ssm:Describe*",
-      "ssm:Get*",
-      "ssm:List*",
-      "config:Describe*",
-      "config:Get*",
-      "config:List*",
-      "config:Select*",
-      "config:BatchGet*"
-    ]
-    resources = ["*"]
-  }
-
-  // candidate to be removed
-  statement {
-    sid    = "Networking"
-    effect = "Allow"
-    actions = [
-      "cloudfront:Get*",
-      "cloudfront:List*",
       "route53:Get*",
       "route53:List*",
       "route53domains:Get*",
-      "route53domains:List*",
-      "directconnect:Describe*"
+      "route53domains:List*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "Storage"
+    sid    = "BackupReadOnly"
     effect = "Allow"
     actions = [
-      "elasticfilesystem:Describe*",
-      "elasticfilesystem:List*",
-      "fsx:Describe*",
-      "fsx:List*",
-      "storagegateway:Describe*",
-      "storagegateway:List*",
       "backup:Describe*",
       "backup:Get*",
       "backup:List*"
@@ -270,36 +337,29 @@ data "aws_iam_policy_document" "service_reads" {
   }
 
   statement {
-    sid    = "Analytics"
+    sid    = "AppAutoScalingReadOnly"
     effect = "Allow"
     actions = [
-      "glue:Get*",
-      "glue:List*",
-      "glue:BatchGet*",
-      "athena:Get*",
-      "athena:List*",
-      "athena:BatchGet*",
-      "elasticmapreduce:Describe*",
-      "elasticmapreduce:List*",
-      "elasticmapreduce:View*",
-      "elasticmapreduce:Get*",
-      "kinesis:Describe*",
-      "kinesis:List*",
-      "firehose:Describe*",
-      "firehose:List*",
-      "kinesisanalytics:Describe*",
-      "kinesisanalytics:List*"
+      "application-autoscaling:Describe*",
+      "application-autoscaling:List*",
+      "application-autoscaling:Get*",
+      "autoscaling-plans:Describe*",
+      "autoscaling-plans:Get*"
     ]
     resources = ["*"]
   }
 
   statement {
-    sid    = "MachineLearning"
+    sid     = "ApiGwReadOnly"
+    effect  = "Allow"
+    actions = ["apigateway:GET"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ElasticSearchReadOnly"
     effect = "Allow"
     actions = [
-      "sagemaker:Describe*",
-      "sagemaker:List*",
-      "sagemaker:Get*",
       "es:Describe*",
       "es:List*",
       "es:Get*"
@@ -308,29 +368,36 @@ data "aws_iam_policy_document" "service_reads" {
   }
 
   statement {
-    sid    = "Applications"
+    sid     = "WorkSpacesReadOnly"
+    effect  = "Allow"
+    actions = ["workspaces:Describe*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "FsxReadOnly"
     effect = "Allow"
     actions = [
-      "apigateway:Get",
-      "states:Describe*",
-      "states:List*",
-      "states:Get*",
-      "elasticbeanstalk:Describe*",
-      "elasticbeanstalk:List*",
-      "sns:Get*",
-      "sns:List*",
-      "sqs:Get*",
-      "sqs:List*"
+      "fsx:Describe*",
+      "fsx:List*"
     ]
     resources = ["*"]
   }
 
-  // candidate to be removed
   statement {
-    sid    = "EndUserComputing"
+    sid    = "EfsReadOnly"
     effect = "Allow"
     actions = [
-      "workspaces:Describe*",
+      "elasticfilesystem:Describe*",
+      "elasticfilesystem:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AppstreamReadOnly"
+    effect = "Allow"
+    actions = [
       "appstream:Describe*",
       "appstream:List*"
     ]
@@ -338,22 +405,209 @@ data "aws_iam_policy_document" "service_reads" {
   }
 
   statement {
-    sid    = "MiscServices"
+    sid    = "EmrReadOnly"
     effect = "Allow"
     actions = [
-      "license-manager:Get*",
-      "license-manager:List*",
-      "health:Describe*",
-      "application-autoscaling:Describe*",
-      "transfer:Describe*",
-      "transfer:List*"
+      "elasticmapreduce:Describe*",
+      "elasticmapreduce:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "SageMakerReadOnly"
+    effect = "Allow"
+    actions = [
+      "sagemaker:Describe*",
+      "sagemaker:List*",
+      "sagemaker:Search"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "GlueReadOnly"
+    effect = "Allow"
+    actions = [
+      "Glue:Get*",
+      "Glue:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "BedrockReadOnly"
+    effect = "Allow"
+    actions = [
+      "bedrock:GetProvisionedModelThroughput",
+      "bedrock:ListProvisionedModelThroughputs"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "CloudFrontReadOnly"
+    effect = "Allow"
+    actions = [
+      "cloudfront:Get*",
+      "cloudfront:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "CloudFormationReadOnly"
+    effect = "Allow"
+    actions = [
+      "cloudformation:DescribeStacks",
+      "cloudformation:ListStackResources",
+      "cloudformation:ListStacks"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ApprunnerReadOnly"
+    effect = "Allow"
+    actions = [
+      "apprunner:ListServices",
+      "apprunner:DescribeService",
+      "apprunner:ListAutoScalingConfigurations",
+      "apprunner:DescribeAutoScalingConfiguration",
+      "apprunner:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "BatchReadOnly"
+    effect = "Allow"
+    actions = [
+      "batch:Get*",
+      "batch:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "CodeBuildReadOnly"
+    effect = "Allow"
+    actions = [
+      "codebuild:ListProjects",
+      "codebuild:BatchGetProjects",
+      "codebuild:ListBuilds",
+      "codebuild:ListBuildsForProject",
+      "codebuild:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "CodePipelineReadOnly"
+    effect = "Allow"
+    actions = [
+      "codepipeline:GetPipeline",
+      "codepipeline:ListPipelines",
+      "codepipeline:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "KinesisReadOnly"
+    effect = "Allow"
+    actions = [
+      "kinesis:ListShards",
+      "kinesis:ListStreamConsumers",
+      "kinesis:ListStreams",
+      "kinesis:DescribeLimits",
+      "kinesis:DescribeStreamConsumer",
+      "kinesis:DescribeStreamSummary",
+      "kinesis:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "KinesisAnalyticsReadOnly"
+    effect = "Allow"
+    actions = [
+      "kinesisanalytics:ListApplications",
+      "kinesisanalytics:DescribeApplication",
+      "kinesisanalytics:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "FirhoseReadOnly"
+    effect = "Allow"
+    actions = [
+      "firehose:ListDeliveryStreams",
+      "firehose:DescribeDeliveryStream",
+      "firehose:ListTagsForDeliveryStream"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "GrafanaReadOnly"
+    effect = "Allow"
+    actions = [
+      "grafana:ListWorkspaces",
+      "grafana:DescribeWorkspace",
+      "grafana:DescribeWorkspaceConfiguration",
+      "grafana:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AirflowReadOnly"
+    effect = "Allow"
+    actions = [
+      "airflow:ListEnvironments",
+      "airflow:GetEnvironment",
+      "airflow:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "NeptuneReadOnly"
+    effect = "Allow"
+    actions = [
+      "neptune:DescribeDBClusters",
+      "neptune:DescribeDBInstances",
+      "neptune:DescribeDBClusterSnapshots",
+      "neptune:DescribeDBParameterGroups",
+      "neptune:DescribeDBClusterParameterGroups",
+      "neptune:ListTagsForResource",
+      "neptune-graph:GetEngineStatus",
+      "neptune-graph:GetGraphSummary",
+      "neptune-db:GetEngineStatus",
+      "neptune-db:GetGraphSummary"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "WafReadOnly"
+    effect = "Allow"
+    actions = [
+      "wafv2:ListWebACLs",
+      "wafv2:GetWebACL",
+      "wafv2:GetWebACLForResource",
+      "wafv2:ListResourcesForWebACL",
+      "wafv2:ListTagsForResource"
     ]
     resources = ["*"]
   }
 }
 
-resource "aws_iam_role_policy" "service_reads" {
-  name   = "AWSServiceReads"
-  role   = aws_iam_role.blocks_billing_read_role.id
-  policy = data.aws_iam_policy_document.service_reads.json
+
+resource "aws_iam_role_policy" "blocks_custom_read" {
+  name = "${data.aws_caller_identity.current.account_id}-BlocksCustomReadPolicy"
+  role   = aws_iam_role.blocks_read_role.id
+  policy = data.aws_iam_policy_document.blocks_custom_read.json
 }

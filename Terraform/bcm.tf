@@ -1,7 +1,7 @@
 
-############################
-# BCM Data Exports (CUR 2.0)
-############################
+##############################
+# BCM Data Exports (CUR 2.0) #
+##############################
 
 resource "aws_bcmdataexports_export" "cur2" {
   export {

@@ -5,7 +5,7 @@
 ### 1. Configure Variables
 
 Edit `terraform.tfvars` with your values:
-- `external_account_id` - AWS account ID that will assume the role
+- `blocks_external_account_id` - AWS account ID that will assume the role
 - `external_id` - Shared secret for secure role assumption
 
 ### 2. Deploy

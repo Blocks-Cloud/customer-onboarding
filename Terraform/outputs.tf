@@ -4,18 +4,18 @@ output "cur_bucket_name" {
 }
 
 output "cur_bucket_arn" {
-  description = "ARN of the S3 bucket"
+  description = "ARN of the S3 bucket storing CUR data"
   value       = "arn:aws:s3:::${local.cur_bucket_name}"
 }
 
-output "billing_read_role_arn" {
-  description = "ARN of the cross-account billing read role"
-  value       = aws_iam_role.blocks_billing_read_role.arn
+output "blocks_read_role_arn" {
+  description = "Cross-account role ARN with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization"
+  value       = aws_iam_role.blocks_read_role.arn
 }
 
-output "billing_read_role_name" {
-  description = "Name of the cross-account billing read role"
-  value       = aws_iam_role.blocks_billing_read_role.name
+output "blocks_read_role_name" {
+  description = "Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization"
+  value       = aws_iam_role.blocks_read_role.name
 }
 
 output "cur2_export_name" {

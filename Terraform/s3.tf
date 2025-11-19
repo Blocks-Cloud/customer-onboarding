@@ -70,20 +70,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
       noncurrent_days = 30
     }
   }
-
-  rule {
-    id     = "intelligent-tiering"
-    status = var.enable_lifecycle_rules ? "Enabled" : "Disabled"
-
-    filter {
-      prefix = "cur2/"
-    }
-
-    transition {
-      days          = 90
-      storage_class = "INTELLIGENT_TIERING"
-    }
-  }
 }
 
 ############################
@@ -143,7 +129,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.blocks_billing_read_role.arn]
+      identifiers = [aws_iam_role.blocks_read_role.arn]
     }
     actions   = ["s3:GetObject"]
     resources = ["arn:aws:s3:::${local.cur_bucket_name}/cur2/*"]
