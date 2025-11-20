@@ -1,0 +1,3 @@
+Terraform/**/.terraform/**/*
+Terraform/**/*.tfstate
+Terraform/**/*.tfstate.*

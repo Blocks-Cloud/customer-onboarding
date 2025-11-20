@@ -1,0 +1,52 @@
+name: Sync Cloudformation to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cloudformation/**'
+  workflow_dispatch:
+
+env:
+  S3_BUCKET: ${{ secrets.CLOUDFORMATION_S3_BUCKET }}
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+jobs:
+  sync-to-s3:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Sync Cloudformation to S3
+        run: |
+          if [ -z "$S3_BUCKET" ]; then
+            echo "Error: CLOUDFORMATION_S3_BUCKET secret not set"
+            exit 1
+          fi
+          
+          echo "Syncing Cloudformation directory to s3://${S3_BUCKET}/"
+          aws s3 sync Cloudformation/ s3://${S3_BUCKET}/ \
+            --delete \
+            --exclude "*.swp" \
+            --exclude ".DS_Store"
+          
+          echo "✓ Sync completed successfully"
+      
+      - name: List synced files
+        run: |
+          echo "Files in s3://${S3_BUCKET}/:"
+          aws s3 ls s3://${S3_BUCKET}/ --recursive
+
