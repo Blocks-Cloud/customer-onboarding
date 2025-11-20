@@ -1,0 +1,444 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This template creates a cross-account role that could be assumed by Blocks for comprehensive cost and resource
+  optimization analysis within a sub-account. It provides read-only access to
+  billing, cost management, resource configuration, and optimization services
+  like Cost Explorer, Budgets, Compute Optimizer, and S3 bucket configurations,
+  along with inventory data for various AWS services.
+
+Parameters:
+  BlocksExternalAccountId:
+    Type: String
+    Default: "503132503926"
+    Description: The 12-digit AWS account ID of the Blocks external account that will be trusted.
+  ExternalId:
+    Type: String
+    NoEcho: true
+    Default: "blocks-shared-secret"
+    Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
+
+Resources:
+  CostAndReservationsReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-CostAndReservationsReadPolicy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CostAndUsageReadOnly
+            Effect: Allow
+            Action:
+              - ce:Get*
+              - ce:List*
+              - ce:Describe*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
+              - cur:Get*
+              - cur:DescribeReportDefinitions
+            Resource: "*"
+
+          - Sid: PpaAndCreditsCheck
+            Effect: Allow
+            Action:
+              - billing:GetBillingData
+              - billing:GetBillingDetails
+              - billing:GetCredits
+            Resource: "*"
+
+          - Sid: ReservationsReadOnly
+            Effect: Allow
+            Action:
+              - elasticache:DescribeReserved*
+              - redshift:DescribeReserved*
+              - rds:DescribeReserved*
+              - ec2:DescribeReserved*
+            Resource: "*"
+
+  SavingsEstimationReadOnly:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Ec2ReadOnly
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+              - dlm:Get*
+              - elasticloadbalancing:Describe*
+              - autoscaling:Describe*
+              - autoscaling:Get*
+              - autoscaling:List*
+            Resource: "*"
+
+          - Sid: LambdaReadOnly
+            Effect: Allow
+            Action:
+              - lambda:List*
+              - lambda:Get*
+            Resource: "*"
+
+          - Sid: EcsEksEcrReadOnly
+            Effect: Allow
+            Action:
+              - ecs:List*
+              - ecs:Describe*
+              - eks:List*
+              - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+            Resource: "*"
+
+          - Sid: RdsReadOnly
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+            Resource: "*"
+
+          - Sid: DynamoDbReadOnly
+            Effect: Allow
+            Action:
+              - dynamodb:List*
+              - dynamodb:Describe*
+            Resource: "*"
+
+          - Sid: DynamoDBAcceleratorReadOnly
+            Effect: Allow
+            Action:
+              - dax:DescribeClusters
+              - dax:ListTags
+              - dax:DescribeDefaultParameters
+              - dax:DescribeParameters
+            Resource: "*"
+
+          - Sid: RedshiftReadOnly
+            Effect: Allow
+            Action:
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+            Resource: "*"
+
+          - Sid: RedshiftServerlessReadOnly
+            Effect: Allow
+            Action:
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+            Resource: "*"
+
+          - Sid: MemoryDBReadOnly
+            Effect: Allow
+            Action:
+              - memorydb:Describe*
+              - memorydb:List*
+              - memorydb:ListTags
+            Resource: "*"
+          
+          - Sid: AuroraDSQLReadOnly
+            Effect: Allow
+            Action:
+              - dsql:Get*
+              - dsql:List*
+            Resource: "*"  
+
+          - Sid: TimeStreamReadOnly
+            Effect: Allow
+            Action:
+              - timestream:List*
+              - timestream:Describe*
+              - timestream:ListTagsForResource
+              - timestream-influxdb:Get*
+              - timestream-influxdb:List*
+            Resource: "*"
+
+          - Sid: TrustedAdvisorReadOnly
+            Effect: Allow
+            Action:
+              - trustedadvisor:Describe*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
+              - support:DescribeTrustedAdvisorCheckRefreshStatuses
+              - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
+
+          - Sid: ElastiCacheReadOnly
+            Effect: Allow
+            Action:
+              - elasticache:Describe*
+              - elasticache:List*
+            Resource: "*" 
+ 
+          - Sid: S3ReadOnly
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+            Resource: "*"
+
+          - Sid: CloudWatchReadOnly
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:Get*
+              - logs:List*
+            Resource: "*"
+
+  SavingsEstimationReadOnlyPart2:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicyPart2'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: BackupReadOnly
+            Effect: Allow
+            Action:
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+
+          - Sid: AppAutoScalingReadOnly
+            Effect: Allow
+            Action:
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
+            Resource: "*"
+
+          - Sid: ApiGwReadOnly
+            Effect: Allow
+            Action:
+              - apigateway:GET
+            Resource: "*"
+
+          - Sid: ElasticSearchReadOnly
+            Effect: Allow
+            Action:
+              - es:Describe*
+              - es:List*
+              - es:Get*
+            Resource: "*"
+
+          - Sid: WorkSpacesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+            Resource: "*"
+
+          - Sid: FsxReadOnly
+            Effect: Allow
+            Action:
+              - fsx:Describe*
+              - fsx:List*
+            Resource: "*"
+
+          - Sid: EfsReadOnly
+            Effect: Allow
+            Action:
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+            Resource: "*"
+
+          - Sid: AppstreamReadOnly
+            Effect: Allow
+            Action:
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+
+          - Sid: SageMakerReadOnly
+            Effect: Allow
+            Action:
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Search
+            Resource: "*"
+
+          - Sid: GlueReadOnly
+            Effect: Allow
+            Action:
+              - Glue:Get*
+              - Glue:List*
+            Resource: "*"
+
+          - Sid: BedrockReadOnly
+            Effect: Allow
+            Action:
+              - bedrock:GetProvisionedModelThroughput
+              - bedrock:ListProvisionedModelThroughputs
+            Resource: "*"
+
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Action:
+              - cloudfront:Get*
+              - cloudfront:List*
+            Resource: "*"
+
+          - Sid: ApprunnerReadOnly
+            Effect: Allow
+            Action:
+              - apprunner:ListServices
+              - apprunner:DescribeService
+              - apprunner:ListAutoScalingConfigurations
+              - apprunner:DescribeAutoScalingConfiguration
+              - apprunner:ListTagsForResource
+            Resource: "*"   
+
+          - Sid: BatchReadOnly
+            Effect: Allow
+            Action:
+              - batch:Get*
+              - batch:List*
+            Resource: "*"  
+
+          - Sid: CodeBuildReadOnly
+            Effect: Allow
+            Action:
+              - codebuild:ListProjects
+              - codebuild:BatchGetProjects
+              - codebuild:ListBuilds
+              - codebuild:ListBuildsForProject
+              - codebuild:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: CodePipelineReadOnly
+            Effect: Allow
+            Action:
+              - codepipeline:GetPipeline
+              - codepipeline:ListPipelines
+              - codepipeline:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: KinesisReadOnly
+            Effect: Allow
+            Action:
+              - kinesis:ListShards
+              - kinesis:ListStreamConsumers
+              - kinesis:ListStreams
+              - kinesis:DescribeLimits
+              - kinesis:DescribeStreamConsumer
+              - kinesis:DescribeStreamSummary
+              - kinesis:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: KinesisAnalyticsReadOnly
+            Effect: Allow
+            Action:
+              - kinesisanalytics:ListApplications
+              - kinesisanalytics:DescribeApplication
+              - kinesisanalytics:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: FirehoseReadOnly
+            Effect: Allow
+            Action:
+              - firehose:ListDeliveryStreams
+              - firehose:DescribeDeliveryStream
+              - firehose:ListTagsForDeliveryStream
+            Resource: "*"  
+
+          - Sid: GrafanaReadOnly
+            Effect: Allow
+            Action:
+              - grafana:ListWorkspaces
+              - grafana:DescribeWorkspace
+              - grafana:DescribeWorkspaceConfiguration
+              - grafana:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: AirflowReadOnly
+            Effect: Allow
+            Action:
+              - airflow:ListEnvironments
+              - airflow:GetEnvironment
+              - airflow:ListTagsForResource
+            Resource: "*"  
+
+          - Sid: NeptuneReadOnly
+            Effect: Allow
+            Action:
+              - neptune:DescribeDBClusters
+              - neptune:DescribeDBInstances
+              - neptune:DescribeDBClusterSnapshots
+              - neptune:DescribeDBParameterGroups
+              - neptune:DescribeDBClusterParameterGroups
+              - neptune:ListTagsForResource
+              - neptune-graph:GetEngineStatus
+              - neptune-graph:GetGraphSummary
+              - neptune-db:GetEngineStatus
+              - neptune-db:GetGraphSummary
+            Resource: "*"  
+
+          - Sid: WafReadOnly
+            Effect: Allow
+            Action:
+              - wafv2:ListWebACLs
+              - wafv2:GetWebACL
+              - wafv2:GetWebACLForResource
+              - wafv2:ListResourcesForWebACL
+              - wafv2:ListTagsForResource
+            Resource: "*"  
+
+  BlocksReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::AccountId}-Blocks-read-role'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${BlocksExternalAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+
+      ManagedPolicyArns:
+        - !Ref CostAndReservationsReadPolicy
+        - !Ref SavingsEstimationReadOnly
+        - !Ref SavingsEstimationReadOnlyPart2
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
+
+      Policies:
+        # Identity
+        - PolicyName: StsWhoami
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+
+Outputs:
+  BlocksReadRoleArn:
+    Description: 'Cross-account role for cost and resource optimization analysis within a sub-account'
+    Value: !GetAtt BlocksReadRole.Arn
+  BlocksReadRoleName:
+    Description: 'Name of the cross-account Blocks read role'
+    Value: !Ref BlocksReadRole

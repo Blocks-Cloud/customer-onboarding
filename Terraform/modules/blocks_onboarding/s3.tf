@@ -3,15 +3,13 @@
 ############################
 
 resource "aws_s3_bucket" "cur_bucket" {
-  count         = var.use_existing_bucket ? 0 : 1
-  bucket        = local.cur_bucket_name
+  bucket        = local.blocks_resource_name
   force_destroy = false
   tags          = local.common_tags
 }
 
 resource "aws_s3_bucket_versioning" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   versioning_configuration {
     status = "Enabled"
@@ -19,8 +17,7 @@ resource "aws_s3_bucket_versioning" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
@@ -28,8 +25,7 @@ resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -41,7 +37,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_public_access_block" "cur_bucket" {
-  bucket                  = local.cur_bucket_name
+  bucket                  = local.blocks_resource_name
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -51,8 +47,7 @@ resource "aws_s3_bucket_public_access_block" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     id     = "expire-old-cur-data"
@@ -70,20 +65,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
       noncurrent_days = 30
     }
   }
-
-  rule {
-    id     = "intelligent-tiering"
-    status = var.enable_lifecycle_rules ? "Enabled" : "Disabled"
-
-    filter {
-      prefix = "cur2/"
-    }
-
-    transition {
-      days          = 90
-      storage_class = "INTELLIGENT_TIERING"
-    }
-  }
 }
 
 ############################
@@ -99,7 +80,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
       identifiers = ["bcm-data-exports.amazonaws.com"]
     }
     actions   = ["s3:PutObject"]
-    resources = ["arn:aws:s3:::${local.cur_bucket_name}/*"]
+    resources = ["arn:aws:s3:::${local.blocks_resource_name}/*"]
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
@@ -108,7 +89,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     condition {
       test     = "StringLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:export/*"]
+      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:export/*"]
     }
   }
 
@@ -125,7 +106,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
       "s3:GetBucketLocation",
       "s3:ListBucket"
     ]
-    resources = ["arn:aws:s3:::${local.cur_bucket_name}"]
+    resources = ["arn:aws:s3:::${local.blocks_resource_name}"]
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
@@ -134,7 +115,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     condition {
       test     = "StringLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:export/*"]
+      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:export/*"]
     }
   }
 
@@ -143,15 +124,15 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.blocks_billing_read_role.arn]
+      identifiers = [aws_iam_role.blocks_read_role.arn]
     }
     actions   = ["s3:GetObject"]
-    resources = ["arn:aws:s3:::${local.cur_bucket_name}/cur2/*"]
+    resources = ["arn:aws:s3:::${local.blocks_resource_name}/cur2/*"]
   }
 }
 
 resource "aws_s3_bucket_policy" "cur_bucket_policy" {
-  bucket = local.cur_bucket_name
+  bucket = local.blocks_resource_name
   policy = data.aws_iam_policy_document.cur_bucket_policy.json
 
   depends_on = [aws_s3_bucket.cur_bucket]

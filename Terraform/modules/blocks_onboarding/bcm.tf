@@ -1,12 +1,12 @@
 
-############################
-# BCM Data Exports (CUR 2.0)
-############################
+##############################
+# BCM Data Exports (CUR 2.0) #
+##############################
 
 resource "aws_bcmdataexports_export" "cur2" {
   export {
-    name        = local.export_name
-    description = "CUR 2.0 export - ${upper(var.time_granularity)} granularity with resource IDs"
+    name        = local.blocks_resource_name
+    description = "CUR 2.0 export - Hourly granularity with resource IDs"
 
     data_query {
       query_statement = file("${path.module}/cur_query.sql")
@@ -14,8 +14,8 @@ resource "aws_bcmdataexports_export" "cur2" {
       table_configurations = {
         "COST_AND_USAGE_REPORT" = {
           BILLING_VIEW_ARN                      = "arn:aws:billing::${data.aws_caller_identity.current.account_id}:billingview/primary"
-          TIME_GRANULARITY                      = var.time_granularity
-          INCLUDE_RESOURCES                     = var.include_resources ? "TRUE" : "FALSE"
+          TIME_GRANULARITY                      = "HOURLY"
+          INCLUDE_RESOURCES                     =  "TRUE"
           INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "TRUE"
           INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY = "FALSE"
         }
@@ -24,9 +24,9 @@ resource "aws_bcmdataexports_export" "cur2" {
 
     destination_configurations {
       s3_destination {
-        s3_bucket = local.cur_bucket_name
+        s3_bucket = local.blocks_resource_name
         s3_prefix = "cur2"
-        s3_region = data.aws_region.current.name
+        s3_region = data.aws_region.current.region
 
         s3_output_configurations {
           compression = "PARQUET"
