@@ -25,7 +25,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: CostReadOnly
+          - Sid: CostAndUsageReadOnly
             Effect: Allow
             Action:
               - ce:Get*
@@ -33,6 +33,16 @@ Resources:
               - ce:Describe*
               - cost-optimization-hub:Get*
               - cost-optimization-hub:List*
+              - cur:Get*
+              - cur:DescribeReportDefinitions
+            Resource: "*"
+
+          - Sid: PpaAndCreditsCheck
+            Effect: Allow
+            Action:
+              - billing:GetBillingData
+              - billing:GetBillingDetails
+              - billing:GetCredits
             Resource: "*"
 
           - Sid: ReservationsReadOnly
@@ -44,10 +54,10 @@ Resources:
               - ec2:DescribeReserved*
             Resource: "*"
 
-  ComputeAndDatabaseAnalyticsReadPolicy:
+  SavingsEstimationReadOnly:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-ComputeReadPolicy'
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicy'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -120,7 +130,7 @@ Resources:
               - redshift-serverless:Describe*
               - redshift-serverless:List*
             Resource: "*"
-            
+
           - Sid: MemoryDBReadOnly
             Effect: Allow
             Action:
@@ -146,13 +156,6 @@ Resources:
               - timestream-influxdb:List*
             Resource: "*"
 
-  BlocksCustomReadPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-BlocksCustomReadPolicy'
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
           - Sid: TrustedAdvisorReadOnly
             Effect: Allow
             Action:
@@ -183,6 +186,7 @@ Resources:
               - s3:GetObjectRetention
               - s3:GetBucketTagging
             Resource: "*"
+
           - Sid: CloudWatchReadOnly
             Effect: Allow
             Action:
@@ -195,15 +199,13 @@ Resources:
               - logs:List*
             Resource: "*"
 
-          - Sid: Route53ReadOnly
-            Effect: Allow
-            Action:
-              - route53:Get*
-              - route53:List*
-              - route53domains:Get*
-              - route53domains:List*
-            Resource: "*"
-
+  SavingsEstimationReadOnlyPart2:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicyPart2'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
           - Sid: BackupReadOnly
             Effect: Allow
             Action:
@@ -211,6 +213,7 @@ Resources:
               - backup:Get*
               - backup:List*
             Resource: "*"
+
           - Sid: AppAutoScalingReadOnly
             Effect: Allow
             Action:
@@ -262,13 +265,6 @@ Resources:
               - appstream:List*
             Resource: "*"
 
-          - Sid: EmrReadOnly
-            Effect: Allow
-            Action:
-              - elasticmapreduce:Describe*
-              - elasticmapreduce:List*
-            Resource: "*"
-
           - Sid: SageMakerReadOnly
             Effect: Allow
             Action:
@@ -296,14 +292,6 @@ Resources:
             Action:
               - cloudfront:Get*
               - cloudfront:List*
-            Resource: "*"
-
-          - Sid: CloudFormationReadOnly
-            Effect: Allow
-            Action:
-              - cloudformation:DescribeStacks
-              - cloudformation:ListStackResources
-              - cloudformation:ListStacks
             Resource: "*"
 
           - Sid: ApprunnerReadOnly
@@ -361,7 +349,7 @@ Resources:
               - kinesisanalytics:ListTagsForResource
             Resource: "*"  
 
-          - Sid: FirhoseReadOnly
+          - Sid: FirehoseReadOnly
             Effect: Allow
             Action:
               - firehose:ListDeliveryStreams
@@ -428,11 +416,9 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
 
       ManagedPolicyArns:
-        - !Ref BlocksCustomReadPolicy
         - !Ref CostAndReservationsReadPolicy
-        - !Ref ComputeAndDatabaseAnalyticsReadPolicy
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
+        - !Ref SavingsEstimationReadOnly
+        - !Ref SavingsEstimationReadOnlyPart2
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess

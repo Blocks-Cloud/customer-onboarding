@@ -2,18 +2,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   This Blocks CloudFormation template automates the deployment of AWS Cost and Usage Report (CUR 2.0) with comprehensive read-only access for cost optimization and analysis.
   It creates an S3 bucket for hourly cost data exports in Parquet format, configures a detailed CUR 2.0 export with 140+ billing fields including resource IDs and split cost allocation, requests historical data backfill via AWS Support. 
-  It establishes a secure cross-account IAM role that could be assumed by Blocks with read-only permissions across 40+ AWS services (compute, storage, databases, analytics, networking, and cost management) and deploys read-only roles to all sub-accounts via StackSet for organization-wide visibility.'
+  It establishes a secure cross-account IAM role that can be assumed by Blocks with read-only permissions across 40+ AWS services (compute, storage, databases, analytics, networking, and cost management) and deploys read-only roles to all sub-accounts via StackSet for organization-wide visibility.'
+  The Template must be deployed in the Organization Root Account and in us-east-1 region as Cur2.0 is only available in the organization Root account and region us-east-1.
 
 Parameters:
-  UseExistingBucket:
-    Type: String
-    Default: 'FALSE'
-    AllowedValues: ['TRUE','FALSE']
-    Description: 'TRUE to use an already-existing bucket'
-  ExistingBucketName:
-    Type: String
-    Default: ''
-    Description: 'Exact name of the pre-existing bucket (required if UseExistingBucket=TRUE)'
   BucketNamePrefix:
     Type: String
     Default: 'blocks-cur-data'
@@ -34,9 +26,7 @@ Parameters:
     Description: 'Include resource IDs'
   BackfillMonths:
     Type: Number
-    Default: 12
-    MinValue: 1
-    MaxValue: 36
+    Default: 37
     Description: 'Months of historical data to request via Support'
   SupportSeverity:
     Type: String
@@ -69,15 +59,17 @@ Parameters:
     Description: 'AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console.'
     AllowedPattern: '^r-[a-z0-9]{4,32}$'
     ConstraintDescription: 'Must be a valid Organization Root ID starting with r-'
+  TemplateVersion:
+    Type: String
+    Default: '1.0.0'
+    Description: 'Version of the template to force updates when the URL does not change.'
 
 Conditions:
-  CreateBucket: !Equals [!Ref UseExistingBucket, 'FALSE']
   HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
 
 Resources:
   CURBucket:
     Type: AWS::S3::Bucket
-    Condition: CreateBucket
     Properties:
       BucketName: !Sub '${BucketNamePrefix}-${AWS::AccountId}-${AWS::Region}'
       OwnershipControls:
@@ -105,22 +97,21 @@ Resources:
   CURBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+      Bucket: !Ref CURBucket
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+
           - Sid: AllowBCMDataExportsPut
             Effect: Allow
             Principal: { Service: bcm-data-exports.amazonaws.com }
             Action: s3:PutObject
-            Resource:
-              !Sub
-                - 'arn:${AWS::Partition}:s3:::${B}/*'
-                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/*"
             Condition:
               StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
               StringLike:
-                aws:SourceArn: !Sub 'arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*'
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*"
+
           - Sid: AllowBCMDataExportsBucketMeta
             Effect: Allow
             Principal: { Service: bcm-data-exports.amazonaws.com }
@@ -129,23 +120,18 @@ Resources:
               - s3:GetBucketPolicy
               - s3:GetBucketLocation
               - s3:ListBucket
-            Resource:
-              !Sub
-                - 'arn:${AWS::Partition}:s3:::${B}'
-                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
             Condition:
               StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
               StringLike:
-                aws:SourceArn: !Sub 'arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*'
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*"
+
           - Sid: AllowReadRoleGetObject
             Effect: Allow
             Principal:
               AWS: !GetAtt BlocksReadRole.Arn
             Action: ['s3:GetObject']
-            Resource:
-              !Sub
-                - 'arn:${AWS::Partition}:s3:::${B}/cur2/*'
-                - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/cur2/*"
 
   Cur20Export:
     Type: AWS::BCMDataExports::Export
@@ -288,7 +274,7 @@ Resources:
               INCLUDE_SPLIT_COST_ALLOCATION_DATA: 'TRUE'
         DestinationConfigurations:
           S3Destination:
-            S3Bucket: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+            S3Bucket: !Ref CURBucket
             S3Prefix: 'cur2'
             S3Region: !Ref AWS::Region
             S3OutputConfigurations:
@@ -391,7 +377,14 @@ Resources:
                       issue_type = "customer-service"
                       language = "en"
                       subject = f"Request backfill for CUR 2.0 export '{export_name}'"
-                      body = f"Please backfill {months} months of historical data into CUR 2.0 export '{export_name}'."
+                      body = (
+                        f"Hello AWS Support,\n\n"
+                        f"Please backfill {months} months of historical Cost and Usage Report data "
+                        f"into the CUR 2.0 export named '{export_name}'.\n\n"
+                        f"This export was created using AWS BCM Data Exports (CUR 2.0) and stores "
+                        f"data in Parquet format.\n\n"
+                        f"Thank you!"
+                      )
                       resp = support.create_case(
                           subject=subject,
                           serviceCode=svc_code,
@@ -448,6 +441,9 @@ Resources:
         FailureTolerancePercentage: 100
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
+      Tags:
+        - Key: TemplateVersion
+          Value: !Ref TemplateVersion
       CallAs: SELF
 
   CostAndReservationsReadPolicy:
@@ -457,7 +453,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: CostReadOnly
+          - Sid: CostAndUsageReadOnly
             Effect: Allow
             Action:
               - ce:Get*
@@ -465,6 +461,16 @@ Resources:
               - ce:Describe*
               - cost-optimization-hub:Get*
               - cost-optimization-hub:List*
+              - cur:Get*
+              - cur:DescribeReportDefinitions
+            Resource: "*"
+
+          - Sid: PpaAndCreditsCheck
+            Effect: Allow
+            Action:
+              - billing:GetBillingData
+              - billing:GetBillingDetails
+              - billing:GetCredits
             Resource: "*"
 
           - Sid: ReservationsReadOnly
@@ -476,10 +482,10 @@ Resources:
               - ec2:DescribeReserved*
             Resource: "*"
 
-  ComputeAndDatabaseAnalyticsReadPolicy:
+  SavingsEstimationReadOnly:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-ComputeReadPolicy'
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicy'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -578,13 +584,6 @@ Resources:
               - timestream-influxdb:List*
             Resource: "*"
 
-  BlocksCustomReadPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-BlocksCustomReadPolicy'
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
           - Sid: TrustedAdvisorReadOnly
             Effect: Allow
             Action:
@@ -615,6 +614,7 @@ Resources:
               - s3:GetObjectRetention
               - s3:GetBucketTagging
             Resource: "*"
+
           - Sid: CloudWatchReadOnly
             Effect: Allow
             Action:
@@ -627,15 +627,13 @@ Resources:
               - logs:List*
             Resource: "*"
 
-          - Sid: Route53ReadOnly
-            Effect: Allow
-            Action:
-              - route53:Get*
-              - route53:List*
-              - route53domains:Get*
-              - route53domains:List*
-            Resource: "*"
-
+  SavingsEstimationReadOnlyPart2:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicyPart2'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
           - Sid: BackupReadOnly
             Effect: Allow
             Action:
@@ -695,13 +693,6 @@ Resources:
               - appstream:List*
             Resource: "*"
 
-          - Sid: EmrReadOnly
-            Effect: Allow
-            Action:
-              - elasticmapreduce:Describe*
-              - elasticmapreduce:List*
-            Resource: "*"
-
           - Sid: SageMakerReadOnly
             Effect: Allow
             Action:
@@ -729,14 +720,6 @@ Resources:
             Action:
               - cloudfront:Get*
               - cloudfront:List*
-            Resource: "*"
-
-          - Sid: CloudFormationReadOnly
-            Effect: Allow
-            Action:
-              - cloudformation:DescribeStacks
-              - cloudformation:ListStackResources
-              - cloudformation:ListStacks
             Resource: "*"
 
           - Sid: ApprunnerReadOnly
@@ -794,7 +777,7 @@ Resources:
               - kinesisanalytics:ListTagsForResource
             Resource: "*"  
 
-          - Sid: FirhoseReadOnly
+          - Sid: FirehoseReadOnly
             Effect: Allow
             Action:
               - firehose:ListDeliveryStreams
@@ -861,11 +844,9 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
 
       ManagedPolicyArns:
-        - !Ref BlocksCustomReadPolicy
         - !Ref CostAndReservationsReadPolicy
-        - !Ref ComputeAndDatabaseAnalyticsReadPolicy
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBudgetsReadOnlyAccess
+        - !Ref SavingsEstimationReadOnly
+        - !Ref SavingsEstimationReadOnlyPart2
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
@@ -889,20 +870,14 @@ Resources:
               - Sid: ListCurPrefix
                 Effect: Allow
                 Action: 's3:ListBucket'
-                Resource:
-                  !Sub
-                    - 'arn:${AWS::Partition}:s3:::${B}'
-                    - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
                 Condition:
                   StringLike:
                     s3:prefix: ['cur2/*']
               - Sid: ReadCurObjects
                 Effect: Allow
                 Action: 's3:GetObject'
-                Resource:
-                  !Sub
-                    - 'arn:${AWS::Partition}:s3:::${B}/cur2/*'
-                    - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/cur2/*"
 
         # KMS Decrypt for Encrypted CUR Bucket
         - !If
@@ -921,12 +896,10 @@ Resources:
 Outputs:
   CURBucketName:
     Description: 'Name of the S3 bucket storing CUR data'
-    Value: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName]
+    Value: !Ref CURBucket
   CURBucketArn:
     Value:
-      !Sub
-        - 'arn:${AWS::Partition}:s3:::${B}'
-        - { B: !If [CreateBucket, !Ref CURBucket, !Ref ExistingBucketName] }
+      !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
   BackfillCaseId:
     Description: 'Present if Support API allowed; empty otherwise'
     Value: !GetAtt RequestBackfill.CaseId

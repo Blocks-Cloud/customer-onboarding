@@ -3,15 +3,13 @@
 ############################
 
 resource "aws_s3_bucket" "cur_bucket" {
-  count         = var.use_existing_bucket ? 0 : 1
   bucket        = local.cur_bucket_name
   force_destroy = false
   tags          = local.common_tags
 }
 
 resource "aws_s3_bucket_versioning" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   versioning_configuration {
     status = "Enabled"
@@ -19,8 +17,7 @@ resource "aws_s3_bucket_versioning" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
@@ -28,8 +25,7 @@ resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -51,8 +47,7 @@ resource "aws_s3_bucket_public_access_block" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
-  count  = var.use_existing_bucket ? 0 : 1
-  bucket = aws_s3_bucket.cur_bucket[count.index].id
+  bucket = aws_s3_bucket.cur_bucket.id
 
   rule {
     id     = "expire-old-cur-data"
@@ -94,7 +89,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     condition {
       test     = "StringLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:export/*"]
+      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:export/*"]
     }
   }
 
@@ -120,7 +115,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     condition {
       test     = "StringLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:export/*"]
+      values   = ["arn:aws:bcm-data-exports:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:export/*"]
     }
   }
 

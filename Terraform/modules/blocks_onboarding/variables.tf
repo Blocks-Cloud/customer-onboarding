@@ -4,22 +4,6 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-variable "use_existing_bucket" {
-  type        = bool
-  default     = false
-  description = "Use an existing S3 bucket instead of creating a new one"
-}
-
-variable "existing_bucket_name" {
-  type        = string
-  default     = ""
-  description = "Name of existing bucket (required if use_existing_bucket = true)"
-  validation {
-    condition     = var.use_existing_bucket == false || var.existing_bucket_name != ""
-    error_message = "existing_bucket_name must be provided when use_existing_bucket is true"
-  }
-}
-
 variable "bucket_name_prefix" {
   type        = string
   default     = "blocks-cur-data"
@@ -50,11 +34,11 @@ variable "include_resources" {
 
 variable "backfill_months" {
   type        = number
-  default     = 12
-  description = "Months of historical data to request"
+  default     = 37
+  description = "Months of historical data to request, must be 3 years"
   validation {
-    condition     = var.backfill_months >= 1 && var.backfill_months <= 24
-    error_message = "backfill_months must be between 1 and 24"
+    condition     = var.backfill_months == 37
+    error_message = "backfill_months must be between 37"
   }
 }
 
@@ -77,6 +61,7 @@ variable "blocks_external_account_id" {
 variable "external_id" {
   type        = string
   description = "External ID for cross-account role assumption (keep secret)"
+  default     = "blocks-shared-secret"
   sensitive   = true
 }
 
@@ -166,14 +151,20 @@ variable "template_url" {
   default     = "https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml"
 }
 
-variable "failure_tolerance_percentage" {
-  description = "The percentage of accounts per region for which this operation can fail before AWS CloudFormation stops the operation in that region."
-  type        = number
-  default     = 100
+variable "template_version" {
+  description = "The version of the template to use."
+  type        = string
+  default     = "1.0.0"
 }
 
-variable "max_concurrent_percentage" {
-  description = "The maximum percentage of accounts in which to perform this operation at one time."
+variable "failure_tolerance_count" {
+  description = "The number of accounts per region for which this operation can fail before AWS CloudFormation stops the operation in that region."
+  type        = number
+  default     = 10
+}
+
+variable "max_concurrent_count" {
+  description = "The maximum number of accounts in which to perform this operation at one time."
   type        = number
   default     = 100
 }

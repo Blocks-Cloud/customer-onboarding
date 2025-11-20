@@ -27,8 +27,6 @@ resource "aws_iam_role" "blocks_read_role" {
 
 resource "aws_iam_role_policy_attachment" "blocks_read_role" {
   for_each = toset([
-    "arn:aws:iam::aws:policy/AWSBillingReadOnlyAccess",
-    "arn:aws:iam::aws:policy/AWSBudgetsReadOnlyAccess",
     "arn:aws:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:aws:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:aws:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
@@ -82,7 +80,7 @@ resource "aws_iam_role_policy" "cur_s3_read" {
   policy = data.aws_iam_policy_document.cur_s3_read.json
 }
 
-data "aws_iam_policy_document" "cost_read_only" {
+data "aws_iam_policy_document" "cost_reservations_read_only" {
   statement {
     sid    = "CostReadOnly"
     effect = "Allow"
@@ -92,6 +90,17 @@ data "aws_iam_policy_document" "cost_read_only" {
       "ce:Describe*",
       "cost-optimization-hub:Get*",
       "cost-optimization-hub:List*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PpaAndCreditsCheck"
+    effect = "Allow"
+    actions = [
+      "billing:GetBillingData",
+      "billing:GetBillingDetails",
+      "billing:GetCredits"
     ]
     resources = ["*"]
   }
@@ -118,14 +127,13 @@ data "aws_iam_policy_document" "cost_read_only" {
   }
 }
 
-resource "aws_iam_role_policy" "compute_and_database_analytics_read" {
-  name   = "${data.aws_caller_identity.current.account_id}-ComputeReadPolicy"
+resource "aws_iam_role_policy" "cost_reservations_read_only" {
+  name   = "${data.aws_caller_identity.current.account_id}-CostAndReservationsReadPolicy"
   role   = aws_iam_role.blocks_read_role.id
-  policy = data.aws_iam_policy_document.cost_read_only.json
+  policy = data.aws_iam_policy_document.cost_reservations_read_only.json
 }
 
-# AWS Services Read Access
-data "aws_iam_policy_document" "compute_and_database_analytics_read" {
+data "aws_iam_policy_document" "savings_estimations_read_only" {
   statement {
     sid    = "Ec2ReadOnly"
     effect = "Allow"
@@ -255,9 +263,6 @@ data "aws_iam_policy_document" "compute_and_database_analytics_read" {
     ]
     resources = ["*"]
   }
-}
-
-data "aws_iam_policy_document" "blocks_custom_read" {
   statement {
     sid    = "TrustedAdvisorReadOnly"
     effect = "Allow"
@@ -309,18 +314,6 @@ data "aws_iam_policy_document" "blocks_custom_read" {
       "logs:Describe*",
       "logs:Get*",
       "logs:List*"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "Route53ReadOnly"
-    effect = "Allow"
-    actions = [
-      "route53:Get*",
-      "route53:List*",
-      "route53domains:Get*",
-      "route53domains:List*"
     ]
     resources = ["*"]
   }
@@ -413,7 +406,7 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
     resources = ["*"]
   }
-
+  
   statement {
     sid    = "SageMakerReadOnly"
     effect = "Allow"
@@ -451,17 +444,6 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     actions = [
       "cloudfront:Get*",
       "cloudfront:List*"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "CloudFormationReadOnly"
-    effect = "Allow"
-    actions = [
-      "cloudformation:DescribeStacks",
-      "cloudformation:ListStackResources",
-      "cloudformation:ListStacks"
     ]
     resources = ["*"]
   }
@@ -606,8 +588,8 @@ data "aws_iam_policy_document" "blocks_custom_read" {
 }
 
 
-resource "aws_iam_role_policy" "blocks_custom_read" {
-  name = "${data.aws_caller_identity.current.account_id}-BlocksCustomReadPolicy"
+resource "aws_iam_role_policy" "savings_estimations_read_only" {
+  name = "${data.aws_caller_identity.current.account_id}-SavingsEstimationReadOnlyPolicy"
   role   = aws_iam_role.blocks_read_role.id
-  policy = data.aws_iam_policy_document.blocks_custom_read.json
+  policy = data.aws_iam_policy_document.savings_estimations_read_only.json
 }

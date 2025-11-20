@@ -26,7 +26,7 @@ resource "aws_bcmdataexports_export" "cur2" {
       s3_destination {
         s3_bucket = local.cur_bucket_name
         s3_prefix = "cur2"
-        s3_region = data.aws_region.current.name
+        s3_region = data.aws_region.current.region
 
         s3_output_configurations {
           compression = "PARQUET"

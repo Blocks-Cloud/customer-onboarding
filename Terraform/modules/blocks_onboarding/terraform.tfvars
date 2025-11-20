@@ -6,15 +6,9 @@
 # Note: Requires Business or Enterprise support plan
 enable_backfill_lambda = true
 
-backfill_months = 12
-
 support_severity = "low"
 
-############################
-# Cross-Account Access
-############################
-
-external_id = ""
+template_version = "1.0.0"
 
 ############################
 # Resource Tagging
