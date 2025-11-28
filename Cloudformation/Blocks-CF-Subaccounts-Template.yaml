@@ -6,25 +6,17 @@ Description: >
   like Cost Explorer, Budgets, Compute Optimizer, and S3 bucket configurations,
   along with inventory data for various AWS services.
 
-Parameters:
-  BlocksExternalAccountId:
-    Type: String
-    Default: "503132503926"
-    Description: The 12-digit AWS account ID of the Blocks external account that will be trusted.
-  ExternalId:
-    Type: String
-    NoEcho: true
-    Default: "blocks-shared-secret"
-    Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
-
 Resources:
-  CostAndReservationsReadPolicy:
+  BlocksCostAndReservationsReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-CostAndReservationsReadPolicy'
+      ManagedPolicyName: 'BlocksCostAndReservationsReadPolicy'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to Cost Explorer, billing, CUR, and reserved instance data for cost analysis.'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          # Cost and usage analytics APIs
+          # Services: Cost Explorer, Cost Optimization Hub, CUR, BCM Data Exports
           - Sid: CostAndUsageReadOnly
             Effect: Allow
             Action:
@@ -35,8 +27,12 @@ Resources:
               - cost-optimization-hub:List*
               - cur:Get*
               - cur:DescribeReportDefinitions
+              - bcm-data-exports:GetExport
+              - bcm-data-exports:ListExports
             Resource: "*"
-
+          
+          # Billing data, discounts, and credits
+          # Services: AWS Billing
           - Sid: PpaAndCreditsCheck
             Effect: Allow
             Action:
@@ -44,7 +40,9 @@ Resources:
               - billing:GetBillingDetails
               - billing:GetCredits
             Resource: "*"
-
+  
+          # Reserved instance inventory
+          # Services: EC2, RDS, Redshift, ElastiCache
           - Sid: ReservationsReadOnly
             Effect: Allow
             Action:
@@ -54,14 +52,19 @@ Resources:
               - ec2:DescribeReserved*
             Resource: "*"
 
-  SavingsEstimationReadOnly:
+
+  BlocksSavingsEstimationReadOnlyPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicy'
+      ManagedPolicyName: 'BlocksSavingsEstimationReadOnlyPolicy'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis.'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: Ec2ReadOnly
+  
+          # Compute, scaling, and load balancing
+          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda, Batch, App Runner
+          - Sid: ComputeAndScalingReadOnly
             Effect: Allow
             Action:
               - ec2:Describe*
@@ -72,16 +75,25 @@ Resources:
               - autoscaling:Describe*
               - autoscaling:Get*
               - autoscaling:List*
-            Resource: "*"
-
-          - Sid: LambdaReadOnly
-            Effect: Allow
-            Action:
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
               - lambda:List*
               - lambda:Get*
+              - batch:Get*
+              - batch:List*
+              - apprunner:ListServices
+              - apprunner:DescribeService
+              - apprunner:ListAutoScalingConfigurations
+              - apprunner:DescribeAutoScalingConfiguration
+              - apprunner:ListTagsForResource
             Resource: "*"
-
-          - Sid: EcsEksEcrReadOnly
+  
+          # Containers, orchestration, and build/deploy
+          # Services: ECS, EKS, ECR, CodeBuild, CodePipeline
+          - Sid: ContainersAndBuildReadOnly
             Effect: Allow
             Action:
               - ecs:List*
@@ -91,292 +103,41 @@ Resources:
               - ecr:DescribeRepositories
               - ecr:ListImages
               - ecr:DescribeImages
-            Resource: "*"
-
-          - Sid: RdsReadOnly
-            Effect: Allow
-            Action:
-              - rds:Describe*
-              - rds:List*
-            Resource: "*"
-
-          - Sid: DynamoDbReadOnly
-            Effect: Allow
-            Action:
-              - dynamodb:List*
-              - dynamodb:Describe*
-            Resource: "*"
-
-          - Sid: DynamoDBAcceleratorReadOnly
-            Effect: Allow
-            Action:
-              - dax:DescribeClusters
-              - dax:ListTags
-              - dax:DescribeDefaultParameters
-              - dax:DescribeParameters
-            Resource: "*"
-
-          - Sid: RedshiftReadOnly
-            Effect: Allow
-            Action:
-              - redshift:Describe*
-              - redshift:Get*
-              - redshift:List*
-            Resource: "*"
-
-          - Sid: RedshiftServerlessReadOnly
-            Effect: Allow
-            Action:
-              - redshift-serverless:Describe*
-              - redshift-serverless:List*
-            Resource: "*"
-
-          - Sid: MemoryDBReadOnly
-            Effect: Allow
-            Action:
-              - memorydb:Describe*
-              - memorydb:List*
-              - memorydb:ListTags
-            Resource: "*"
-          
-          - Sid: AuroraDSQLReadOnly
-            Effect: Allow
-            Action:
-              - dsql:Get*
-              - dsql:List*
-            Resource: "*"  
-
-          - Sid: TimeStreamReadOnly
-            Effect: Allow
-            Action:
-              - timestream:List*
-              - timestream:Describe*
-              - timestream:ListTagsForResource
-              - timestream-influxdb:Get*
-              - timestream-influxdb:List*
-            Resource: "*"
-
-          - Sid: TrustedAdvisorReadOnly
-            Effect: Allow
-            Action:
-              - trustedadvisor:Describe*
-              - trustedadvisor:Get*
-              - trustedadvisor:List*
-              - support:DescribeTrustedAdvisorChecks
-              - support:DescribeTrustedAdvisorCheckResult
-              - support:DescribeTrustedAdvisorCheckSummaries
-              - support:DescribeTrustedAdvisorCheckRefreshStatuses
-              - support:RefreshTrustedAdvisorCheck
-            Resource: "*"
-
-          - Sid: ElastiCacheReadOnly
-            Effect: Allow
-            Action:
-              - elasticache:Describe*
-              - elasticache:List*
-            Resource: "*" 
- 
-          - Sid: S3ReadOnly
-            Effect: Allow
-            Action:
-              - s3:List*
-              - s3vectors:ListVectorBuckets
-              - s3:GetLifecycleConfiguration
-              - s3:GetBucketLocation
-              - s3:GetObjectRetention
-              - s3:GetBucketTagging
-            Resource: "*"
-
-          - Sid: CloudWatchReadOnly
-            Effect: Allow
-            Action:
-              - cloudwatch:Describe*
-              - cloudwatch:Get*
-              - cloudwatch:List*
-              - oam:ListSinks
-              - logs:Describe*
-              - logs:Get*
-              - logs:List*
-            Resource: "*"
-
-  SavingsEstimationReadOnlyPart2:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicyPart2'
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: BackupReadOnly
-            Effect: Allow
-            Action:
-              - backup:Describe*
-              - backup:Get*
-              - backup:List*
-            Resource: "*"
-
-          - Sid: AppAutoScalingReadOnly
-            Effect: Allow
-            Action:
-              - application-autoscaling:Describe*
-              - application-autoscaling:List*
-              - application-autoscaling:Get*
-              - autoscaling-plans:Describe*
-              - autoscaling-plans:Get*
-            Resource: "*"
-
-          - Sid: ApiGwReadOnly
-            Effect: Allow
-            Action:
-              - apigateway:GET
-            Resource: "*"
-
-          - Sid: ElasticSearchReadOnly
-            Effect: Allow
-            Action:
-              - es:Describe*
-              - es:List*
-              - es:Get*
-            Resource: "*"
-
-          - Sid: WorkSpacesReadOnly
-            Effect: Allow
-            Action:
-              - workspaces:Describe*
-            Resource: "*"
-
-          - Sid: FsxReadOnly
-            Effect: Allow
-            Action:
-              - fsx:Describe*
-              - fsx:List*
-            Resource: "*"
-
-          - Sid: EfsReadOnly
-            Effect: Allow
-            Action:
-              - elasticfilesystem:Describe*
-              - elasticfilesystem:List*
-            Resource: "*"
-
-          - Sid: AppstreamReadOnly
-            Effect: Allow
-            Action:
-              - appstream:Describe*
-              - appstream:List*
-            Resource: "*"
-
-          - Sid: SageMakerReadOnly
-            Effect: Allow
-            Action:
-              - sagemaker:Describe*
-              - sagemaker:List*
-              - sagemaker:Search
-            Resource: "*"
-
-          - Sid: GlueReadOnly
-            Effect: Allow
-            Action:
-              - Glue:Get*
-              - Glue:List*
-            Resource: "*"
-
-          - Sid: BedrockReadOnly
-            Effect: Allow
-            Action:
-              - bedrock:GetProvisionedModelThroughput
-              - bedrock:ListProvisionedModelThroughputs
-            Resource: "*"
-
-          - Sid: CloudFrontReadOnly
-            Effect: Allow
-            Action:
-              - cloudfront:Get*
-              - cloudfront:List*
-            Resource: "*"
-
-          - Sid: ApprunnerReadOnly
-            Effect: Allow
-            Action:
-              - apprunner:ListServices
-              - apprunner:DescribeService
-              - apprunner:ListAutoScalingConfigurations
-              - apprunner:DescribeAutoScalingConfiguration
-              - apprunner:ListTagsForResource
-            Resource: "*"   
-
-          - Sid: BatchReadOnly
-            Effect: Allow
-            Action:
-              - batch:Get*
-              - batch:List*
-            Resource: "*"  
-
-          - Sid: CodeBuildReadOnly
-            Effect: Allow
-            Action:
               - codebuild:ListProjects
               - codebuild:BatchGetProjects
               - codebuild:ListBuilds
               - codebuild:ListBuildsForProject
               - codebuild:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: CodePipelineReadOnly
-            Effect: Allow
-            Action:
               - codepipeline:GetPipeline
               - codepipeline:ListPipelines
               - codepipeline:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: KinesisReadOnly
+            Resource: "*"
+  
+          # Databases and caching
+          # Services: RDS, DynamoDB, DAX, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Neptune, Aurora DSQL
+          - Sid: DatabasesAndCachingReadOnly
             Effect: Allow
             Action:
-              - kinesis:ListShards
-              - kinesis:ListStreamConsumers
-              - kinesis:ListStreams
-              - kinesis:DescribeLimits
-              - kinesis:DescribeStreamConsumer
-              - kinesis:DescribeStreamSummary
-              - kinesis:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: KinesisAnalyticsReadOnly
-            Effect: Allow
-            Action:
-              - kinesisanalytics:ListApplications
-              - kinesisanalytics:DescribeApplication
-              - kinesisanalytics:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: FirehoseReadOnly
-            Effect: Allow
-            Action:
-              - firehose:ListDeliveryStreams
-              - firehose:DescribeDeliveryStream
-              - firehose:ListTagsForDeliveryStream
-            Resource: "*"  
-
-          - Sid: GrafanaReadOnly
-            Effect: Allow
-            Action:
-              - grafana:ListWorkspaces
-              - grafana:DescribeWorkspace
-              - grafana:DescribeWorkspaceConfiguration
-              - grafana:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: AirflowReadOnly
-            Effect: Allow
-            Action:
-              - airflow:ListEnvironments
-              - airflow:GetEnvironment
-              - airflow:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: NeptuneReadOnly
-            Effect: Allow
-            Action:
+              - rds:Describe*
+              - rds:List*
+              - dynamodb:List*
+              - dynamodb:Describe*
+              - dax:DescribeClusters
+              - dax:ListTags
+              - dax:DescribeDefaultParameters
+              - dax:DescribeParameters
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+              - elasticache:Describe*
+              - elasticache:List*
+              - memorydb:Describe*
+              - memorydb:List*
+              - memorydb:ListTags
+              - dsql:Get*
+              - dsql:List*
               - neptune:DescribeDBClusters
               - neptune:DescribeDBInstances
               - neptune:DescribeDBClusterSnapshots
@@ -387,53 +148,149 @@ Resources:
               - neptune-graph:GetGraphSummary
               - neptune-db:GetEngineStatus
               - neptune-db:GetGraphSummary
-            Resource: "*"  
-
-          - Sid: WafReadOnly
+            Resource: "*"
+  
+          # Streaming, messaging, and analytics
+          # Services: Kinesis, Kinesis Data Analytics, Firehose, Timestream, Timestream InfluxDB
+          - Sid: StreamingAndAnalyticsReadOnly
             Effect: Allow
             Action:
+              - timestream:List*
+              - timestream:Describe*
+              - timestream:ListTagsForResource
+              - timestream-influxdb:Get*
+              - timestream-influxdb:List*
+              - kinesis:ListShards
+              - kinesis:ListStreamConsumers
+              - kinesis:ListStreams
+              - kinesis:DescribeLimits
+              - kinesis:DescribeStreamConsumer
+              - kinesis:DescribeStreamSummary
+              - kinesis:ListTagsForResource
+              - kinesisanalytics:ListApplications
+              - kinesisanalytics:DescribeApplication
+              - kinesisanalytics:ListTagsForResource
+              - firehose:ListDeliveryStreams
+              - firehose:DescribeDeliveryStream
+              - firehose:ListTagsForDeliveryStream
+            Resource: "*"
+  
+          # AI, ML, data platforms, and dashboards
+          # Services: SageMaker, Glue, Bedrock, Airflow (MWAA)
+          - Sid: DataPlatformsAndAiReadOnly
+            Effect: Allow
+            Action:
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Search
+              - Glue:Get*
+              - Glue:List*
+              - bedrock:GetProvisionedModelThroughput
+              - bedrock:ListProvisionedModelThroughputs
+              - airflow:ListEnvironments
+              - airflow:GetEnvironment
+              - airflow:ListTagsForResource
+            Resource: "*"
+  
+          # Storage, backup, and content delivery
+          # Services: S3 (metadata only), FSx, EFS, Backup
+          - Sid: StorageAndContentReadOnly
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+              - fsx:Describe*
+              - fsx:List*
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+  
+          # Networking, API management, and security edges
+          # Services: API Gateway, OpenSearch / ES, WAFv2, CloudFront
+          - Sid: NetworkAndEdgeReadOnly
+            Effect: Allow
+            Action:
+              - apigateway:GET
+              - es:Describe*
+              - es:List*
+              - es:Get*
               - wafv2:ListWebACLs
               - wafv2:GetWebACL
               - wafv2:GetWebACLForResource
               - wafv2:ListResourcesForWebACL
               - wafv2:ListTagsForResource
-            Resource: "*"  
+              - cloudfront:Get*
+              - cloudfront:List*
+            Resource: "*"
+  
+  
+          # End-user compute and application streaming
+          # Services: WorkSpaces, AppStream
+          - Sid: EndUserServicesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+  
+          # Monitoring, observability, and advisory services
+          # Services: CloudWatch, CloudWatch Logs, Grafana, OAM, Trusted Advisor, AWS Support
+          - Sid: ObservabilityAndAdvisoryReadOnly
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:Get*
+              - logs:List*
+              - grafana:ListWorkspaces
+              - grafana:DescribeWorkspace
+              - grafana:DescribeWorkspaceConfiguration
+              - grafana:ListTagsForResource
+              - trustedadvisor:Describe*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
+              - support:DescribeTrustedAdvisorCheckRefreshStatuses
+              - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
 
   BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${AWS::AccountId}-Blocks-read-role'
+      RoleName: 'BlocksReadRole'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance.'
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${BlocksExternalAccountId}:root'
+              AWS: !Sub 'arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole'
             Action: 'sts:AssumeRole'
             Condition:
               StringEquals:
-                'sts:ExternalId': !Ref ExternalId
+                'sts:ExternalId': 'blocks-shared-secret'
 
       ManagedPolicyArns:
-        - !Ref CostAndReservationsReadPolicy
-        - !Ref SavingsEstimationReadOnly
-        - !Ref SavingsEstimationReadOnlyPart2
+        - !Ref BlocksCostAndReservationsReadPolicy
+        - !Ref BlocksSavingsEstimationReadOnlyPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
-
-      Policies:
-        # Identity
-        - PolicyName: StsWhoami
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sts:GetCallerIdentity
-                Resource: "*"
 
 Outputs:
   BlocksReadRoleArn:

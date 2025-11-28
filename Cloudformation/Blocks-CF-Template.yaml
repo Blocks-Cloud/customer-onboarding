@@ -1,54 +1,33 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  This Blocks CloudFormation template automates the deployment of AWS Cost and Usage Report (CUR 2.0) with comprehensive read-only access for cost optimization and analysis.
-  It creates an S3 bucket for hourly cost data exports in Parquet format, configures a detailed CUR 2.0 export with 140+ billing fields including resource IDs and split cost allocation, requests historical data backfill via AWS Support. 
-  It establishes a secure cross-account IAM role that can be assumed by Blocks with read-only permissions across 40+ AWS services (compute, storage, databases, analytics, networking, and cost management) and deploys read-only roles to all sub-accounts via StackSet for organization-wide visibility.'
-  The Template must be deployed in the Organization Root Account and in us-east-1 region as Cur2.0 is only available in the organization Root account and region us-east-1.
+  IMPORTANT:
+
+  Deploy this stack in your AWS Organization Management (root) account in the us-east-1 region only.
+
+
+  SUMMARY:
+
+  This CloudFormation template automates the ingestion of AWS Cost and Usage Report (CUR 2.0) data, and grants Blocks secure, read-only access to perform cost optimization analysis across all linked accounts:
+  Configures CUR 2.0 exports with hourly granularity.
+  Creates an S3 bucket to store CUR 2.0 data in Parquet format.
+  Creates a read-only IAM role to selected AWS services.
+  (Optionally) Creates an IAM role with limited support access and opens an AWS Support case on your behalf to backfill up to 36 months of historical data.
+  Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Parameters:
-  BlocksResourceName:
-    Type: String
-    Default: 'blocks-cur-data'
-    Description: 'Prefix if creating a new bucket; stack suffixes with account and region'
-  BlocksExternalAccountId:
-    Type: String
-    Default: "503132503926"
-    Description: The 12-digit AWS account ID of the Blocks external account that will be trusted.
-  ExternalId:
-    Type: String
-    NoEcho: true
-    Default: "blocks-shared-secret"
-    Description: 'Shared secret required in sts:AssumeRole (set per customer if you want)'
-  KmsKeyArn:
-    Type: String
-    Default: ''
-    Description: 'Optional AWS KMS master key ARN for bucket encryption; if set, also update the CMK key policy to allow S3 and bcm-data-exports'
-  StackSetName:
-    Type: String
-    Default: 'Blocks-Subaccounts-IAM-Role'
-    Description: 'The name for the CloudFormation StackSet that deploys IAM role to sub-accounts.'
-  SubAccountsStacksetTemplateUrl:
-    Type: String
-    Default: 'https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml'
-    Description: 'The URL for the StackSet template that creates IAM roles in sub-accounts.'
   OrganizationRootId:
     Type: String
     Description: 'AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console.'
     AllowedPattern: '^r-[a-z0-9]{4,32}$'
     ConstraintDescription: 'Must be a valid Organization Root ID starting with r-'
-  TemplateVersion:
+  CreateBackfillSupportCase:
     Type: String
-    Default: '1.0.0'
-    Description: 'Version of the template to force updates when the URL does not change.'
-  EnableBackfill:
-    Type: String
-    AllowedValues: ["TRUE", "FALSE"]
-    ConstraintDescription: 'Must be TRUE or FALSE'
-    Description: "Set to TRUE if business support is enabled in your AWS account, This will create a support Case Request to backfill the data for the last 37 months"
+    Default: 'YES'
+    Description: 'Set to Yes if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data'
+    AllowedValues: ['YES', 'NO']
 
 Conditions:
-  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
-  EnableBackfillCondition: !Equals [!Ref EnableBackfill, "TRUE"]
+  CreateBackfillResources: !Equals [!Ref CreateBackfillSupportCase, 'YES']
 
 Rules:
   EnforceUsEast1:
@@ -57,13 +36,13 @@ Rules:
           Fn::Equals:
             - !Ref AWS::Region
             - us-east-1
-        AssertDescription: "You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1"
+        AssertDescription: 'You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1'
 
 Resources:
   CURBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${BlocksResourceName}-${AWS::AccountId}'
+      BucketName: !Sub 'blocks-cur-data-${AWS::AccountId}'
       OwnershipControls:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
       PublicAccessBlockConfiguration:
@@ -81,10 +60,7 @@ Resources:
       VersioningConfiguration: { Status: Enabled }
       BucketEncryption:
         ServerSideEncryptionConfiguration:
-          - !If
-            - HasKms
-            - { ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms, KMSMasterKeyID: !Ref KmsKeyArn } }
-            - { ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }
+          - { ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }
 
   CURBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -93,7 +69,6 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-
           - Sid: AllowBCMDataExportsPut
             Effect: Allow
             Principal: { Service: bcm-data-exports.amazonaws.com }
@@ -118,11 +93,20 @@ Resources:
               StringLike:
                 aws:SourceArn: !Sub "arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*"
 
+          - Sid: AllowReadRoleListBucket
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BlocksReadRole.Arn
+            Action: "s3:ListBucket"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
+            Condition:
+              StringLike:
+                s3:prefix: ["cur2/*"]
           - Sid: AllowReadRoleGetObject
             Effect: Allow
             Principal:
               AWS: !GetAtt BlocksReadRole.Arn
-            Action: ['s3:GetObject']
+            Action: "s3:GetObject"
             Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/cur2/*"
 
   Cur20Export:
@@ -130,7 +114,7 @@ Resources:
     DependsOn: CURBucketPolicy
     Properties:
       Export:
-        Name: !Sub '${BlocksResourceName}-${AWS::AccountId}'
+        Name: !Sub 'blocks-cur-data-${AWS::AccountId}'
         Description: 'CUR 2.0 export to S3 (Parquet), hourly with resource IDs'
         DataQuery:
           QueryStatement: |
@@ -214,60 +198,62 @@ Resources:
               reservation_net_effective_cost, 
               reservation_net_recurring_fee_for_usage,
               reservation_net_unused_amortized_upfront_fee_for_billing_period, 
-              reservation_net_unused_recurring_fee, reservation_net_upfront_value, 
-              reservation_normalized_units_per_reservation, 
+              reservation_net_unused_recurring_fee,
+              reservation_net_upfront_value,
+              reservation_normalized_units_per_reservation,
               reservation_number_of_reservations,
-              reservation_recurring_fee_for_usage, 
-              reservation_reservation_a_r_n, 
+              reservation_recurring_fee_for_usage,
+              reservation_reservation_a_r_n,
               reservation_start_time,
               reservation_subscription_id,
-              reservation_total_reserved_normalized_units, 
-              reservation_total_reserved_units, 
-              reservation_units_per_reservation, 
+              reservation_total_reserved_normalized_units,
+              reservation_total_reserved_units,
+              reservation_units_per_reservation,
               reservation_unused_amortized_upfront_fee_for_billing_period,
-              reservation_unused_normalized_unit_quantity, 
+              reservation_unused_normalized_unit_quantity,
               reservation_unused_quantity,
-              reservation_unused_recurring_fee, 
-              reservation_upfront_value, 
-              resource_tags, 
-              savings_plan_amortized_upfront_commitment_for_billing_period, 
-              savings_plan_end_time, savings_plan_instance_type_family, 
-              savings_plan_net_amortized_upfront_commitment_for_billing_period, 
-              savings_plan_net_recurring_commitment_for_billing_period, 
-              savings_plan_net_savings_plan_effective_cost, 
-              savings_plan_offering_type, 
+              reservation_unused_recurring_fee,
+              reservation_upfront_value,
+              resource_tags,
+              savings_plan_amortized_upfront_commitment_for_billing_period,
+              savings_plan_end_time,
+              savings_plan_instance_type_family,
+              savings_plan_net_amortized_upfront_commitment_for_billing_period,
+              savings_plan_net_recurring_commitment_for_billing_period,
+              savings_plan_net_savings_plan_effective_cost,
+              savings_plan_offering_type,
               savings_plan_payment_option,
-              savings_plan_purchase_term, 
-              savings_plan_recurring_commitment_for_billing_period, 
-              savings_plan_region, 
+              savings_plan_purchase_term,
+              savings_plan_recurring_commitment_for_billing_period,
+              savings_plan_region,
               savings_plan_savings_plan_a_r_n,
               savings_plan_savings_plan_effective_cost,
-              savings_plan_savings_plan_rate, 
-              savings_plan_start_time, 
+              savings_plan_savings_plan_rate,
+              savings_plan_start_time,
               savings_plan_total_commitment_to_date,
-              savings_plan_used_commitment, 
-              split_line_item_actual_usage, 
-              split_line_item_net_split_cost, 
-              split_line_item_net_unused_cost, 
-              split_line_item_parent_resource_id, 
+              savings_plan_used_commitment,
+              split_line_item_actual_usage,
+              split_line_item_net_split_cost,
+              split_line_item_net_unused_cost,
+              split_line_item_parent_resource_id,
               split_line_item_public_on_demand_split_cost,
-              split_line_item_public_on_demand_unused_cost, 
-              split_line_item_reserved_usage, 
-              split_line_item_split_cost, 
+              split_line_item_public_on_demand_unused_cost,
+              split_line_item_reserved_usage,
+              split_line_item_split_cost,
               split_line_item_split_usage,
-              split_line_item_split_usage_ratio, 
+              split_line_item_split_usage_ratio,
               split_line_item_unused_cost
             FROM COST_AND_USAGE_REPORT
           TableConfigurations:
             COST_AND_USAGE_REPORT:
-              INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY: 'FALSE'
-              TIME_GRANULARITY: 'HOURLY'
-              INCLUDE_RESOURCES: 'TRUE'
-              INCLUDE_SPLIT_COST_ALLOCATION_DATA: 'TRUE'
+              INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY: "FALSE"
+              TIME_GRANULARITY: "HOURLY"
+              INCLUDE_RESOURCES: "TRUE"
+              INCLUDE_SPLIT_COST_ALLOCATION_DATA: "TRUE"
         DestinationConfigurations:
           S3Destination:
             S3Bucket: !Ref CURBucket
-            S3Prefix: 'cur2'
+            S3Prefix: "cur2"
             S3Region: !Ref AWS::Region
             S3OutputConfigurations:
               Compression: PARQUET
@@ -276,156 +262,18 @@ Resources:
               Overwrite: OVERWRITE_REPORT
         RefreshCadence: { Frequency: SYNCHRONOUS }
 
-  BlocksCustomResourceExecutionRole:
-    Condition: EnableBackfillCondition
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${AWS::AccountId}-Blocks-backfill-role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: lambda.amazonaws.com }
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: CustomResourcePermissions
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - support:CreateCase
-                  - support:DescribeServices
-                  - support:DescribeSeverityLevels
-                Resource: "*"
-
-  BackfillRequesterFn:
-    Condition: EnableBackfillCondition
-    Type: AWS::Lambda::Function
-    Properties:
-      Runtime: python3.12
-      Handler: index.handler
-      Role: !GetAtt BlocksCustomResourceExecutionRole.Arn
-      Timeout: 120
-      FunctionName: !Sub '${AWS::StackName}-BackfillRequesterFn'
-      Environment:
-        Variables:
-          EXPORT_NAME: !Sub '${BlocksResourceName}-${AWS::AccountId}'
-          BACKFILL_MONTHS: 37
-          SEVERITY: 'low'
-      Code:
-        ZipFile: |
-          import boto3, json, os, urllib.request, logging
-          from botocore.exceptions import ClientError
-          log = logging.getLogger()
-          log.setLevel(logging.INFO)
-
-          def send_response(event, context, status, reason=None, data=None, phys_id=None):
-              try:
-                  data = data or {}
-                  if 'CaseId' not in data:
-                      data['CaseId'] = ''
-                  body = json.dumps({
-                      'Status': status,
-                      'Reason': (reason or 'OK')[:4096],
-                      'PhysicalResourceId': phys_id or context.log_stream_name,
-                      'StackId': event['StackId'],
-                      'RequestId': event['RequestId'],
-                      'LogicalResourceId': event['LogicalResourceId'],
-                      'Data': data
-                  }).encode('utf-8')
-                  req = urllib.request.Request(event['ResponseURL'], data=body, method='PUT',
-                                               headers={'content-type':'', 'content-length': str(len(body))})
-                  with urllib.request.urlopen(req) as f:
-                      f.read()
-              except Exception:
-                  log.exception("Failed sending CFN response")
-
-          def handler(event, context):
-              log.info("Event: %s", json.dumps(event))
-
-              # Handle Delete event separately and exit early.
-              if event['RequestType'] == 'Delete':
-                  log.info("RequestType is Delete. No action to perform.")
-                  send_response(event, context, 'SUCCESS', reason='No action on delete')
-                  return
-
-              # Handle Create/Update events
-              status, reason, data, phys = 'SUCCESS', 'OK', {'CaseId': ''}, None
-              try:
-                  support = boto3.client('support', region_name='us-east-1')
-                  export_name = os.environ['EXPORT_NAME']
-                  months = int(os.environ.get('BACKFILL_MONTHS','12'))
-                  severity = os.environ.get('SEVERITY','low')
-                  try:
-                      svc_code = "service-cost-and-usage-report-cur"
-                      cat_code = "backfill-a-report"
-                      issue_type = "customer-service"
-                      language = "en"
-                      subject = f"Request historical data backfill for CUR 2.0 export '{export_name}'"
-                      body = (
-                        f"Hello AWS Support,\n\n"
-                        f"Please backfill {months} months of historical Cost and Usage Report data "
-                        f"into the CUR 2.0 export named '{export_name}'.\n\n"
-                        f"This export was created using AWS BCM Data Exports (CUR 2.0) and stores "
-                        f"data in Parquet format.\n\n"
-                        f"Thank you!"
-                      )
-                      resp = support.create_case(
-                          subject=subject,
-                          serviceCode=svc_code,
-                          severityCode=severity,
-                          categoryCode=cat_code,
-                          communicationBody=body,
-                          language=language,
-                          issueType=issue_type,
-                      )
-                      phys = resp.get('caseId','unknown')
-                      data.update({'CaseId': phys, 'BackfillRequested': True})
-                  except ClientError as ce:
-                      code = ce.response.get('Error',{}).get('Code','')
-                      if code in ('SubscriptionRequiredException','AccessDeniedException') or 'AccessDenied' in code:
-                          reason = f'Support API not available ({code}). Skipping backfill request.'
-                          data.update({'BackfillRequested': False, 'Reason': reason})
-                      else:
-                          status = 'FAILED'
-                          reason = f'Unexpected Support API error: {code}'
-              except Exception as e:
-                  status = 'FAILED'
-                  reason = f'Unhandled error: {e}'
-              finally:
-                  send_response(event, context, status, reason, data, phys)
-
-  RequestBackfill:
-    Condition: EnableBackfillCondition
-    Type: Custom::RequestCurBackfill
-    DependsOn: Cur20Export
-    Properties:
-      ServiceToken: !GetAtt BackfillRequesterFn.Arn
-      ExportName: !Sub '${BlocksResourceName}-${AWS::AccountId}'
-      BackfillMonths: 37
-      Severity: 'low'
-
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
     Properties:
-      StackSetName: Blocks-SubAccounts
-      Description: 'Deploy read-only roles to all sub-accounts (no CUR accounts)'
+      StackSetName: 'Subaccounts-Blocks-IAM-Read-Role'
+      Description: 'Deploys the Blocks read-only IAM role to all member accounts for organization-wide cost analysis and optimization'
       PermissionModel: SERVICE_MANAGED
       AutoDeployment:
         Enabled: true
         RetainStacksOnAccountRemoval: false
       Capabilities:
         - CAPABILITY_NAMED_IAM
-      TemplateURL: !Ref SubAccountsStacksetTemplateUrl
+      TemplateURL: "https://blocks-cf-templates.s3.eu-north-1.amazonaws.com/Blocks-CF-Subaccounts-Template.yaml"
       StackInstancesGroup:
         - DeploymentTargets:
             OrganizationalUnitIds:
@@ -438,16 +286,19 @@ Resources:
         RegionConcurrencyType: PARALLEL
       Tags:
         - Key: TemplateVersion
-          Value: !Ref TemplateVersion
+          Value: '1.0.0'
       CallAs: SELF
 
-  CostAndReservationsReadPolicy:
+  BlocksCostAndReservationsReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-CostAndReservationsReadPolicy'
+      ManagedPolicyName: 'BlocksCostAndReservationsReadPolicy'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to Cost Explorer, billing, CUR, and reserved instance data for cost analysis.'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
+          # Cost and usage analytics APIs
+          # Services: Cost Explorer, Cost Optimization Hub, CUR, BCM Data Exports
           - Sid: CostAndUsageReadOnly
             Effect: Allow
             Action:
@@ -462,6 +313,8 @@ Resources:
               - bcm-data-exports:ListExports
             Resource: "*"
 
+          # Billing data, discounts, and credits
+          # Services: AWS Billing
           - Sid: PpaAndCreditsCheck
             Effect: Allow
             Action:
@@ -470,6 +323,8 @@ Resources:
               - billing:GetCredits
             Resource: "*"
 
+          # Reserved instance inventory
+          # Services: EC2, RDS, Redshift, ElastiCache
           - Sid: ReservationsReadOnly
             Effect: Allow
             Action:
@@ -479,14 +334,17 @@ Resources:
               - ec2:DescribeReserved*
             Resource: "*"
 
-  SavingsEstimationReadOnly:
+  BlocksSavingsEstimationReadOnlyPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicy'
+      ManagedPolicyName: 'BlocksSavingsEstimationReadOnlyPolicy'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis.'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: Ec2ReadOnly
+          # Compute, scaling, and load balancing
+          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda, Batch, App Runner
+          - Sid: ComputeAndScalingReadOnly
             Effect: Allow
             Action:
               - ec2:Describe*
@@ -497,16 +355,25 @@ Resources:
               - autoscaling:Describe*
               - autoscaling:Get*
               - autoscaling:List*
-            Resource: "*"
-
-          - Sid: LambdaReadOnly
-            Effect: Allow
-            Action:
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
               - lambda:List*
               - lambda:Get*
+              - batch:Get*
+              - batch:List*
+              - apprunner:ListServices
+              - apprunner:DescribeService
+              - apprunner:ListAutoScalingConfigurations
+              - apprunner:DescribeAutoScalingConfiguration
+              - apprunner:ListTagsForResource
             Resource: "*"
 
-          - Sid: EcsEksEcrReadOnly
+          # Containers, orchestration, and build/deploy
+          # Services: ECS, EKS, ECR, CodeBuild, CodePipeline
+          - Sid: ContainersAndBuildReadOnly
             Effect: Allow
             Action:
               - ecs:List*
@@ -516,292 +383,41 @@ Resources:
               - ecr:DescribeRepositories
               - ecr:ListImages
               - ecr:DescribeImages
-            Resource: "*"
-
-          - Sid: RdsReadOnly
-            Effect: Allow
-            Action:
-              - rds:Describe*
-              - rds:List*
-            Resource: "*"
-
-          - Sid: DynamoDbReadOnly
-            Effect: Allow
-            Action:
-              - dynamodb:List*
-              - dynamodb:Describe*
-            Resource: "*"
-
-          - Sid: DynamoDBAcceleratorReadOnly
-            Effect: Allow
-            Action:
-              - dax:DescribeClusters
-              - dax:ListTags
-              - dax:DescribeDefaultParameters
-              - dax:DescribeParameters
-            Resource: "*"
-
-          - Sid: RedshiftReadOnly
-            Effect: Allow
-            Action:
-              - redshift:Describe*
-              - redshift:Get*
-              - redshift:List*
-            Resource: "*"
-
-          - Sid: RedshiftServerlessReadOnly
-            Effect: Allow
-            Action:
-              - redshift-serverless:Describe*
-              - redshift-serverless:List*
-            Resource: "*"
-
-          - Sid: MemoryDBReadOnly
-            Effect: Allow
-            Action:
-              - memorydb:Describe*
-              - memorydb:List*
-              - memorydb:ListTags
-            Resource: "*"
-          
-          - Sid: AuroraDSQLReadOnly
-            Effect: Allow
-            Action:
-              - dsql:Get*
-              - dsql:List*
-            Resource: "*"  
-
-          - Sid: TimeStreamReadOnly
-            Effect: Allow
-            Action:
-              - timestream:List*
-              - timestream:Describe*
-              - timestream:ListTagsForResource
-              - timestream-influxdb:Get*
-              - timestream-influxdb:List*
-            Resource: "*"
-
-          - Sid: TrustedAdvisorReadOnly
-            Effect: Allow
-            Action:
-              - trustedadvisor:Describe*
-              - trustedadvisor:Get*
-              - trustedadvisor:List*
-              - support:DescribeTrustedAdvisorChecks
-              - support:DescribeTrustedAdvisorCheckResult
-              - support:DescribeTrustedAdvisorCheckSummaries
-              - support:DescribeTrustedAdvisorCheckRefreshStatuses
-              - support:RefreshTrustedAdvisorCheck
-            Resource: "*"
-
-          - Sid: ElastiCacheReadOnly
-            Effect: Allow
-            Action:
-              - elasticache:Describe*
-              - elasticache:List*
-            Resource: "*" 
- 
-          - Sid: S3ReadOnly
-            Effect: Allow
-            Action:
-              - s3:List*
-              - s3vectors:ListVectorBuckets
-              - s3:GetLifecycleConfiguration
-              - s3:GetBucketLocation
-              - s3:GetObjectRetention
-              - s3:GetBucketTagging
-            Resource: "*"
-
-          - Sid: CloudWatchReadOnly
-            Effect: Allow
-            Action:
-              - cloudwatch:Describe*
-              - cloudwatch:Get*
-              - cloudwatch:List*
-              - oam:ListSinks
-              - logs:Describe*
-              - logs:Get*
-              - logs:List*
-            Resource: "*"
-
-  SavingsEstimationReadOnlyPart2:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: !Sub '${AWS::AccountId}-SavingsEstimationReadOnlyPolicyPart2'
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: BackupReadOnly
-            Effect: Allow
-            Action:
-              - backup:Describe*
-              - backup:Get*
-              - backup:List*
-            Resource: "*"
-
-          - Sid: AppAutoScalingReadOnly
-            Effect: Allow
-            Action:
-              - application-autoscaling:Describe*
-              - application-autoscaling:List*
-              - application-autoscaling:Get*
-              - autoscaling-plans:Describe*
-              - autoscaling-plans:Get*
-            Resource: "*"
-
-          - Sid: ApiGwReadOnly
-            Effect: Allow
-            Action:
-              - apigateway:GET
-            Resource: "*"
-
-          - Sid: ElasticSearchReadOnly
-            Effect: Allow
-            Action:
-              - es:Describe*
-              - es:List*
-              - es:Get*
-            Resource: "*"
-
-          - Sid: WorkSpacesReadOnly
-            Effect: Allow
-            Action:
-              - workspaces:Describe*
-            Resource: "*"
-
-          - Sid: FsxReadOnly
-            Effect: Allow
-            Action:
-              - fsx:Describe*
-              - fsx:List*
-            Resource: "*"
-
-          - Sid: EfsReadOnly
-            Effect: Allow
-            Action:
-              - elasticfilesystem:Describe*
-              - elasticfilesystem:List*
-            Resource: "*"
-
-          - Sid: AppstreamReadOnly
-            Effect: Allow
-            Action:
-              - appstream:Describe*
-              - appstream:List*
-            Resource: "*"
-
-          - Sid: SageMakerReadOnly
-            Effect: Allow
-            Action:
-              - sagemaker:Describe*
-              - sagemaker:List*
-              - sagemaker:Search
-            Resource: "*"
-
-          - Sid: GlueReadOnly
-            Effect: Allow
-            Action:
-              - Glue:Get*
-              - Glue:List*
-            Resource: "*"
-
-          - Sid: BedrockReadOnly
-            Effect: Allow
-            Action:
-              - bedrock:GetProvisionedModelThroughput
-              - bedrock:ListProvisionedModelThroughputs
-            Resource: "*"
-
-          - Sid: CloudFrontReadOnly
-            Effect: Allow
-            Action:
-              - cloudfront:Get*
-              - cloudfront:List*
-            Resource: "*"
-
-          - Sid: ApprunnerReadOnly
-            Effect: Allow
-            Action:
-              - apprunner:ListServices
-              - apprunner:DescribeService
-              - apprunner:ListAutoScalingConfigurations
-              - apprunner:DescribeAutoScalingConfiguration
-              - apprunner:ListTagsForResource
-            Resource: "*"   
-
-          - Sid: BatchReadOnly
-            Effect: Allow
-            Action:
-              - batch:Get*
-              - batch:List*
-            Resource: "*"  
-
-          - Sid: CodeBuildReadOnly
-            Effect: Allow
-            Action:
               - codebuild:ListProjects
               - codebuild:BatchGetProjects
               - codebuild:ListBuilds
               - codebuild:ListBuildsForProject
               - codebuild:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: CodePipelineReadOnly
-            Effect: Allow
-            Action:
               - codepipeline:GetPipeline
               - codepipeline:ListPipelines
               - codepipeline:ListTagsForResource
-            Resource: "*"  
+            Resource: "*"
 
-          - Sid: KinesisReadOnly
+          # Databases and caching
+          # Services: RDS, DynamoDB, DAX, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Neptune, Aurora DSQL
+          - Sid: DatabasesAndCachingReadOnly
             Effect: Allow
             Action:
-              - kinesis:ListShards
-              - kinesis:ListStreamConsumers
-              - kinesis:ListStreams
-              - kinesis:DescribeLimits
-              - kinesis:DescribeStreamConsumer
-              - kinesis:DescribeStreamSummary
-              - kinesis:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: KinesisAnalyticsReadOnly
-            Effect: Allow
-            Action:
-              - kinesisanalytics:ListApplications
-              - kinesisanalytics:DescribeApplication
-              - kinesisanalytics:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: FirehoseReadOnly
-            Effect: Allow
-            Action:
-              - firehose:ListDeliveryStreams
-              - firehose:DescribeDeliveryStream
-              - firehose:ListTagsForDeliveryStream
-            Resource: "*"  
-
-          - Sid: GrafanaReadOnly
-            Effect: Allow
-            Action:
-              - grafana:ListWorkspaces
-              - grafana:DescribeWorkspace
-              - grafana:DescribeWorkspaceConfiguration
-              - grafana:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: AirflowReadOnly
-            Effect: Allow
-            Action:
-              - airflow:ListEnvironments
-              - airflow:GetEnvironment
-              - airflow:ListTagsForResource
-            Resource: "*"  
-
-          - Sid: NeptuneReadOnly
-            Effect: Allow
-            Action:
+              - rds:Describe*
+              - rds:List*
+              - dynamodb:List*
+              - dynamodb:Describe*
+              - dax:DescribeClusters
+              - dax:ListTags
+              - dax:DescribeDefaultParameters
+              - dax:DescribeParameters
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+              - elasticache:Describe*
+              - elasticache:List*
+              - memorydb:Describe*
+              - memorydb:List*
+              - memorydb:ListTags
+              - dsql:Get*
+              - dsql:List*
               - neptune:DescribeDBClusters
               - neptune:DescribeDBInstances
               - neptune:DescribeDBClusterSnapshots
@@ -812,125 +428,229 @@ Resources:
               - neptune-graph:GetGraphSummary
               - neptune-db:GetEngineStatus
               - neptune-db:GetGraphSummary
-            Resource: "*"  
+            Resource: "*"
 
-          - Sid: WafReadOnly
+          # Streaming, messaging, and analytics
+          # Services: Kinesis, Kinesis Data Analytics, Firehose, Timestream, Timestream InfluxDB
+          - Sid: StreamingAndAnalyticsReadOnly
             Effect: Allow
             Action:
+              - timestream:List*
+              - timestream:Describe*
+              - timestream:ListTagsForResource
+              - timestream-influxdb:Get*
+              - timestream-influxdb:List*
+              - kinesis:ListShards
+              - kinesis:ListStreamConsumers
+              - kinesis:ListStreams
+              - kinesis:DescribeLimits
+              - kinesis:DescribeStreamConsumer
+              - kinesis:DescribeStreamSummary
+              - kinesis:ListTagsForResource
+              - kinesisanalytics:ListApplications
+              - kinesisanalytics:DescribeApplication
+              - kinesisanalytics:ListTagsForResource
+              - firehose:ListDeliveryStreams
+              - firehose:DescribeDeliveryStream
+              - firehose:ListTagsForDeliveryStream
+            Resource: "*"
+
+          # AI, ML, data platforms, and dashboards
+          # Services: SageMaker, Glue, Bedrock, Airflow (MWAA)
+          - Sid: DataPlatformsAndAiReadOnly
+            Effect: Allow
+            Action:
+              - sagemaker:Describe*
+              - sagemaker:List*
+              - sagemaker:Search
+              - Glue:Get*
+              - Glue:List*
+              - bedrock:GetProvisionedModelThroughput
+              - bedrock:ListProvisionedModelThroughputs
+              - airflow:ListEnvironments
+              - airflow:GetEnvironment
+              - airflow:ListTagsForResource
+            Resource: "*"
+
+          # Storage, backup, and content delivery
+          # Services: S3 (metadata only), FSx, EFS, Backup
+          - Sid: StorageAndContentReadOnly
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+              - fsx:Describe*
+              - fsx:List*
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+
+          # Networking, API management, and security edges
+          # Services: API Gateway, OpenSearch / ES, WAFv2, CloudFront
+          - Sid: NetworkAndEdgeReadOnly
+            Effect: Allow
+            Action:
+              - apigateway:GET
+              - es:Describe*
+              - es:List*
+              - es:Get*
               - wafv2:ListWebACLs
               - wafv2:GetWebACL
               - wafv2:GetWebACLForResource
               - wafv2:ListResourcesForWebACL
               - wafv2:ListTagsForResource
-            Resource: "*"  
+              - cloudfront:Get*
+              - cloudfront:List*
+            Resource: "*"
+
+          # End-user compute and application streaming
+          # Services: WorkSpaces, AppStream
+          - Sid: EndUserServicesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+
+          # Monitoring, observability, and advisory services
+          # Services: CloudWatch, CloudWatch Logs, Grafana, OAM, Trusted Advisor, AWS Support
+          - Sid: ObservabilityAndAdvisoryReadOnly
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:Get*
+              - logs:List*
+              - grafana:ListWorkspaces
+              - grafana:DescribeWorkspace
+              - grafana:DescribeWorkspaceConfiguration
+              - grafana:ListTagsForResource
+              - trustedadvisor:Describe*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
+              - support:DescribeTrustedAdvisorCheckRefreshStatuses
+              - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
 
   BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${AWS::AccountId}-Blocks-read-role'
+      RoleName: 'BlocksReadRole'
+      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance.'
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${BlocksExternalAccountId}:root'
-            Action: 'sts:AssumeRole'
+              AWS: !Sub "arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole"
+            Action: "sts:AssumeRole"
             Condition:
               StringEquals:
-                'sts:ExternalId': !Ref ExternalId
+                "sts:ExternalId": "blocks-shared-secret"
 
       ManagedPolicyArns:
-        - !Ref CostAndReservationsReadPolicy
-        - !Ref SavingsEstimationReadOnly
-        - !Ref SavingsEstimationReadOnlyPart2
+        - !Ref BlocksCostAndReservationsReadPolicy
+        - !Ref BlocksSavingsEstimationReadOnlyPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
 
+  CreateBackfillSupportCaseRole:
+    Condition: CreateBackfillResources
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'CreateBackfillSupportCaseRole'
+      Description: 'Used by Blocks.cloud to create a support case to backfill CUR 2.0 data'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole"
+            Action: "sts:AssumeRole"
+
       Policies:
-        - PolicyName: StsWhoami
+        - PolicyName: CreateBackfillSupportCasePermissions
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - sts:GetCallerIdentity
+                  - support:CreateCase
+                  - support:DescribeCases
+                  - support:DescribeServices
+                  - support:DescribeCommunications
+                  - support:DescribeSeverityLevels
+                  - support:DescribeCreateCaseOptions
                 Resource: "*"
-
-        # CUR S3 Bucket Access - RESTRICTED to cur2/* prefix only
-        - PolicyName: CurS3Read
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ListCurPrefix
-                Effect: Allow
-                Action: 's3:ListBucket'
-                Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
+              - Sid: DenyAfterExpiryDate
+                Effect: Deny
+                Action: "*"
+                Resource: "*"
                 Condition:
-                  StringLike:
-                    s3:prefix: ['cur2/*']
-              - Sid: ReadCurObjects
-                Effect: Allow
-                Action: 's3:GetObject'
-                Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/cur2/*"
-
-        # KMS Decrypt for Encrypted CUR Bucket
-        - !If
-          - HasKms
-          - PolicyName: CurKmsDecrypt
-            PolicyDocument:
-              Version: '2012-10-17'
-              Statement:
-                - Effect: Allow
-                  Action:
-                    - kms:Decrypt
-                    - kms:DescribeKey
-                  Resource: !Ref KmsKeyArn
-          - !Ref 'AWS::NoValue'
+                  DateGreaterThan:
+                    aws:CurrentTime: '2026-03-31T23:59:59Z'
 
 Outputs:
   CURBucketName:
-    Description: 'Name of the S3 bucket storing CUR data'
+    Description: 'S3 bucket where CUR 2.0 data is stored'
     Value: !Ref CURBucket
   CURBucketArn:
-    Value:
-      !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
-  BackfillCaseId:
-    Condition: EnableBackfillCondition
-    Description: 'Present if Support API allowed; empty otherwise'
-    Value: !GetAtt RequestBackfill.CaseId
+    Description: 'ARN of the S3 bucket where CUR 2.0 data is stored'
+    Value: !Sub 'arn:${AWS::Partition}:s3:::${CURBucket}'
+  Cur20ExportName:
+    Description: 'Name of the CUR 2.0 export'
+    Value: !Ref Cur20Export
   BlocksReadRoleArn:
-    Description: 'Cross-account role ARN with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization'
+    Description: 'Read-only cross-account role ARN. Return this role ARN to Blocks to complete the setup'
     Value: !GetAtt BlocksReadRole.Arn
   BlocksReadRoleName:
     Description: 'Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization'
     Value: !Ref BlocksReadRole
-  ImportantNotes:
-    Value: 'Deploy in us-east-1. Role includes 40+ AWS services for complete cost optimization analysis.'
   NextSteps:
-    Description: "Instructions for completing setup"
+    Description: 'Instructions for completing setup'
     Value: !If
-      - EnableBackfillCondition
-      - "Backfill support case created. Please wait for AWS Support to process your request."
+      - CreateBackfillResources
       - !Sub |
-          To request historical data backfill, open an AWS Support case.
+        Setup Complete!
 
-          Use the following details for the support request:
+        Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
 
-          Subject:
-          Request historical data backfill for CUR 2.0 export ${BlocksResourceName}-${AWS::AccountId}
+        Note: This role will automatically expire on 31st March 2026 for security.
+      - !Sub |
+        To request historical data backfill, you can manually open an AWS Support case.
 
-          Body:
-          Hello AWS Support,
+        Use the following details for the support request:
 
-          We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
+        Subject:
+        Request historical data backfill for CUR 2.0 export blocks-cur-data-${AWS::AccountId}
 
-          Please backfill the existing ${BlocksResourceName}-${AWS::AccountId} report from the:
-          s3://${CURBucket}/cur2/${BlocksResourceName}-${AWS::AccountId}/data
-          S3 bucket.
+        Body:
+        Hello AWS Support,
 
-          We need historical data for the following period: 01.01.2022 through the current date.
+        We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
 
-          Thank you.
+        Please backfill the existing blocks-cur-data-${AWS::AccountId} report from the:
+        s3://${CURBucket}/cur2/blocks-cur-data-${AWS::AccountId}/data
+        S3 bucket.
+
+        We need historical data for the following period: 01.01.2022 through the current date.
+
+        Thank you.
