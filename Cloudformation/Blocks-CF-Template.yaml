@@ -53,7 +53,7 @@ Resources:
       LifecycleConfiguration:
         Rules:
           - Status: Enabled
-            ExpirationInDays: 30
+            ExpirationInDays: 365
             NoncurrentVersionExpirationInDays: 30
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 30
@@ -624,6 +624,14 @@ Outputs:
   BlocksReadRoleName:
     Description: 'Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization'
     Value: !Ref BlocksReadRole
+  CreateBackfillSupportCaseRoleArn:
+    Condition: CreateBackfillResources
+    Description: 'Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data'
+    Value: !GetAtt CreateBackfillSupportCaseRole.Arn
+  CreateBackfillSupportCaseRoleName:
+    Condition: CreateBackfillResources
+    Description: 'Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data'
+    Value: !Ref CreateBackfillSupportCaseRole
   NextSteps:
     Description: 'Instructions for completing setup'
     Value: !If

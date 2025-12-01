@@ -29,10 +29,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = var.kms_key_arn != "" ? "aws:kms" : "AES256"
-      kms_master_key_id = var.kms_key_arn != "" ? var.kms_key_arn : null
+      sse_algorithm     = "AES256"
     }
-    bucket_key_enabled = var.kms_key_arn != "" ? true : false
+    bucket_key_enabled = true
   }
 }
 
@@ -51,14 +50,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
 
   rule {
     id     = "expire-old-cur-data"
-    status = var.enable_lifecycle_rules ? "Enabled" : "Disabled"
+    status = "Enabled"
 
     filter {
       prefix = "cur2/"
     }
 
     expiration {
-      days = var.cur_data_retention_days
+      days = 365
     }
 
     noncurrent_version_expiration {
@@ -120,15 +119,42 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
   }
 
   statement {
-    sid    = "AllowReadRoleGetObject"
+    sid    = "AllowReadRoleListBucket"
     effect = "Allow"
+
     principals {
       type        = "AWS"
       identifiers = [aws_iam_role.blocks_read_role.arn]
     }
-    actions   = ["s3:GetObject"]
-    resources = ["arn:aws:s3:::${local.blocks_resource_name}/cur2/*"]
+    actions = [
+      "s3:ListBucket"
+    ]
+    resources = [
+      "arn:aws:s3:::${local.blocks_resource_name}"
+    ]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["cur2/*"]
+    }
   }
+
+  statement {
+    sid    = "AllowReadRoleGetObject"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.blocks_read_role.arn]
+    }
+    actions = [
+      "s3:GetObject"
+    ]
+    resources = [
+      "arn:aws:s3:::${local.blocks_resource_name}/cur2/*"
+    ]
+  }
+
 }
 
 resource "aws_s3_bucket_policy" "cur_bucket_policy" {

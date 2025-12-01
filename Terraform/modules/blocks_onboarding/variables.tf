@@ -21,27 +21,15 @@ variable "external_id" {
   sensitive   = true
 }
 
-variable "kms_key_arn" {
-  type        = string
-  default     = ""
-  description = "KMS key ARN for S3 encryption (optional, uses AES256 if not provided)"
-}
-
-variable "enable_automatic_backfill" {
+variable "create_backfill_support_case" {
   type        = bool
-  default     = false
-  description = "Set to true if business support is enabled in your AWS account, This will create a support Case Request to backfill the data for the last 36 months"
-}
-
-variable "enable_lifecycle_rules" {
-  type        = bool
-  default     = false
-  description = "Enable S3 lifecycle rules for cost optimization"
+  default     = true
+  description = "Set to true if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data"
 }
 
 variable "cur_data_retention_days" {
   type        = number
-  default     = 60
+  default     = 365
   description = "Days to retain CUR data in S3 before expiration"
   validation {
     condition     = var.cur_data_retention_days >= 7

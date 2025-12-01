@@ -1,6 +1,7 @@
-variable "enable_automatic_backfill" {
+variable "create_backfill_support_case" {
   description = "Set to true if business support is enabled in your AWS account, This will create a support Case Request to backfill the data for the last 36 months"
   type        = bool
+  default     = true
 }
 
 variable "aws_region" {

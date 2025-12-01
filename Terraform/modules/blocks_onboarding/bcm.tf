@@ -15,7 +15,7 @@ resource "aws_bcmdataexports_export" "cur2" {
         "COST_AND_USAGE_REPORT" = {
           BILLING_VIEW_ARN                      = "arn:aws:billing::${data.aws_caller_identity.current.account_id}:billingview/primary"
           TIME_GRANULARITY                      = "HOURLY"
-          INCLUDE_RESOURCES                     =  "TRUE"
+          INCLUDE_RESOURCES                     = "TRUE"
           INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "TRUE"
           INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY = "FALSE"
         }

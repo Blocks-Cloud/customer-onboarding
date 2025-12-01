@@ -19,7 +19,7 @@ data "aws_iam_policy_document" "blocks_read_role" {
 }
 
 resource "aws_iam_role" "blocks_read_role" {
-  name                 = "Blocks-read-role"
+  name                 = "BlocksReadRole"
   max_session_duration = 3600
   assume_role_policy   = data.aws_iam_policy_document.blocks_read_role.json
   tags                 = local.common_tags
@@ -308,4 +308,61 @@ resource "aws_iam_role_policy" "savings_estimations_read_only" {
   policy = data.aws_iam_policy_document.savings_estimations_read_only.json
 }
 
+########################################
+# Backfill Support Case Role           #
+########################################
+
+data "aws_iam_policy_document" "create_backfill_support_case_assume_role" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.blocks_external_account_id}:role/BlocksCustomerAccessRole"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "create_backfill_support_case" {
+  count                = var.create_backfill_support_case ? 1 : 0
+  name                 = "CreateBackfillSupportCaseRole"
+  description          = "Used by Blocks.cloud to create a support case to backfill CUR 2.0 data"
+  max_session_duration = 3600
+  assume_role_policy   = data.aws_iam_policy_document.create_backfill_support_case_assume_role.json
+  tags                 = local.common_tags
+}
+
+data "aws_iam_policy_document" "create_backfill_support_case_permissions" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "support:CreateCase",
+      "support:DescribeCases",
+      "support:DescribeServices",
+      "support:DescribeCommunications",
+      "support:DescribeSeverityLevels",
+      "support:DescribeCreateCaseOptions"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "DenyAfterExpiryDate"
+    effect    = "Deny"
+    actions   = ["*"]
+    resources = ["*"]
+    condition {
+      test     = "DateGreaterThan"
+      variable = "aws:CurrentTime"
+      values   = ["2026-03-31T23:59:59Z"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "create_backfill_support_case_permissions" {
+  count  = var.create_backfill_support_case ? 1 : 0
+  name   = "CreateBackfillSupportCasePermissions"
+  role   = aws_iam_role.create_backfill_support_case[0].id
+  policy = data.aws_iam_policy_document.create_backfill_support_case_permissions.json
+}
 
