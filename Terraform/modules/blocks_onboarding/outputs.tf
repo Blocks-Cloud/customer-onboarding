@@ -18,14 +18,14 @@ output "blocks_read_role_name" {
   value       = aws_iam_role.blocks_read_role.name
 }
 
-output "create_backfill_support_case_arn" {
+output "create_backfill_support_case_role_arn" {
   description = "Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data"
-  value       = aws_iam_role.create_backfill_support_case.arn
+  value       = var.create_backfill_support_case ? aws_iam_role.create_backfill_support_case[0].arn : null
 }
 
-output "create_backfill_support_case_name" {
+output "create_backfill_support_case_role_name" {
   description = "Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data"
-  value       = aws_iam_role.create_backfill_support_case.name
+  value       = var.create_backfill_support_case ? aws_iam_role.create_backfill_support_case[0].name : null
 }
 
 
