@@ -43,6 +43,12 @@ variable "default_tags" {
   description = "Default tags to apply to all resources"
 }
 
+variable "provider_sqs_arn" {
+  type        = string
+  description = "ARN of provider SQS queue"
+  default     = "arn:aws:sqs:us-east-1:503132503926:Blocks-Onboarding-Queue"
+}
+
 ############################
 # Stackset Variables
 ############################
