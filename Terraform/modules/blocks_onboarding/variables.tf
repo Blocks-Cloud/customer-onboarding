@@ -11,7 +11,7 @@ variable "aws_region" {
 variable "blocks_external_account_id" {
   type        = string
   description = "Blocks AWS account ID that will assume the Read Only role"
-  default     = "503132503926"
+  default     = "810801871908"
 }
 
 variable "external_id" {
@@ -43,10 +43,10 @@ variable "default_tags" {
   description = "Default tags to apply to all resources"
 }
 
-variable "provider_sqs_arn" {
+variable "blocks_sqs_arn" {
   type        = string
-  description = "ARN of provider SQS queue"
-  default     = "arn:aws:sqs:us-east-1:503132503926:Blocks-Onboarding-Queue"
+  description = "ARN of Blocks SQS queue"
+  default     = "arn:aws:sqs:us-east-1:810801871908:Blocks-Onboarding-Queue"
 }
 
 ############################

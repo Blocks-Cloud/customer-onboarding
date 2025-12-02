@@ -1,4 +1,22 @@
+data "aws_organizations_organization" "current" {}
+
+resource "null_resource" "enable_stacksets_access" {
+  triggers = {
+    always_run = timestamp()
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOF
+      aws cloudformation activate-organizations-access --region ${var.aws_region} || true
+      aws organizations enable-aws-service-access --service-principal member.org.stacksets.cloudformation.amazonaws.com --region ${var.aws_region} || true
+      sleep 10
+    EOF
+  }
+}
+
 resource "aws_cloudformation_stack_set" "blocks" {
+  depends_on = [null_resource.enable_stacksets_access]
+
   name        = var.stack_set_name
   description = var.stack_set_description
 
@@ -18,17 +36,11 @@ resource "aws_cloudformation_stack_set" "blocks" {
     region_concurrency_type = try(var.region_concurrency_type, null)
   }
 
-  parameters = {
-    BlocksExternalAccountId = var.blocks_external_account_id
-    ExternalId              = var.external_id
-  }
-
   template_url = var.template_url
 
   lifecycle {
     ignore_changes = [
       administration_role_arn,
-      parameters,
     ]
   }
 
@@ -52,7 +64,3 @@ resource "aws_cloudformation_stack_instances" "blocks" {
 
   stack_set_name = aws_cloudformation_stack_set.blocks.name
 }
-
-data "aws_organizations_organization" "current" {}
-
-

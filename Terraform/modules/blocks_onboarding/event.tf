@@ -2,7 +2,7 @@
 # EventBridge Rule - Notify Blocks     #
 ########################################
 
-resource "null_resource" "notify_provider" {
+resource "null_resource" "notify_blocks" {
   depends_on = [
     aws_cloudwatch_event_target.forward_to_sqs,
     aws_s3_bucket.cur_bucket,
@@ -55,7 +55,43 @@ resource "aws_cloudwatch_event_rule" "terraform_finished_rule" {
   })
 }
 
+resource "aws_iam_role" "blocks_notifier_role" {
+  name = "BlocksNotifierRole"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "blocks_notifier_policy" {
+  name = "SendToBlocksSQS"
+  role = aws_iam_role.blocks_notifier_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = var.blocks_sqs_arn
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_event_target" "forward_to_sqs" {
-  rule = aws_cloudwatch_event_rule.terraform_finished_rule.name
-  arn  = var.provider_sqs_arn
+  rule     = aws_cloudwatch_event_rule.terraform_finished_rule.name
+  arn      = var.blocks_sqs_arn
+  role_arn = aws_iam_role.blocks_notifier_role.arn
 }

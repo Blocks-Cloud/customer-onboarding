@@ -278,7 +278,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole'
+              AWS: !Sub 'arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole'
             Action: 'sts:AssumeRole'
             Condition:
               StringEquals:

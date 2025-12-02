@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   IMPORTANT:
 
@@ -17,17 +17,17 @@ Description: >
 Parameters:
   OrganizationRootId:
     Type: String
-    Description: 'AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console.'
-    AllowedPattern: '^r-[a-z0-9]{4,32}$'
-    ConstraintDescription: 'Must be a valid Organization Root ID starting with r-'
+    Description: "AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console."
+    AllowedPattern: "^r-[a-z0-9]{4,32}$"
+    ConstraintDescription: "Must be a valid Organization Root ID starting with r-"
   CreateBackfillSupportCase:
     Type: String
-    Default: 'YES'
-    Description: 'Set to Yes if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data'
-    AllowedValues: ['YES', 'NO']
+    Default: "YES"
+    Description: "Set to Yes if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data"
+    AllowedValues: ["YES", "NO"]
 
 Conditions:
-  CreateBackfillResources: !Equals [!Ref CreateBackfillSupportCase, 'YES']
+  CreateBackfillResources: !Equals [!Ref CreateBackfillSupportCase, "YES"]
 
 Rules:
   EnforceUsEast1:
@@ -36,13 +36,85 @@ Rules:
           Fn::Equals:
             - !Ref AWS::Region
             - us-east-1
-        AssertDescription: 'You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1'
+        AssertDescription: "You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1"
 
 Resources:
+  EnableStackSetsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CloudFormationOrgAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:ActivateOrganizationsAccess
+                  - cloudformation:DescribeOrganizationsAccess
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:EnableAWSServiceAccess
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  EnableStackSetsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: EnableCloudFormationStackSetsAccess
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt EnableStackSetsLambdaRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+          from botocore.exceptions import ClientError
+
+          def handler(event, context):
+            print("Received event:", event)
+            cfn = boto3.client("cloudformation")
+            try:  
+                if event['RequestType'] in ['Create', 'Update']:
+                    print("Attempting to activate organizations access...")
+                    try:
+                        cfn.activate_organizations_access()
+                        print("Activation requested successfully.")
+                    except ClientError as e:
+                        if e.response['Error']['Code'] == 'InvalidOperationException':
+                            print("Organizations access is already activated.")
+                        else:
+                            raise
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            except Exception as e:
+                print("Error:", e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  EnableCloudFormationAccess:
+    Type: Custom::EnableStackSetsAccess
+    Properties:
+      ServiceToken: !GetAtt EnableStackSetsLambda.Arn
+
   CURBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'blocks-cur-data-${AWS::AccountId}'
+      BucketName: !Sub "blocks-cur-data-${AWS::AccountId}"
       OwnershipControls:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
       PublicAccessBlockConfiguration:
@@ -67,7 +139,7 @@ Resources:
     Properties:
       Bucket: !Ref CURBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: AllowBCMDataExportsPut
             Effect: Allow
@@ -114,8 +186,8 @@ Resources:
     DependsOn: CURBucketPolicy
     Properties:
       Export:
-        Name: !Sub 'blocks-cur-data-${AWS::AccountId}'
-        Description: 'CUR 2.0 export to S3 (Parquet), hourly with resource IDs'
+        Name: !Sub "blocks-cur-data-${AWS::AccountId}"
+        Description: "CUR 2.0 export to S3 (Parquet), hourly with resource IDs"
         DataQuery:
           QueryStatement: |
             SELECT bill_bill_type, 
@@ -264,9 +336,10 @@ Resources:
 
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
+    DependsOn: EnableCloudFormationAccess
     Properties:
-      StackSetName: 'Subaccounts-Blocks-IAM-Read-Role'
-      Description: 'Deploys the Blocks read-only IAM role to all member accounts for organization-wide cost analysis and optimization'
+      StackSetName: "Subaccounts-Blocks-IAM-Read-Role"
+      Description: "Deploys the Blocks read-only IAM role to all member accounts for organization-wide cost analysis and optimization"
       PermissionModel: SERVICE_MANAGED
       AutoDeployment:
         Enabled: true
@@ -286,16 +359,16 @@ Resources:
         RegionConcurrencyType: PARALLEL
       Tags:
         - Key: TemplateVersion
-          Value: '1.0.0'
+          Value: "1.0.0"
       CallAs: SELF
 
   BlocksCostAndReservationsReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: 'BlocksCostAndReservationsReadPolicy'
-      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to Cost Explorer, billing, CUR, and reserved instance data for cost analysis.'
+      ManagedPolicyName: "BlocksCostAndReservationsReadPolicy"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to Cost Explorer, billing, CUR, and reserved instance data for cost analysis."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # Cost and usage analytics APIs
           # Services: Cost Explorer, Cost Optimization Hub, CUR, BCM Data Exports
@@ -337,10 +410,10 @@ Resources:
   BlocksSavingsEstimationReadOnlyPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: 'BlocksSavingsEstimationReadOnlyPolicy'
-      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis.'
+      ManagedPolicyName: "BlocksSavingsEstimationReadOnlyPolicy"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # Compute, scaling, and load balancing
           # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda, Batch, App Runner
@@ -549,15 +622,15 @@ Resources:
   BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: 'BlocksReadRole'
-      Description: 'Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance.'
+      RoleName: "BlocksReadRole"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole"
+              AWS: !Sub "arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole"
             Action: "sts:AssumeRole"
             Condition:
               StringEquals:
@@ -575,21 +648,21 @@ Resources:
     Condition: CreateBackfillResources
     Type: AWS::IAM::Role
     Properties:
-      RoleName: 'CreateBackfillSupportCaseRole'
-      Description: 'Used by Blocks.cloud to create a support case to backfill CUR 2.0 data'
+      RoleName: "CreateBackfillSupportCaseRole"
+      Description: "Used by Blocks.cloud to create a support case to backfill CUR 2.0 data"
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::503132503926:role/BlocksCustomerAccessRole"
+              AWS: !Sub "arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole"
             Action: "sts:AssumeRole"
 
       Policies:
         - PolicyName: CreateBackfillSupportCasePermissions
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
@@ -606,34 +679,69 @@ Resources:
                 Resource: "*"
                 Condition:
                   DateGreaterThan:
-                    aws:CurrentTime: '2026-03-31T23:59:59Z'
+                    aws:CurrentTime: "2026-03-31T23:59:59Z"
+
+  BlocksNotifierRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksNotifierRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SendToBlocksSQS
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: "arn:aws:sqs:us-east-1:810801871908:Blocks-Onboarding-Queue"
+
+  CloudFormationCompleteRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "NotifyBlocksStackComplete"
+      EventPattern:
+        source:
+          - "aws.cloudformation"
+        detail-type:
+          - "CloudFormation Stack Status Change"
+      Targets:
+        - Arn: "arn:aws:sqs:us-east-1:810801871908:Blocks-Onboarding-Queue"
+          Id: "SendToBlocksSQS"
+          RoleArn: !GetAtt BlocksNotifierRole.Arn
 
 Outputs:
   CURBucketName:
-    Description: 'S3 bucket where CUR 2.0 data is stored'
+    Description: "S3 bucket where CUR 2.0 data is stored"
     Value: !Ref CURBucket
   CURBucketArn:
-    Description: 'ARN of the S3 bucket where CUR 2.0 data is stored'
-    Value: !Sub 'arn:${AWS::Partition}:s3:::${CURBucket}'
+    Description: "ARN of the S3 bucket where CUR 2.0 data is stored"
+    Value: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
   Cur20ExportName:
-    Description: 'Name of the CUR 2.0 export'
+    Description: "Name of the CUR 2.0 export"
     Value: !Ref Cur20Export
   BlocksReadRoleArn:
-    Description: 'Read-only cross-account role ARN. Return this role ARN to Blocks to complete the setup'
+    Description: "Read-only cross-account role ARN. Return this role ARN to Blocks to complete the setup"
     Value: !GetAtt BlocksReadRole.Arn
   BlocksReadRoleName:
-    Description: 'Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization'
+    Description: "Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization"
     Value: !Ref BlocksReadRole
   CreateBackfillSupportCaseRoleArn:
     Condition: CreateBackfillResources
-    Description: 'Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data'
+    Description: "Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data"
     Value: !GetAtt CreateBackfillSupportCaseRole.Arn
   CreateBackfillSupportCaseRoleName:
     Condition: CreateBackfillResources
-    Description: 'Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data'
+    Description: "Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data"
     Value: !Ref CreateBackfillSupportCaseRole
   NextSteps:
-    Description: 'Instructions for completing setup'
+    Description: "Instructions for completing setup"
     Value: !If
       - CreateBackfillResources
       - !Sub |
