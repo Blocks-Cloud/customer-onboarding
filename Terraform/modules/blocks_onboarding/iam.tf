@@ -324,7 +324,6 @@ data "aws_iam_policy_document" "create_backfill_support_case_assume_role" {
 }
 
 resource "aws_iam_role" "create_backfill_support_case" {
-  count                = var.create_backfill_support_case ? 1 : 0
   name                 = "CreateBackfillSupportCaseRole"
   description          = "Used by Blocks.cloud to create a support case to backfill CUR 2.0 data"
   max_session_duration = 3600
@@ -360,9 +359,8 @@ data "aws_iam_policy_document" "create_backfill_support_case_permissions" {
 }
 
 resource "aws_iam_role_policy" "create_backfill_support_case_permissions" {
-  count  = var.create_backfill_support_case ? 1 : 0
   name   = "CreateBackfillSupportCasePermissions"
-  role   = aws_iam_role.create_backfill_support_case[0].id
+  role   = aws_iam_role.create_backfill_support_case.id
   policy = data.aws_iam_policy_document.create_backfill_support_case_permissions.json
 }
 

@@ -20,14 +20,13 @@ output "blocks_read_role_name" {
 
 output "create_backfill_support_case_role_arn" {
   description = "Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data"
-  value       = var.create_backfill_support_case ? aws_iam_role.create_backfill_support_case[0].arn : null
+  value       = aws_iam_role.create_backfill_support_case.arn
 }
 
 output "create_backfill_support_case_role_name" {
   description = "Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data"
-  value       = var.create_backfill_support_case ? aws_iam_role.create_backfill_support_case[0].name : null
+  value       = aws_iam_role.create_backfill_support_case.name
 }
-
 
 output "cur2_export_name" {
   description = "Name of the BCM Data Export"
@@ -43,7 +42,13 @@ output "cur2_export_arn" {
 output "next_steps" {
   description = "Instructions for completing setup"
 
-  value = var.create_backfill_support_case ? "Setup Complete!\n\nBlocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.\n\nNote: This role will automatically expire on 31st March 2026 for security." : <<EOF
+  value = <<EOF
+Setup Complete!
+
+Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
+
+Note: This role will automatically expire on 31st March 2026 for security.
+
 To request historical data backfill, open an AWS Support case.
 
 Use the following details for the support request:

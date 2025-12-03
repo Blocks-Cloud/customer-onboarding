@@ -20,14 +20,6 @@ Parameters:
     Description: "AWS Organization Root OU ID (e.g., r-xxxx). Find this in AWS Organizations console."
     AllowedPattern: "^r-[a-z0-9]{4,32}$"
     ConstraintDescription: "Must be a valid Organization Root ID starting with r-"
-  CreateBackfillSupportCase:
-    Type: String
-    Default: "YES"
-    Description: "Set to Yes if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data"
-    AllowedValues: ["YES", "NO"]
-
-Conditions:
-  CreateBackfillResources: !Equals [!Ref CreateBackfillSupportCase, "YES"]
 
 Rules:
   EnforceUsEast1:
@@ -718,7 +710,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
 
   CreateBackfillSupportCaseRole:
-    Condition: CreateBackfillResources
     Type: AWS::IAM::Role
     Properties:
       RoleName: "CreateBackfillSupportCaseRole"
@@ -806,24 +797,20 @@ Outputs:
     Description: "Cross-account role Name with read-only access to CUR S3 data, billing services, and 40+ AWS services for complete cost visibility and optimization"
     Value: !Ref BlocksReadRole
   CreateBackfillSupportCaseRoleArn:
-    Condition: CreateBackfillResources
     Description: "Cross-account role ARN to create a support case to backfill up to 36 months of historical CUR data"
     Value: !GetAtt CreateBackfillSupportCaseRole.Arn
   CreateBackfillSupportCaseRoleName:
-    Condition: CreateBackfillResources
     Description: "Cross-account role Name to create a support case to backfill up to 36 months of historical CUR data"
     Value: !Ref CreateBackfillSupportCaseRole
   NextSteps:
     Description: "Instructions for completing setup"
-    Value: !If
-      - CreateBackfillResources
-      - !Sub |
+    Value: !Sub |
         Setup Complete!
 
         Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
 
         Note: This role will automatically expire on 31st March 2026 for security.
-      - !Sub |
+
         To request historical data backfill, you can manually open an AWS Support case.
 
         Use the following details for the support request:

@@ -21,12 +21,6 @@ variable "external_id" {
   sensitive   = true
 }
 
-variable "create_backfill_support_case" {
-  type        = bool
-  default     = true
-  description = "Set to true if you want Blocks to open on your behalf a support case to backfill up to 36 months of historical data"
-}
-
 variable "cur_data_retention_days" {
   type        = number
   default     = 365
