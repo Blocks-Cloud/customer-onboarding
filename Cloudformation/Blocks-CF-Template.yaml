@@ -74,6 +74,7 @@ Resources:
 
   EnableStackSetsLambda:
     Type: AWS::Lambda::Function
+    Description: "Lambda function to enable CloudFormation StackSets access"
     Properties:
       FunctionName: EnableCloudFormationStackSetsAccess
       Runtime: python3.11
