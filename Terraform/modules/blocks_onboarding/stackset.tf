@@ -1,14 +1,10 @@
 data "aws_organizations_organization" "current" {}
 
 resource "null_resource" "enable_stacksets_access" {
-  triggers = {
-    always_run = timestamp()
-  }
 
   provisioner "local-exec" {
     command = <<-EOF
       aws cloudformation activate-organizations-access --region ${var.aws_region} || true
-      aws organizations enable-aws-service-access --service-principal member.org.stacksets.cloudformation.amazonaws.com --region ${var.aws_region} || true
       sleep 10
     EOF
   }
