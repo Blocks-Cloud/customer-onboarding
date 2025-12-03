@@ -3,11 +3,9 @@ provider "aws" {
 }
 
 module "blocks_onboarding" {
-  #source = "github.com/Blocks-Cloud/customer-onboarding.git/Terraform/modules/blocks_onboarding?ref=v1.0.0"
-  source = "../modules/blocks_onboarding"
-  aws_region = var.aws_region
+  source = "github.com/Blocks-Cloud/customer-onboarding.git/Terraform/modules/blocks_onboarding?ref=v1.1.0"
 
-  enable_automatic_backfill = var.enable_automatic_backfill # set to true if business support is enabled in your AWS account
+  aws_region = var.aws_region
 
   # StackSet configuration
   template_version = "1.0.0"

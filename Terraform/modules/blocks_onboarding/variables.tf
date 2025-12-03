@@ -11,7 +11,7 @@ variable "aws_region" {
 variable "blocks_external_account_id" {
   type        = string
   description = "Blocks AWS account ID that will assume the Read Only role"
-  default     = "503132503926"
+  default     = "810801871908"
 }
 
 variable "external_id" {
@@ -21,27 +21,9 @@ variable "external_id" {
   sensitive   = true
 }
 
-variable "kms_key_arn" {
-  type        = string
-  default     = ""
-  description = "KMS key ARN for S3 encryption (optional, uses AES256 if not provided)"
-}
-
-variable "enable_automatic_backfill" {
-  type        = bool
-  default     = false
-  description = "Set to true if business support is enabled in your AWS account, This will create a support Case Request to backfill the data for the last 36 months"
-}
-
-variable "enable_lifecycle_rules" {
-  type        = bool
-  default     = false
-  description = "Enable S3 lifecycle rules for cost optimization"
-}
-
 variable "cur_data_retention_days" {
   type        = number
-  default     = 60
+  default     = 365
   description = "Days to retain CUR data in S3 before expiration"
   validation {
     condition     = var.cur_data_retention_days >= 7
@@ -53,6 +35,12 @@ variable "default_tags" {
   type        = map(string)
   default     = {}
   description = "Default tags to apply to all resources"
+}
+
+variable "blocks_sqs_arn" {
+  type        = string
+  description = "ARN of Blocks SQS queue"
+  default     = "arn:aws:sqs:us-east-1:810801871908:Blocks-Onboarding-Queue"
 }
 
 ############################

@@ -8,6 +8,11 @@ output "blocks_read_role_arn" {
   value       = module.blocks_onboarding.blocks_read_role_arn
 }
 
+output "create_backfill_support_case_arn" {
+  description = "Cross-account role ARN"
+  value       = module.blocks_onboarding.create_backfill_support_case_role_arn
+}
+
 output "cur2_export_name" {
   description = "Name of the BCM Data Export"
   value       = module.blocks_onboarding.cur2_export_name
