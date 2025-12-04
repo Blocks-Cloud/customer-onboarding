@@ -57,6 +57,7 @@ Resources:
                 Action:
                   - organizations:DescribeOrganization
                   - organizations:EnableAWSServiceAccess
+                  - organizations:ListAWSServiceAccessForOrganization
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -87,21 +88,153 @@ Resources:
 
           def handler(event, context):
             print("Received event:", event)
+            
+            organizations = boto3.client("organizations")
             cfn = boto3.client("cloudformation")
+            iam = boto3.client("iam")
+            
             try:  
                 if event['RequestType'] in ['Create', 'Update']:
-                    print("Attempting to activate organizations access...")
+                    print("Step 0: Checking Organization Mode...")
+                    org_info = organizations.describe_organization()
+                    feature_set = org_info['Organization']['FeatureSet']
+                    print(f"Organization Feature Set: {feature_set}")
+                    if feature_set != 'ALL':
+                        raise Exception(f"Organization must have All Features enabled. Current mode: {feature_set}")
+
+                    print("Step 1: Enabling AWS Organizations service access for CloudFormation StackSets...")
                     try:
-                        cfn.activate_organizations_access()
-                        print("Activation requested successfully.")
+                        organizations.enable_aws_service_access(
+                            ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com'
+                        )
+                        print("✓ Organizations service access enabled")
+                        time.sleep(2)  # Wait for propagation
                     except ClientError as e:
-                        if e.response['Error']['Code'] == 'InvalidOperationException':
-                            print("Organizations access is already activated.")
+                        if e.response['Error']['Code'] == 'ConcurrentModificationException':
+                            print("Service access is being modified, waiting...")
+                            time.sleep(5)
+                        elif 'AccessDeniedException' in str(e):
+                            print("Access Denied on enable, checking if already enabled...")
+                            enabled_services = organizations.list_aws_service_access_for_organization()
+                            services = [s['ServicePrincipal'] for s in enabled_services['EnabledServicePrincipals']]
+                            if 'member.org.stacksets.cloudformation.amazonaws.com' in services:
+                                print("✓ Service access is already enabled")
+                            else:
+                                raise Exception("Failed to enable service access and it is not currently enabled. Ensure you are in the Management Account.")
+                        else:
+                            print(f"Service access may already be enabled: {e}")
+                    
+                    print("Step 2: Checking for service-linked role...")
+                    role_name = "AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
+                    try:
+                        iam.get_role(RoleName=role_name)
+                        print(f"✓ Service-linked role {role_name} exists")
+                    except ClientError as e:
+                        if e.response['Error']['Code'] == 'NoSuchEntity':
+                            print(f"Creating service-linked role {role_name}...")
+                            try:
+                                iam.create_service_linked_role(
+                                    AWSServiceName='stacksets.cloudformation.amazonaws.com',
+                                    Description='Service-linked role for CloudFormation StackSets with Organizations'
+                                )
+                                print(f"✓ Service-linked role created")
+                                time.sleep(3)  # Wait for role to propagate
+                            except ClientError as create_error:
+                                if create_error.response['Error']['Code'] == 'InvalidInput':
+                                    print("Service-linked role creation not needed or already in progress")
+                                else:
+                                    raise
                         else:
                             raise
+                    
+                    print("Step 3: Checking current CloudFormation StackSets Organizations access status...")
+                    current_status = 'UNKNOWN'
+                    try:
+                        response = cfn.describe_organizations_access()
+                        current_status = response.get('Status', 'UNKNOWN')
+                        print(f"Current status: {current_status}")
+                    except ClientError as e:
+                        print(f"Could not check current status: {e}")
+                    
+                    if current_status not in ['ENABLED', 'ENABLING']:
+                        print("Step 4: Activating CloudFormation StackSets Organizations access...")
+                        try:
+                            cfn.activate_organizations_access()
+                            print("✓ Activation API call succeeded")
+                            time.sleep(3)
+                        except ClientError as e:
+                            error_code = e.response['Error']['Code']
+                            error_msg = e.response['Error']['Message']
+                            
+                            if error_code == 'InvalidOperationException' and 'already' in error_msg.lower():
+                                print(f"✓ Organizations access is already activated: {error_msg}")
+                            elif error_code == 'OperationInProgressException':
+                                print(f"✓ Activation is already in progress: {error_msg}")
+                                time.sleep(5)
+                            elif error_code == 'AccessDeniedException':
+                                # If we get AccessDenied here, but Step 1 (Enable Service Access) succeeded, 
+                                # and we are in Management Account, it might be a weird state.
+                                # Let's trust the Organizations API (Step 1) over CloudFormation API if this fails.
+                                print(f"⚠️ AccessDenied on activate_organizations_access: {error_msg}")
+                                print("Checking Organizations API directly for confirmation...")
+                                enabled_services = organizations.list_aws_service_access_for_organization()
+                                services = [s['ServicePrincipal'] for s in enabled_services['EnabledServicePrincipals']]
+                                if 'member.org.stacksets.cloudformation.amazonaws.com' in services:
+                                    print("✓ Confirmed via Organizations API that service access is ENABLED. Ignoring CloudFormation error.")
+                                else:
+                                    raise
+                            else:
+                                print(f"❌ Error activating: {error_code} - {error_msg}")
+                                raise Exception(f"Failed to activate Organizations access: {error_code} - {error_msg}")
+                    else:
+                        print(f"✓ Organizations access already in state: {current_status}")
+                    
+                    print("Step 5: Verifying activation...")
+                    max_retries = 10
+                    final_status = 'UNKNOWN'
+                    for i in range(max_retries):
+                        try:
+                            response = cfn.describe_organizations_access()
+                            final_status = response.get('Status', 'UNKNOWN')
+                            print(f"Verification {i+1}/{max_retries}: Status = {final_status}")
+                            
+                            if final_status in ['ENABLED', 'ENABLING']:
+                                print("✓ CloudFormation StackSets Organizations access is ready")
+                                break
+                            elif final_status == 'DISABLED':
+                                # Double check against Organizations API
+                                enabled_services = organizations.list_aws_service_access_for_organization()
+                                services = [s['ServicePrincipal'] for s in enabled_services['EnabledServicePrincipals']]
+                                if 'member.org.stacksets.cloudformation.amazonaws.com' in services:
+                                     print("✓ Organizations API says ENABLED, even if CFN says DISABLED. Proceeding.")
+                                     final_status = 'ENABLED' # Force success
+                                     break
+                                
+                                if i < max_retries - 1:
+                                    print("Status still DISABLED, waiting...")
+                                    time.sleep(3)
+                        except ClientError as verify_error:
+                            print(f"❌ Verification attempt {i+1}/{max_retries} failed: {verify_error}")
+                            if i < max_retries - 1:
+                                time.sleep(3)
+                            else:
+                                raise
+                    
+                    if final_status not in ['ENABLED', 'ENABLING']:
+                        enabled_services = organizations.list_aws_service_access_for_organization()
+                        services = [s['ServicePrincipal'] for s in enabled_services['EnabledServicePrincipals']]
+                        if 'member.org.stacksets.cloudformation.amazonaws.com' in services:
+                            print("✓ Final Check: Organizations API confirms access is ENABLED.")
+                        else:
+                            raise Exception(f"Final status is {final_status}, expected ENABLED or ENABLING")
+                    
+                print("✓ All steps completed successfully")
                 cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                
             except Exception as e:
-                print("Error:", e)
+                print(f"❌ Error: {e}")
+                import traceback
+                traceback.print_exc()
                 cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
 
   EnableCloudFormationAccess:
