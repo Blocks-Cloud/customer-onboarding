@@ -68,7 +68,8 @@ Resources:
                 Action:
                   - ce:StartCostAllocationTagBackfill
                   - ce:UpdateCostAllocationTagsStatus
-                Resource: '*' 
+                  - ce:ListCostAllocationTagBackfillHistory
+                Resource: "*"
 
   EnableStackSetsLambda:
     Type: AWS::Lambda::Function
@@ -263,6 +264,16 @@ Resources:
             ce = boto3.client("ce")
             try:  
                 if event['RequestType'] in ['Create', 'Update']:
+                    print("Checking for existing backfills...")
+                    try:
+                        backfill_history = ce.list_cost_allocation_tag_backfill_history()
+                        if any(b['BackfillStatus'] == 'PROCESSING' for b in backfill_history.get('BackfillHistory', [])):
+                            print("A backfill is already processing. Skipping new request.")
+                            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                            return
+                    except Exception as e:
+                        print(f"Warning: Could not list backfill history: {e}")
+
                     print("Attempting to activate Cost Allocation Backfill...")
                     try:
                         current_date = datetime.datetime.utcnow()
@@ -293,8 +304,11 @@ Resources:
                         print(f"Backfill response: {response}")
                         print("Cost Allocation Backfill requested successfully.")
                     except ClientError as e:
-                        if e.response['Error']['Code'] == 'InvalidOperationException':
+                        error_code = e.response['Error']['Code']
+                        if error_code == 'InvalidOperationException':
                             print("Cost Allocation Backfill is already activated.")
+                        elif error_code == 'BackfillLimitExceededException':
+                            print("Backfill limit exceeded. A backfill is likely already in progress.")
                         else:
                             raise
                         
@@ -307,7 +321,6 @@ Resources:
     Type: Custom::EnableCostAllocationBackfill
     Properties:
       ServiceToken: !GetAtt EnableCostAllocationBackfillLambda.Arn
-
 
   CURBucket:
     Type: AWS::S3::Bucket
@@ -938,28 +951,28 @@ Outputs:
   NextSteps:
     Description: "Instructions for completing setup"
     Value: !Sub |
-        Setup Complete!
+      Setup Complete!
 
-        Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
+      Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
 
-        Note: This role will automatically expire on 31st March 2026 for security.
+      Note: This role will automatically expire on 31st March 2026 for security.
 
-        To request historical data backfill, you can manually open an AWS Support case.
+      To request historical data backfill, you can manually open an AWS Support case.
 
-        Use the following details for the support request:
+      Use the following details for the support request:
 
-        Subject:
-        Request historical data backfill for CUR 2.0 export blocks-cur-data-${AWS::AccountId}
+      Subject:
+      Request historical data backfill for CUR 2.0 export blocks-cur-data-${AWS::AccountId}
 
-        Body:
-        Hello AWS Support,
+      Body:
+      Hello AWS Support,
 
-        We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
+      We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
 
-        Please backfill the existing blocks-cur-data-${AWS::AccountId} report from the:
-        s3://${CURBucket}/cur2/blocks-cur-data-${AWS::AccountId}/data
-        S3 bucket.
+      Please backfill the existing blocks-cur-data-${AWS::AccountId} report from the:
+      s3://${CURBucket}/cur2/blocks-cur-data-${AWS::AccountId}/data
+      S3 bucket.
 
-        We need historical data for the following period: 01.01.2022 through the current date.
+      We need historical data for the following period: 01.01.2022 through the current date.
 
-        Thank you.
+      Thank you.
