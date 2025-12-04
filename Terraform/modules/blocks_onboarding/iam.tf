@@ -9,7 +9,7 @@ data "aws_iam_policy_document" "blocks_read_role" {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${var.blocks_external_account_id}:role/BlocksCustomerAccessRole"]
     }
-    actions = ["sts:AssumeRole"]
+    actions = ["sts:AssumeRole", "sts:TagSession"]
     condition {
       test     = "StringEquals"
       variable = "sts:ExternalId"

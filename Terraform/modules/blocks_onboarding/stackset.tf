@@ -4,6 +4,8 @@ resource "null_resource" "enable_stacksets_access" {
 
   provisioner "local-exec" {
     command = <<-EOF
+      aws organizations enable-aws-service-access --service-principal member.org.stacksets.cloudformation.amazonaws.com || true
+      sleep 5
       aws cloudformation activate-organizations-access --region ${var.aws_region} || true
       sleep 10
     EOF

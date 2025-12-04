@@ -10,8 +10,9 @@ Description: >
   This CloudFormation template automates the ingestion of AWS Cost and Usage Report (CUR 2.0) data, and grants Blocks secure, read-only access to perform cost optimization analysis across all linked accounts:
   Configures CUR 2.0 exports with hourly granularity.
   Creates an S3 bucket to store CUR 2.0 data in Parquet format.
+  Automatically starts a cost allocation tag to backfill up to 12 months of historical data.
   Creates a read-only IAM role to selected AWS services.
-  (Optionally) Creates an IAM role with limited support access and opens an AWS Support case on your behalf to backfill up to 36 months of historical data.
+  Creates an IAM role with limited support access and opens an AWS Support case on your behalf to backfill up to 36 months of historical data.
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Parameters:
@@ -57,6 +58,7 @@ Resources:
                 Action:
                   - organizations:DescribeOrganization
                   - organizations:EnableAWSServiceAccess
+                  - organizations:ListAWSServiceAccessForOrganization
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -67,7 +69,9 @@ Resources:
                 Action:
                   - ce:StartCostAllocationTagBackfill
                   - ce:UpdateCostAllocationTagsStatus
-                Resource: '*' 
+                  - ce:ListCostAllocationTagBackfillHistory
+                  - ce:ListCostAllocationTags
+                Resource: "*"
 
   EnableStackSetsLambda:
     Type: AWS::Lambda::Function
@@ -86,95 +90,67 @@ Resources:
           from botocore.exceptions import ClientError
 
           def handler(event, context):
-            print("Received event:", event)
-            cfn = boto3.client("cloudformation")
-            try:  
-                if event['RequestType'] in ['Create', 'Update']:
-                    print("Attempting to activate organizations access...")
-                    try:
-                        cfn.activate_organizations_access()
-                        print("Activation requested successfully.")
-                    except ClientError as e:
-                        if e.response['Error']['Code'] == 'InvalidOperationException':
-                            print("Organizations access is already activated.")
-                        else:
-                            raise
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-            except Exception as e:
-                print("Error:", e)
-                cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+              print("Received event:", event)
+              
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      orgs = boto3.client("organizations")
+                      cfn = boto3.client("cloudformation")
+                      iam = boto3.client("iam")
+                      
+                      # Check Feature Set
+                      if orgs.describe_organization()['Organization']['FeatureSet'] != 'ALL':
+                          raise Exception("Organization must have 'All Features' enabled.")
+
+                      # 1. Enable Service Access
+                      try:
+                          orgs.enable_aws_service_access(ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com')
+                          print("Enabled service access")
+                      except ClientError as e:
+                          print(f"Service access enable skipped: {e}")
+
+                      # 2. Create Service Linked Role
+                      try:
+                          iam.create_service_linked_role(
+                              AWSServiceName='stacksets.cloudformation.amazonaws.com',
+                              Description='Service-linked role for CloudFormation StackSets'
+                          )
+                      except ClientError:
+                          pass
+
+                      # 3. Activate Organizations Access
+                      try:
+                          cfn.activate_organizations_access()
+                      except ClientError:
+                          pass # Ignore if already activated
+
+                      # 4. Verify Enablement
+                      for i in range(10):
+                          status = cfn.describe_organizations_access().get('Status')
+                          if status == 'ENABLED':
+                              print("Access is ENABLED")
+                              break
+                          
+                          # Fallback: check Org API directly
+                          principals = [s['ServicePrincipal'] for s in orgs.list_aws_service_access_for_organization()['EnabledServicePrincipals']]
+                          if 'member.org.stacksets.cloudformation.amazonaws.com' in principals:
+                              print("Access confirmed via Organizations API")
+                              break
+                          
+                          time.sleep(3)
+                      else:
+                          raise Exception("Failed to verify Organizations access enablement")
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  
+              except Exception as e:
+                  print(f"Error: {e}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
 
   EnableCloudFormationAccess:
     Type: Custom::EnableStackSetsAccess
     Properties:
       ServiceToken: !GetAtt EnableStackSetsLambda.Arn
-
-  EnableCostAllocationBackfillLambda:
-    Type: AWS::Lambda::Function
-    Description: "Lambda function to enable Cost Allocation Backfill"
-    Properties:
-      FunctionName: EnableCostAllocationBackfill
-      Runtime: python3.11
-      Handler: index.handler
-      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
-      Timeout: 60
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import time
-          import datetime
-          from botocore.exceptions import ClientError
-          def handler(event, context):
-            print("Received event:", event)
-            ce = boto3.client("ce")
-            try:  
-                if event['RequestType'] in ['Create', 'Update']:
-                    print("Attempting to activate Cost Allocation Backfill...")
-                    try:
-                        current_date = datetime.datetime.utcnow()
-                        backfill_from = datetime.datetime(
-                            current_date.year - 1, 
-                            current_date.month, 
-                            1, 
-                            0, 
-                            0, 
-                            0
-                        )
-                        print(f"Backfill from: {backfill_from.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-
-                        tag_key  = 'aws:createdBy'
-                        tag_status  = 'Active'
-
-                        ce.update_cost_allocation_tags_status(
-                            CostAllocationTagsStatus=[
-                                {
-                                    'TagKey': tag_key,
-                                    'Status': tag_status
-                                }
-                            ]
-                        )
-                        response = ce.start_cost_allocation_tag_backfill(
-                            BackfillFrom=backfill_from.strftime("%Y-%m-%dT%H:%M:%SZ")
-                        )
-                        print(f"Backfill response: {response}")
-                        print("Cost Allocation Backfill requested successfully.")
-                    except ClientError as e:
-                        if e.response['Error']['Code'] == 'InvalidOperationException':
-                            print("Cost Allocation Backfill is already activated.")
-                        else:
-                            raise
-                        
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-            except Exception as e:
-                print("Error:", e)
-                cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
-
-  EnableCostAllocationBackfill:
-    Type: Custom::EnableCostAllocationBackfill
-    Properties:
-      ServiceToken: !GetAtt EnableCostAllocationBackfillLambda.Arn
-
 
   CURBucket:
     Type: AWS::S3::Bucket
@@ -399,6 +375,110 @@ Resources:
               Overwrite: OVERWRITE_REPORT
         RefreshCadence: { Frequency: SYNCHRONOUS }
 
+  EnableCostAllocationBackfillLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: Cur20Export
+    Description: "Lambda function to enable Cost Allocation Backfill"
+    Properties:
+      FunctionName: EnableCostAllocationBackfill
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+          import datetime
+          from botocore.exceptions import ClientError
+          def handler(event, context):
+            print("Received event:", event)
+            ce = boto3.client("ce")
+            try:  
+                if event['RequestType'] in ['Create', 'Update']:
+                    print("Checking for existing backfills...")
+                    try:
+                        backfill_history = ce.list_cost_allocation_tag_backfill_history()
+                        if any(b['BackfillStatus'] == 'PROCESSING' for b in backfill_history.get('BackfillHistory', [])):
+                            print("A backfill is already processing. Skipping new request.")
+                            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                            return
+                    except Exception as e:
+                        print(f"Warning: Could not list backfill history: {e}")
+
+                    print("Attempting to activate Cost Allocation Backfill...")
+                    
+                    current_date = datetime.datetime.utcnow()
+                    backfill_from = datetime.datetime(
+                        current_date.year - 1, 
+                        current_date.month, 
+                        1, 
+                        0, 
+                        0, 
+                        0
+                    )
+                    print(f"Backfill from: {backfill_from.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+
+                    target_tag_key = 'aws:createdBy'
+                    
+                    try:
+                        # Check status of aws:createdBy
+                        response = ce.list_cost_allocation_tags(
+                            TagKeys=[target_tag_key],
+                            Type='AWSGenerated'
+                        )
+                        
+                        is_active = False
+                        for tag in response.get('CostAllocationTags', []):
+                            if tag['TagKey'] == target_tag_key and tag['Status'] == 'Active':
+                                is_active = True
+                                break
+                        
+                        if is_active:
+                            print(f"Tag {target_tag_key} is already Active. Searching for another inactive AWS-managed tag...")
+                            
+                            # List AWS generated tags to find a substitute
+                            all_tags_response = ce.list_cost_allocation_tags(
+                                Type='AWSGenerated',
+                                MaxResults=50
+                            )
+                            
+                            for tag in all_tags_response.get('CostAllocationTags', []):
+                                if tag['Status'] == 'Inactive':
+                                    target_tag_key = tag['TagKey']
+                                    print(f"Found inactive tag to activate: {target_tag_key}")
+                                    break
+                                    
+                    except Exception as e:
+                        print(f"Error checking tag status: {str(e)}")
+
+                    print(f"Activating tag: {target_tag_key}")
+
+                    ce.update_cost_allocation_tags_status(
+                        CostAllocationTagsStatus=[
+                            {
+                                'TagKey': target_tag_key,
+                                'Status': 'Active'
+                            }
+                        ]
+                    )
+                    response = ce.start_cost_allocation_tag_backfill(
+                        BackfillFrom=backfill_from.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    )
+                    print(f"Backfill response: {response}")
+                    print("Cost Allocation Backfill requested successfully.")
+                        
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            except Exception as e:
+                print("Error:", e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  EnableCostAllocationBackfill:
+    Type: Custom::EnableCostAllocationBackfill
+    Properties:
+      ServiceToken: !GetAtt EnableCostAllocationBackfillLambda.Arn
+
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
     DependsOn: EnableCloudFormationAccess
@@ -419,7 +499,7 @@ Resources:
           Regions:
             - us-east-1
       OperationPreferences:
-        FailureTolerancePercentage: 100
+        FailureTolerancePercentage: 10
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
       Tags:
@@ -696,7 +776,9 @@ Resources:
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole"
-            Action: "sts:AssumeRole"
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
             Condition:
               StringEquals:
                 "sts:ExternalId": "blocks-shared-secret"
@@ -805,28 +887,8 @@ Outputs:
   NextSteps:
     Description: "Instructions for completing setup"
     Value: !Sub |
-        Setup Complete!
+      Setup Complete!
 
-        Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
+      Blocks will automatically create an AWS Support case to backfill up to 36 months of historical CUR data.
 
-        Note: This role will automatically expire on 31st March 2026 for security.
-
-        To request historical data backfill, you can manually open an AWS Support case.
-
-        Use the following details for the support request:
-
-        Subject:
-        Request historical data backfill for CUR 2.0 export blocks-cur-data-${AWS::AccountId}
-
-        Body:
-        Hello AWS Support,
-
-        We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
-
-        Please backfill the existing blocks-cur-data-${AWS::AccountId} report from the:
-        s3://${CURBucket}/cur2/blocks-cur-data-${AWS::AccountId}/data
-        S3 bucket.
-
-        We need historical data for the following period: 01.01.2022 through the current date.
-
-        Thank you.
+      Note: This role will automatically expire on 31st March 2026 for security.

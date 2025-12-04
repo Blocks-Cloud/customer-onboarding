@@ -7,7 +7,7 @@ Infrastructure-as-code templates for onboarding to **Blocks** ([Blocks.cloud](ht
 This setup enables Blocks to analyze your AWS costs by:
 1. **Creating CUR 2.0 Exports** in your management account
 2. **Deploying Read-Only Roles** to your organization via StackSets
-3. **Enabling Cost Allocation Tags** for better attribution
+3. **Automatically Starting Backfill** for the last 12 months
 
 ## Prerequisites
 

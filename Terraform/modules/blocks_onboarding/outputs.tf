@@ -49,25 +49,6 @@ Blocks will automatically create an AWS Support case to backfill up to 36 months
 
 Note: This role will automatically expire on 31st March 2026 for security.
 
-To request historical data backfill, open an AWS Support case.
-
-Use the following details for the support request:
-
-Subject:
-Request historical data backfill for CUR 2.0 export ${local.blocks_resource_name}
-
-Body:
-Hello AWS Support,
-
-We are requesting assistance with backfilling a CUR 2.0 Data Export according to the requirements below.
-
-Please backfill the existing ${local.blocks_resource_name} report from the:
-s3://${local.blocks_resource_name}/cur2/${local.blocks_resource_name}/data
-S3 bucket.
-
-We need historical data for the following period: 01.01.2022 through the current date.
-
-Thank you.
 EOF
 }
 
