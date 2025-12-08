@@ -281,10 +281,14 @@ Resources:
               AWS: !Sub 'arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole'
             Action: 
               - sts:AssumeRole
-              - sts:TagSession
             Condition:
               StringEquals:
                 'sts:ExternalId': 'blocks-shared-secret'
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::810801871908:role/BlocksCustomerAccessRole'
+            Action: 
+              - sts:TagSession
 
       ManagedPolicyArns:
         - !Ref BlocksCostAndReservationsReadPolicy

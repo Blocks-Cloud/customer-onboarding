@@ -9,12 +9,20 @@ data "aws_iam_policy_document" "blocks_read_role" {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${var.blocks_external_account_id}:role/BlocksCustomerAccessRole"]
     }
-    actions = ["sts:AssumeRole", "sts:TagSession"]
+    actions = ["sts:AssumeRole"]
     condition {
       test     = "StringEquals"
       variable = "sts:ExternalId"
       values   = [var.external_id]
     }
+  }
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.blocks_external_account_id}:role/BlocksCustomerAccessRole"]
+    }
+    actions = ["sts:TagSession"]
   }
 }
 
