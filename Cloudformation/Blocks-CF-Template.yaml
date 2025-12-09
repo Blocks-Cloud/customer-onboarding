@@ -36,7 +36,7 @@ Rules:
         AssertDescription: "You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1"
 
 Resources:
-  EnableStackSetsAndCostAllocationBackfillLambdaRole:
+  CostAllocationBackfillLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -49,26 +49,10 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: CloudFormationOrgAccess
+        - PolicyName: CostAllocationBackfillLambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
-                Action:
-                  - cloudformation:ActivateOrganizationsAccess
-                  - cloudformation:DescribeOrganizationsAccess
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - organizations:DescribeOrganization
-                  - organizations:EnableAWSServiceAccess
-                  - organizations:ListAWSServiceAccessForOrganization
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - iam:GetRole
-                  - iam:CreateServiceLinkedRole
-                Resource: "*"
               - Effect: Allow
                 Action:
                   - ce:StartCostAllocationTagBackfill
@@ -76,85 +60,6 @@ Resources:
                   - ce:ListCostAllocationTagBackfillHistory
                   - ce:ListCostAllocationTags
                 Resource: "*"
-
-  EnableStackSetsLambda:
-    Type: AWS::Lambda::Function
-    Description: "Lambda function to enable CloudFormation StackSets access"
-    Properties:
-      FunctionName: EnableCloudFormationStackSetsAccess
-      Runtime: python3.11
-      Handler: index.handler
-      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
-      Timeout: 60
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import time
-          from botocore.exceptions import ClientError
-
-          def handler(event, context):
-              print("Received event:", event)
-              
-              try:
-                  if event['RequestType'] in ['Create', 'Update']:
-                      orgs = boto3.client("organizations")
-                      cfn = boto3.client("cloudformation")
-                      iam = boto3.client("iam")
-                      
-                      # Check Feature Set
-                      if orgs.describe_organization()['Organization']['FeatureSet'] != 'ALL':
-                          raise Exception("Organization must have 'All Features' enabled.")
-
-                      # 1. Enable Service Access
-                      try:
-                          orgs.enable_aws_service_access(ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com')
-                          print("Enabled service access")
-                      except ClientError as e:
-                          print(f"Service access enable skipped: {e}")
-
-                      # 2. Create Service Linked Role
-                      try:
-                          iam.create_service_linked_role(
-                              AWSServiceName='stacksets.cloudformation.amazonaws.com',
-                              Description='Service-linked role for CloudFormation StackSets'
-                          )
-                      except ClientError:
-                          pass
-
-                      # 3. Activate Organizations Access
-                      try:
-                          cfn.activate_organizations_access()
-                      except ClientError:
-                          pass # Ignore if already activated
-
-                      # 4. Verify Enablement
-                      for i in range(10):
-                          status = cfn.describe_organizations_access().get('Status')
-                          if status == 'ENABLED':
-                              print("Access is ENABLED")
-                              break
-                          
-                          # Fallback: check Org API directly
-                          principals = [s['ServicePrincipal'] for s in orgs.list_aws_service_access_for_organization()['EnabledServicePrincipals']]
-                          if 'member.org.stacksets.cloudformation.amazonaws.com' in principals:
-                              print("Access confirmed via Organizations API")
-                              break
-                          
-                          time.sleep(3)
-                      else:
-                          raise Exception("Failed to verify Organizations access enablement")
-
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-                  
-              except Exception as e:
-                  print(f"Error: {e}")
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
-
-  EnableCloudFormationAccess:
-    Type: Custom::EnableStackSetsAccess
-    Properties:
-      ServiceToken: !GetAtt EnableStackSetsLambda.Arn
 
   CURBucket:
     Type: AWS::S3::Bucket
@@ -387,7 +292,7 @@ Resources:
       FunctionName: EnableCostAllocationBackfill
       Runtime: python3.11
       Handler: index.handler
-      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
+      Role: !GetAtt CostAllocationBackfillLambdaRole.Arn
       Timeout: 60
       Code:
         ZipFile: |
@@ -444,7 +349,6 @@ Resources:
                             
                             # List AWS generated tags to find a substitute
                             all_tags_response = ce.list_cost_allocation_tags(
-                                Type='AWSGenerated',
                                 MaxResults=50
                             )
                             
@@ -485,7 +389,6 @@ Resources:
 
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
-    DependsOn: EnableCloudFormationAccess
     Properties:
       StackSetName: "Subaccounts-Blocks-IAM-Read-Role"
       Description: "Deploys the Blocks read-only IAM role to all member accounts for organization-wide cost analysis and optimization"

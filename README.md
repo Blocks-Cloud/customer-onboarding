@@ -14,6 +14,13 @@ This setup enables Blocks to analyze your AWS costs by:
 - ✅ **AWS Organizations enabled**
 - ✅ **Management Account access**
 - ✅ **Organization Root ID** (format: `r-xxxx`)
+- ✅ **Enable trusted access with AWS Organizations to use service-managed permissions**
+
+   - Open the CloudFormation console
+   - From the navigation pane, choose StackSets
+   - Click on "Enable trusted access with AWS Organizations to use service-managed permissions"
+
+   ![Enable trusted access with AWS Organizations to use service-managed permissions](./images/enable-trusted-access.png)
 
 ## Deployment Options
 
@@ -21,7 +28,7 @@ This setup enables Blocks to analyze your AWS costs by:
 
 1. **[Click here to deploy via AWS Console](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?stackName=blocks-cur2&templateURL=https%3A%2F%2Fblocks-cf-templates.s3.eu-north-1.amazonaws.com%2FBlocks-CF-Template.yaml)**
 
-2. **Enter stack name `blocks-cur2`**
+2. **Enter stack name `YOUR_COMPANY_NAME`**
 
 3. **Enter your Organization Root ID**
    - Find this in the [AWS Organizations console](https://console.aws.amazon.com/organizations/v2/home)
