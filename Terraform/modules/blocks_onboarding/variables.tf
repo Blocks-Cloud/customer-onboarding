@@ -104,7 +104,7 @@ variable "template_version" {
 variable "failure_tolerance_count" {
   description = "The number of accounts per region for which this operation can fail before AWS CloudFormation stops the operation in that region."
   type        = number
-  default     = 10
+  default     = 0
 }
 
 variable "max_concurrent_count" {

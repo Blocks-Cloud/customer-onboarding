@@ -15,6 +15,10 @@ Description: >
   Creates an IAM role with limited support access and opens an AWS Support case on your behalf to backfill up to 36 months of historical data.
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
+Metadata:
+  TemplateVersion: "1.3.0"
+  LastUpdated: "2025-12-09"
+
 Parameters:
   OrganizationRootId:
     Type: String
@@ -499,7 +503,7 @@ Resources:
           Regions:
             - us-east-1
       OperationPreferences:
-        FailureTolerancePercentage: 10
+        FailureTolerancePercentage: 0
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
       Tags:
@@ -762,6 +766,13 @@ Resources:
               - support:DescribeTrustedAdvisorCheckSummaries
               - support:DescribeTrustedAdvisorCheckRefreshStatuses
               - support:RefreshTrustedAdvisorCheck
+            Resource: "*"
+
+          # IAM Identity Center ReadOnly
+          - Sid: IamIdentityCenterReadOnly
+            Effect: Allow
+            Action:
+              - sso:ListInstances
             Resource: "*"
 
   BlocksReadRole:

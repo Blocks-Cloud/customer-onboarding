@@ -307,6 +307,14 @@ data "aws_iam_policy_document" "savings_estimations_read_only" {
     ]
     resources = ["*"]
   }
+  statement {
+    sid    = "IamIdentityCenterReadOnly"
+    effect = "Allow"
+    actions = [
+      "sso:ListInstances",
+    ]
+    resources = ["*"]
+  }
 }
 
 

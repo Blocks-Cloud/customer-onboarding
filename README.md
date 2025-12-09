@@ -50,7 +50,7 @@ terraform apply
 
 ```hcl
 module "blocks_onboarding" {
-  source = "git::https://github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_onboarding?ref=v1.2.0"
+  source = "git::https://github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_onboarding?ref=v1.3.0"
   aws_region = "us-east-1"
   template_version = "1.0.0"
 }
