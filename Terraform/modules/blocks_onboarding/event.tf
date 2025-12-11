@@ -12,16 +12,21 @@ resource "null_resource" "notify_blocks" {
     aws_cloudformation_stack_instances.blocks
   ]
 
+  triggers = {
+    module_version = var.module_version
+  }
+
   provisioner "local-exec" {
     command = <<EOF
 EVENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 aws events put-events \
---region ${var.aws_region} \
+--region us-east-1 \
 --entries "[{
 \"Source\": \"customer.terraform\",
 \"DetailType\": \"Terraform Apply Finished\",
-\"Detail\": \"{\\\"status-details\\\":{\\\"status\\\":\\\"CREATE_COMPLETE\\\"}}\",
+\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"moduleVersion\\\":\\\"${var.module_version}\\\",\\\"status-details\\\":{\\\"status\\\":\\\"CREATE_COMPLETE\\\"}}\",
 \"Time\": \"$EVENT_TIME\",
 \"Resources\": []
 }]"
@@ -32,13 +37,14 @@ EOF
     when    = destroy
     command = <<EOF
 EVENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 aws events put-events \
 --region us-east-1 \
 --entries "[{
 \"Source\": \"customer.terraform\",
 \"DetailType\": \"Terraform Destroy Finished\",
-\"Detail\": \"{\\\"status-details\\\":{\\\"status\\\":\\\"DELETE_COMPLETE\\\"}}\",
+\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"status-details\\\":{\\\"status\\\":\\\"DELETE_COMPLETE\\\"}}\",
 \"Time\": \"$EVENT_TIME\",
 \"Resources\": []
 }]"

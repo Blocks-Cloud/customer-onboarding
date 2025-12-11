@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 module "blocks_onboarding" {
-  source = "github.com/Blocks-Cloud/customer-onboarding.git/Terraform/modules/blocks_onboarding?ref=v1.3.0"
+  source = "github.com/Blocks-Cloud/customer-onboarding.git/Terraform/modules/blocks_onboarding?ref=v1.4.0"
 
   aws_region = var.aws_region
 

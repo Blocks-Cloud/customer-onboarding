@@ -118,3 +118,9 @@ variable "region_concurrency_type" {
   type        = string
   default     = "PARALLEL"
 }
+
+variable "module_version" {
+  description = "The version of the module."
+  type        = string
+  default     = "1.4.0"
+}

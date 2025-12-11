@@ -29,6 +29,9 @@ Resources:
               - cur:DescribeReportDefinitions
               - bcm-data-exports:GetExport
               - bcm-data-exports:ListExports
+              - pricing:GetProducts
+              - pricing:DescribeServices
+              - pricing:GetAttributeValues
             Resource: "*"
           
           # Billing data, discounts, and credits

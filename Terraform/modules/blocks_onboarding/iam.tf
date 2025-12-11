@@ -57,7 +57,10 @@ data "aws_iam_policy_document" "cost_reservations_read_only" {
       "cur:Get*",
       "cur:DescribeReportDefinitions",
       "bcm-data-exports:GetExport",
-      "bcm-data-exports:ListExports"
+      "bcm-data-exports:ListExports",
+      "pricing:GetProducts",
+      "pricing:DescribeServices",
+      "pricing:GetAttributeValues"
     ]
     resources = ["*"]
   }
