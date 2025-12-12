@@ -16,8 +16,8 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "1.4.0"
-  LastUpdated: "2025-12-09"
+  TemplateVersion: "1.5.0"
+  LastUpdated: "2025-12-12"
 
 Parameters:
   OrganizationRootId:
@@ -36,7 +36,7 @@ Rules:
         AssertDescription: "You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1"
 
 Resources:
-  CostAllocationBackfillLambdaRole:
+  EnableStackSetsAndCostAllocationBackfillLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -49,7 +49,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: CostAllocationBackfillLambdaPolicy
+        - PolicyName: EnableStackSetsAndCostAllocationBackfillLambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -60,6 +60,105 @@ Resources:
                   - ce:ListCostAllocationTagBackfillHistory
                   - ce:ListCostAllocationTags
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:ActivateOrganizationsAccess
+                  - cloudformation:DescribeOrganizationsAccess
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:EnableAWSServiceAccess
+                  - organizations:ListAWSServiceAccessForOrganization
+                  - organizations:ListRoots
+                  - organizations:ListDelegatedAdministrators
+                  - organizations:RegisterDelegatedAdministrator
+                  - organizations:DescribeOrganizationalUnit
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+
+  EnableStackSetsLambda:
+    Type: AWS::Lambda::Function
+    Description: "Lambda function to enable CloudFormation StackSets access"
+    Properties:
+      FunctionName: EnableCloudFormationStackSetsAccess
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+          from botocore.exceptions import ClientError
+
+          def handler(event, context):              
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      # Wait for IAM policy propagation on first deploy
+                      time.sleep(10)
+                      
+                      orgs = boto3.client("organizations")
+                      cfn = boto3.client("cloudformation")
+                      
+                      # Check Feature Set
+                      if orgs.describe_organization()['Organization']['FeatureSet'] != 'ALL':
+                          raise Exception("Organization must have 'All Features' enabled.")
+
+                      # 1. Enable Service Access
+                      try:
+                          enable_response = orgs.enable_aws_service_access(ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com')
+                          print(f"Enabled service access for CloudFormation StackSets: {enable_response}")
+                          time.sleep(10)
+                      except ClientError as e:
+                          print(f"Service access enable skipped: {e}")
+
+                      # 2. Activate Organizations Access
+                      status = cfn.describe_organizations_access().get('Status')
+                      print(f"Current organizations access status: {status}")
+                      
+                      if status != 'ENABLED':
+                          try:
+                              activate_response = cfn.activate_organizations_access()
+                              print(f"Activated organizations access Response: {activate_response}")
+                          except ClientError as e:
+                              print(f"Activate error: {e}")
+                              raise
+
+                      # 3. Verify Activation (with retry)
+                      for i in range(12):
+                          describe_response = cfn.describe_organizations_access()
+                          status = describe_response.get('Status')
+                          print(f"Attempt {i+1}: describe_organizations_access response: {describe_response}")
+                          if status == 'ENABLED':
+                              print(f"Organizations access is ENABLED")
+                              break
+                          # Re-attempt activation if not yet enabled
+                          try:
+                              retry_response = cfn.activate_organizations_access()
+                              print(f"Attempt {i+1}: Re-triggered activate_organizations_access(). Response: {retry_response}")
+                          except ClientError as e:
+                              print(f"Attempt {i+1}: Activate retry skipped: {e}")
+                          time.sleep(60)
+                      else:
+                          raise Exception(f"Failed to verify activation. Final status: {status}")
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  
+              except Exception as e:
+                  print(f"Error: {e}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  EnableStackSetsAccess:
+    Type: Custom::EnableStackSetsAccess
+    Properties:
+      ServiceToken: !GetAtt EnableStackSetsLambda.Arn
 
   CURBucket:
     Type: AWS::S3::Bucket
@@ -292,7 +391,7 @@ Resources:
       FunctionName: EnableCostAllocationBackfill
       Runtime: python3.11
       Handler: index.handler
-      Role: !GetAtt CostAllocationBackfillLambdaRole.Arn
+      Role: !GetAtt EnableStackSetsAndCostAllocationBackfillLambdaRole.Arn
       Timeout: 60
       Code:
         ZipFile: |
@@ -389,6 +488,7 @@ Resources:
 
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
+    DependsOn: EnableStackSetsAccess
     Properties:
       StackSetName: "Subaccounts-Blocks-IAM-Read-Role"
       Description: "Deploys the Blocks read-only IAM role to all member accounts for organization-wide cost analysis and optimization"
@@ -797,7 +897,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "1.4.0"
+                "templateVersion": "1.5.0"
               }
 
 Outputs:

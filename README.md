@@ -14,13 +14,6 @@ This setup enables Blocks to analyze your AWS costs by:
 - ✅ **AWS Organizations enabled**
 - ✅ **Management Account access**
 - ✅ **Organization Root ID** (format: `r-xxxx`)
-- ✅ **Enable trusted access with AWS Organizations to use service-managed permissions**
-
-   - Open the CloudFormation console
-   - From the navigation pane, choose StackSets
-   - Click on "Enable trusted access with AWS Organizations to use service-managed permissions"
-
-   ![Enable trusted access with AWS Organizations to use service-managed permissions](./images/enable-trusted-access.png)
 
 ## Deployment Options
 
@@ -57,7 +50,7 @@ terraform apply
 
 ```hcl
 module "blocks_onboarding" {
-  source = "git::https://github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_onboarding?ref=v1.3.0"
+  source = "git::https://github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_onboarding?ref=v1.5.0"
   aws_region = "us-east-1"
   template_version = "1.0.0"
 }
