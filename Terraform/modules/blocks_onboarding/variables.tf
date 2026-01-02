@@ -124,3 +124,8 @@ variable "module_version" {
   type        = string
   default     = "1.4.0"
 }
+
+variable "blocks_customer_id" {
+  description = "Blocks Customer ID"
+  type        = string
+}

@@ -898,6 +898,7 @@ Resources:
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
                 "templateVersion": "1.5.0"
+                "customerId": <BLOCKS_CUSTOMER_ID>
               }
 
 Outputs:

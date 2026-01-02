@@ -13,7 +13,8 @@ resource "null_resource" "notify_blocks" {
   ]
 
   triggers = {
-    module_version = var.module_version
+    module_version     = var.module_version
+    blocks_customer_id = var.blocks_customer_id
   }
 
   provisioner "local-exec" {
@@ -26,7 +27,7 @@ aws events put-events \
 --entries "[{
 \"Source\": \"customer.terraform\",
 \"DetailType\": \"Terraform Apply Finished\",
-\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"moduleVersion\\\":\\\"${var.module_version}\\\",\\\"status-details\\\":{\\\"status\\\":\\\"CREATE_COMPLETE\\\"}}\",
+\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"moduleVersion\\\":\\\"${var.module_version}\\\",\\\"customerId\\\":\\\"${var.blocks_customer_id}\\\",\\\"status-details\\\":{\\\"status\\\":\\\"CREATE_COMPLETE\\\"}}\",
 \"Time\": \"$EVENT_TIME\",
 \"Resources\": []
 }]"
@@ -44,7 +45,7 @@ aws events put-events \
 --entries "[{
 \"Source\": \"customer.terraform\",
 \"DetailType\": \"Terraform Destroy Finished\",
-\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"status-details\\\":{\\\"status\\\":\\\"DELETE_COMPLETE\\\"}}\",
+\"Detail\": \"{\\\"account\\\":\\\"$ACCOUNT_ID\\\",\\\"customerId\\\":\\\"${self.triggers.blocks_customer_id}\\\",\\\"status-details\\\":{\\\"status\\\":\\\"DELETE_COMPLETE\\\"}}\",
 \"Time\": \"$EVENT_TIME\",
 \"Resources\": []
 }]"
