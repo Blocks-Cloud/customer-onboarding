@@ -1,0 +1,1112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  This template creates a cross-account execution role for Blocks to perform cost optimization actions
+  within a sub-account. It grants permissions to purchase Reserved Instances, manage budgets and alarms,
+  and read configuration data across compute, storage, database, and monitoring services.
+
+Metadata:
+  TemplateVersion: "0.1.1"
+  LastUpdated: "2026-01-08"
+
+Parameters:
+  BlocksCustomerId:
+    Type: String
+    Description: "Unique customer identifier provided by Blocks"
+    AllowedPattern: "^[a-zA-Z0-9-_]+$"
+    ConstraintDescription: "Must contain only alphanumeric characters, hyphens, and underscores"
+
+  BlocksAccountId:
+    Type: String
+    Description: "Blocks AWS account ID for cross-account access"
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: "Must be a valid 12-digit AWS account ID"
+
+  ExternalId:
+    Type: String
+    Description: "External ID for secure cross-account role assumption"
+    NoEcho: true
+
+Resources:
+  # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
+  # Common read-only permissions for Cost Explorer, CloudWatch, and Pricing APIs
+  BlocksBaseReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "BlocksBaseReadPolicy-${BlocksCustomerId}"
+      Description: "Shared read-only permissions for all Blocks roles - Cost Explorer, CloudWatch, Pricing. Must remain in place for Blocks to function correctly."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Cost Explorer - Read access
+          # Services: Cost Explorer
+          - Sid: CostExplorerRead
+            Effect: Allow
+            Action:
+              - ce:Get*
+              - ce:List*
+              - ce:Describe*
+            Resource: "*"
+
+          # Cost Optimization Hub - Full read access
+          # Services: Cost Optimization Hub
+          - Sid: CostOptimizationHubRead
+            Effect: Allow
+            Action:
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
+            Resource: "*"
+
+          # Pricing API - Full read access
+          # Services: Pricing
+          - Sid: PricingRead
+            Effect: Allow
+            Action:
+              - pricing:Get*
+              - pricing:DescribeServices
+              - pricing:ListPriceLists
+            Resource: "*"
+
+          # CloudWatch - Full read access
+          # Services: CloudWatch
+          - Sid: CloudWatchRead
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+            Resource: "*"
+
+          # CloudWatch Logs - Basic read access
+          # Services: CloudWatch Logs
+          - Sid: CloudWatchLogsRead
+            Effect: Allow
+            Action:
+              - logs:Describe*
+              - logs:List*
+            Resource: "*"
+
+          # IAM Policy Simulation - Read access
+          # Services: IAM
+          - Sid: IamPolicySimulationRead
+            Effect: Allow
+            Action:
+              - iam:SimulatePrincipalPolicy
+            Resource: "*"
+
+  BlocksCostOptimizationWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "BlocksCostOptimizationWritePolicy-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Reserved Instance Purchases
+          # Allows Blocks to purchase, modify, and exchange Reserved Instances
+          # across AWS services to optimize costs based on your usage patterns
+          # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB
+          - Sid: SavingsPlansAndRIsWrite
+            Effect: Allow
+            Action:
+              # EC2 Reserved Instances
+              - ec2:PurchaseReservedInstancesOffering
+              - ec2:ModifyReservedInstances
+              - ec2:AcceptReservedInstancesExchangeQuote
+              - ec2:DeleteQueuedReservedInstances
+              # RDS Reserved Instances
+              - rds:PurchaseReservedDBInstancesOffering
+              # ElastiCache Reserved Nodes
+              - elasticache:PurchaseReservedCacheNodesOffering
+              # Redshift Reserved Nodes
+              - redshift:PurchaseReservedNodeOffering
+              # OpenSearch Reserved Instances
+              - es:PurchaseReservedInstanceOffering
+              # MemoryDB Reserved Nodes
+              - memorydb:PurchaseReservedNodesOffering
+            Resource: "*"
+
+          # Governance & Monitoring
+          # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas
+          - Sid: GovernanceWrite
+            Effect: Allow
+            Action:
+              - budgets:*
+              - ce:UpdateCostAllocationTagsStatus
+              - ce:CreateAnomalyMonitor
+              - ce:CreateAnomalySubscription
+              - ce:UpdateAnomalyMonitor
+              - ce:UpdateAnomalySubscription
+              - servicequotas:RequestServiceQuotaIncrease
+              - servicequotas:GetServiceQuota
+              - servicequotas:ListServiceQuotas
+              - servicequotas:GetRequestedServiceQuotaChange
+              - servicequotas:ListRequestedServiceQuotaChangeHistory
+              - servicequotas:GetAWSDefaultServiceQuota
+              - servicequotas:ListAWSDefaultServiceQuotas
+            Resource: "*"
+
+          # Service Quotas Service-Linked Role
+          # Required for Service Quotas to function
+          # Services: IAM
+          - Sid: ServiceQuotasServiceLinkedRole
+            Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource: "arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*"
+            Condition:
+              StringEquals:
+                "iam:AWSServiceName": "servicequotas.amazonaws.com"
+
+          # SNS Write for Anomaly Detection Subscriptions
+          # Services: SNS
+          - Sid: SNSAnomalyDetectionSubscriptionsWrite
+            Effect: Allow
+            Action:
+              - sns:*
+            Resource: !Sub "arn:${AWS::Partition}:sns:*:${AWS::AccountId}:Blocks*"
+
+          # CloudWatch Write for Alarms
+          # Services: CloudWatch
+          - Sid: CloudWatchWrite
+            Effect: Allow
+            Action:
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:EnableAlarmActions
+              - cloudwatch:DisableAlarmActions
+            Resource: !Sub "arn:${AWS::Partition}:cloudwatch:*:${AWS::AccountId}:alarm:Blocks-*"
+
+          # EventBridge Management
+          # Services: EventBridge
+          - Sid: EventBridgeWrite
+            Effect: Allow
+            Action:
+              - events:PutRule
+              - events:PutTargets
+              - events:DeleteRule
+              - events:RemoveTargets
+              - events:CreateEventBus
+              - events:DeleteEventBus
+              - events:PutEvents
+            Resource:
+              - !Sub "arn:${AWS::Partition}:events:*:*:rule/Blocks*"
+              - !Sub "arn:${AWS::Partition}:events:*:*:event-bus/Blocks*"
+
+          # Compute Optimizer
+          # Services: Compute Optimizer
+          - Sid: ComputeOptimizerWrite
+            Effect: Allow
+            Action:
+              - compute-optimizer:*
+            Resource: "*"
+
+          # Cost Optimization Hub Opt-In
+          # Services: IAM, Cost Optimization Hub
+          - Sid: CostOptimizationHubOptIn
+            Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
+            Condition:
+              StringLike:
+                "iam:AWSServiceName": "cost-optimization-hub.bcm.amazonaws.com"
+          - Sid: CostOptimizationHubPolicy
+            Effect: Allow
+            Action:
+              - iam:PutRolePolicy
+            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
+          - Sid: CostOptimizationHubUpdateStatus
+            Effect: Allow
+            Action:
+              - cost-optimization-hub:UpdateEnrollmentStatus
+            Resource: "*"
+
+  BlocksCostOptimizationReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "BlocksCostOptimizationReadPolicy-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Cost Explorer extras (beyond base policy)
+          # Services: Cost Explorer
+          - Sid: CostExplorerExtras
+            Effect: Allow
+            Action:
+              - ce:StartCommitmentPurchaseAnalysis
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+            Resource: "*"
+
+          # Invoicing - Read access for invoice profiles and summaries
+          # Services: AWS Invoicing
+          - Sid: InvoicingRead
+            Effect: Allow
+            Action:
+              - invoicing:BatchGetInvoiceProfile
+              - invoicing:ListInvoiceSummaries
+              - invoicing:GetInvoicePdf
+              - invoicing:ListInvoiceUnits
+              - invoicing:GetInvoiceUnit
+            Resource: "*"
+
+          # Tax Settings - Read access for tax registration info
+          # Services: AWS Tax Settings
+          - Sid: TaxRead
+            Effect: Allow
+            Action:
+              - tax:GetTaxRegistration
+              - tax:ListTaxRegistrations
+            Resource: "*"
+
+          # IAM Identity Center ReadOnly
+          # Services: IAM Identity Center (SSO)
+          - Sid: IamIdentityCenterReadOnly
+            Effect: Allow
+            Action:
+              - sso:ListInstances
+            Resource: "*"
+
+          # Compute, scaling, and load balancing
+          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda
+          - Sid: ComputeAndScalingReadOnly
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+              - dlm:Get*
+              - elasticloadbalancing:Describe*
+              - autoscaling:Describe*
+              - autoscaling:Get*
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
+              - lambda:List*
+              - lambda:GetFunctionConfiguration
+            Resource: "*"
+
+          # Containers, orchestration, and build/deploy
+          # Services: ECS, EKS, ECR
+          - Sid: ContainersAndBuildReadOnly
+            Effect: Allow
+            Action:
+              - ecs:List*
+              - ecs:Describe*
+              - eks:List*
+              - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+            Resource: "*"
+
+          # Databases and caching
+          # Services: RDS, DynamoDB, DAX, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Aurora DSQL
+          - Sid: DatabasesAndCachingReadOnly
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+              - dsql:Get*
+              - dsql:List*
+              - dynamodb:List*
+              - dynamodb:Describe*
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+              - elasticache:Describe*
+              - elasticache:List*
+              - memorydb:Describe*
+              - memorydb:List*
+            Resource: "*"
+
+          # Storage, backup, and content delivery
+          # Services: S3 (metadata only), FSx, EFS, Backup
+          - Sid: StorageAndContentReadOnly
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:ListBucketVersions
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+              - fsx:Describe*
+              - fsx:List*
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+
+          # End-user compute and application streaming
+          # Services: WorkSpaces, AppStream
+          - Sid: EndUserServicesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+
+          # Observability extras (CloudWatch and Logs are in BlocksBaseReadPolicy)
+          # Services: CloudWatch OAM, Config
+          - Sid: ObservabilityExtras
+            Effect: Allow
+            Action:
+              - oam:ListSinks
+              - config:Describe*
+              - config:Get*
+              - config:List*
+            Resource: "*"
+
+          - Sid: NetworkAndEdgeReadOnly
+            Effect: Allow
+            Action:
+              - wafv2:List*
+            Resource: "*"
+
+          # CloudTrail Read Access
+          # Services: CloudTrail
+          - Sid: CloudTrailReadAccess
+            Effect: Allow
+            Action:
+              - cloudtrail:LookupEvents
+              - cloudtrail:Describe*
+              - cloudtrail:Get*
+              - cloudtrail:List*
+            Resource: "*"
+
+          # Systems Manager Automation
+          # Services: Systems Manager
+          - Sid: SSMAutomationRead
+            Effect: Allow
+            Action:
+              - ssm:DescribeAutomationStepExecutions
+              - ssm:DescribeAutomationExecutions
+            Resource: "*"
+
+          # CloudFormation Stack Read Access
+          # Services: CloudFormation
+          - Sid: CloudFormationStackReadAccess
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackEvents
+              - cloudformation:ListStacks
+            Resource: "*"
+
+  # IAM Policy: MajorTom Read Permissions
+  # AI-specific read permissions for Cloud Control API, CloudTrail, and cost analysis
+  MajorTomReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "MajorTomReadPolicy-${BlocksCustomerId}"
+      Description: "MajorTom AI read permissions for Cloud Control API, CloudTrail, and cost analysis. Must remain in place for MajorTom to function correctly."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Cloud Control API Read
+          # Services: Cloud Control API
+          - Sid: CloudControlAPIRead
+            Effect: Allow
+            Action:
+              - cloudcontrol:GetResource
+              - cloudcontrol:ListResources
+              - cloudcontrol:GetResourceRequestStatus
+            Resource: "*"
+
+          # CloudFormation Schema Read
+          # Services: CloudFormation
+          - Sid: CloudFormationSchemaRead
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeType
+              - cloudformation:DescribeGeneratedTemplate
+              - cloudformation:GetGeneratedTemplate
+              - cloudformation:ListGeneratedTemplates
+            Resource: "*"
+
+          # CloudWatch Logs extras (beyond base policy)
+          # Services: CloudWatch Logs
+          - Sid: CloudWatchLogsExtras
+            Effect: Allow
+            Action:
+              - logs:StartQuery
+              - logs:GetQueryResults
+              - logs:StopQuery
+              - logs:GetLogEvents
+              - logs:FilterLogEvents
+            Resource: "*"
+
+          # CloudTrail
+          # Services: CloudTrail
+          - Sid: CloudTrailRead
+            Effect: Allow
+            Action:
+              - cloudtrail:LookupEvents
+              - cloudtrail:DescribeTrails
+              - cloudtrail:GetTrail
+              - cloudtrail:GetTrailStatus
+              - cloudtrail:ListTrails
+              - cloudtrail:GetEventSelectors
+              - cloudtrail:GetInsightSelectors
+            Resource: "*"
+
+          # CloudTrail Lake
+          # Services: CloudTrail
+          - Sid: CloudTrailLakeRead
+            Effect: Allow
+            Action:
+              - cloudtrail:ListEventDataStores
+              - cloudtrail:GetEventDataStore
+              - cloudtrail:StartQuery
+              - cloudtrail:DescribeQuery
+              - cloudtrail:GetQueryResults
+              - cloudtrail:ListQueries
+            Resource: "*"
+
+          # EC2 Region Discovery
+          # Services: EC2
+          # Required for MajorTom Briefing Service to discover available AWS regions
+          - Sid: EC2RegionDiscovery
+            Effect: Allow
+            Action:
+              - ec2:DescribeRegions
+            Resource: "*"
+
+          # Budgets
+          # Services: Budgets
+          - Sid: BudgetsRead
+            Effect: Allow
+            Action:
+              - budgets:ViewBudget
+              - budgets:DescribeBudget
+              - budgets:DescribeBudgets
+            Resource: "*"
+
+          # Free Tier
+          # Services: Free Tier
+          - Sid: FreeTierRead
+            Effect: Allow
+            Action:
+              - freetier:GetFreeTierUsage
+            Resource: "*"
+
+          # Pricing Calculator
+          # Services: BCM Pricing Calculator
+          - Sid: PricingCalculatorRead
+            Effect: Allow
+            Action:
+              - bcm-pricing-calculator:GetPreferences
+              - bcm-pricing-calculator:GetWorkloadEstimate
+              - bcm-pricing-calculator:ListWorkloadEstimateUsage
+              - bcm-pricing-calculator:ListWorkloadEstimates
+            Resource: "*"
+
+  BlocksExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BlocksExecutionRole-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud to execute cost optimization actions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostOptimization
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:TagSession
+      ManagedPolicyArns:
+        - !Ref BlocksBaseReadPolicy
+        - !Ref BlocksCostOptimizationWritePolicy
+        - !Ref BlocksCostOptimizationReadPolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansFullAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSecurityHubReadOnlyAccess
+
+  # IAM Role: Blocks Read Role (Sub-Accounts)
+  # Read-only cross-account role for cost analysis and monitoring
+  BlocksReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BlocksReadRole-${BlocksCustomerId}"
+      Description: "Read-only role for Blocks.cloud cost analysis and monitoring. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostOptimization
+        - Key: RoleType
+          Value: ReadOnly
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:TagSession
+      ManagedPolicyArns:
+        - !Ref BlocksBaseReadPolicy
+        - !Ref BlocksCostOptimizationReadPolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSecurityHubReadOnlyAccess
+
+  # IAM Role: MajorTom Read Role
+  # Read-only AI role for cost analysis and monitoring
+  MajorTomReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "MajorTomReadRole-${BlocksCustomerId}"
+      Description: "Read-only AI role for Blocks.cloud cost analysis and monitoring. Must remain in place for MajorTom to function correctly."
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostOptimization
+        - Key: RoleType
+          Value: AI-ReadOnly
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:TagSession
+      ManagedPolicyArns:
+        - !Ref BlocksBaseReadPolicy
+        - !Ref MajorTomReadPolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+
+  ############################
+  # External Event Conductor #
+  ############################
+  # Dedicated EventBridge event bus to communicate with our external workers
+  ExternalEventConductorEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub BlocksExternalEventsOutbound-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Allows convenient cross-account communication."
+
+  # Allow external event conductor to put events
+  ExternalEventConductorEventBusPolicy:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref ExternalEventConductorEventBus
+      StatementId: AllowExternalEventConductor
+      Action: events:PutEvents
+      Principal: !Ref BlocksAccountId
+
+  ###################################
+  # Terraform State File ETL Worker #
+  ###################################
+  TfStateFileEtlWorkerLambdaExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub BlocksTfStateFileEtlWorkerLambdaPolicy-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants S3, SSM Parameter Store, STS, and CloudWatch permissions."
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # List all S3 buckets and objects in current account
+          # (required to find Terraform state file buckets and list workspace folders)
+          - Sid: S3List
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:ListAllMyBuckets
+              - s3:ListBucket
+            Resource:
+              - "*"
+
+          # Read .tfstate files in any S3 buckets in current account
+          - Sid: S3Get
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::*.tfstate
+
+          # Write access to target bucket path for this account
+          - Sid: S3WriteTfStateFileEtlWorkerTargetBucket
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::blocks-tf-state-file-etl-target-${BlocksAccountId}"
+              - !Sub "arn:aws:s3:::blocks-tf-state-file-etl-target-${BlocksAccountId}/customer-accounts/${AWS::AccountId}/*"
+
+          # Access to SSM parameter to read its config
+          - Sid: SSMReadConfig
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-${BlocksCustomerId}/TfStateFileEtlWorker/Config
+
+          # SSM write access for self-provisioning config parameter
+          - Sid: SSMWriteConfig
+            Effect: Allow
+            Action:
+              - ssm:PutParameter
+              - ssm:PutResourcePolicy
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-${BlocksCustomerId}/TfStateFileEtlWorker/Config
+
+          # STS for getting current account ID
+          - Sid: STSGetCallerIdentity
+            Effect: Allow
+            Action:
+              - sts:GetCallerIdentity
+            Resource: '*'
+
+          # Publish notifications to Blocks SNS topic
+          - Sid: SNSPublishNotifications
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Sub arn:${AWS::Partition}:sns:eu-central-1:${BlocksAccountId}:gh-app-inbound-${BlocksCustomerId}
+
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-${BlocksCustomerId}:*
+
+  TfStateFileEtlWorkerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub BlocksTfEtlWorkerRole-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants S3, SSM Parameter Store, STS, and CloudWatch permissions."
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref TfStateFileEtlWorkerLambdaExecutionPolicy
+
+  TfStateFileEtlWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/BlocksTfStateFileEtlWorker-${BlocksCustomerId}
+      RetentionInDays: 30
+
+  TfStateFileEtlWorkerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: TfStateFileEtlWorkerLogGroup
+    Properties:
+      FunctionName: !Sub BlocksTfStateFileEtlWorker-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses S3 and SSM for Terraform state file processing."
+      Runtime: python3.14
+      Handler: tf_state_file_etl_worker.handler
+      Role: !GetAtt TfStateFileEtlWorkerLambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
+        S3Key: lambda/tf-state-file-etl-worker/tf_state_file_etl_worker.zip
+      Environment:
+        Variables:
+          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+          SNS_ACCOUNT: !Sub "${BlocksAccountId}"
+      Timeout: 900
+      MemorySize: 256
+
+  # Allow external event conductor role to invoke the Lambda function
+  TfStateFileEtlWorkerLambdaPermissionExternalEventConductor:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TfStateFileEtlWorkerFunction
+      Action: lambda:InvokeFunction
+      Principal: !Ref BlocksAccountId
+
+  # Allow EventBridge to invoke the Lambda function
+  TfStateFileEtlWorkerLambdaPermissionEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TfStateFileEtlWorkerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TfStateFileEtlWorkerEventRule.Arn
+
+  TfStateFileEtlWorkerEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: BlocksTfStateFileEtlRequested
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Triggers Lambda on EventBridge events."
+      EventBusName: !Ref ExternalEventConductorEventBus
+      EventPattern:
+        source:
+          - state_bucket_finder
+        detail-type:
+          - state_bucket_finder.succeeded
+      State: ENABLED
+      Targets:
+        - Id: TfStateFileEtlWorkerLambda
+          Arn: !GetAtt TfStateFileEtlWorkerFunction.Arn
+
+  # SSM Parameter for additional Lambda configuration
+  TfStateFileEtlWorkerConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /Blocks-${BlocksCustomerId}/TfStateFileEtlWorker/Config
+      Type: String
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Stores Lambda configuration."
+      Value: |
+        {
+          "log_level": "error",
+          "allow_eb_events": true,
+          "allow_direct_invocation": true
+        }
+
+  ##########################
+  # Loopback Communication #
+  ##########################
+  LoopbackCommunicationPrepWorkerLambdaExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # EventBridge permissions to create/manage rules on default event bus
+          - Sid: EventBridgeRuleManagement
+            Effect: Allow
+            Action:
+              - events:PutRule
+              - events:PutTargets
+              - events:DeleteRule
+              - events:RemoveTargets
+              - events:DescribeRule
+              - events:ListTargetsByRule
+            Resource:
+              - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/BlocksCloudExt-*
+
+          # Lambda permissions to add invoke permissions for the worker
+          - Sid: LambdaPermissionManagement
+            Effect: Allow
+            Action:
+              - lambda:AddPermission
+              - lambda:RemovePermission
+            Resource:
+              - !GetAtt LoopbackCommunicationWorkerFunction.Arn
+
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-${BlocksCustomerId}:*
+
+  LoopbackCommunicationPrepWorkerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub BlocksLoopbackPrepRole-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref LoopbackCommunicationPrepWorkerLambdaExecutionPolicy
+
+  LoopbackCommunicationPrepWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/BlocksLoopbackCommunicationPrepWorker-${BlocksCustomerId}
+      RetentionInDays: 30
+
+  LoopbackCommunicationPrepWorkerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LoopbackCommunicationPrepWorkerLogGroup
+    Properties:
+      FunctionName: !Sub BlocksLoopbackCommunicationPrepWorker-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses EventBridge and Lambda for loopback setup."
+      Runtime: python3.14
+      Handler: loopback_communication_prep_worker.handler
+      Role: !GetAtt LoopbackCommunicationPrepWorkerLambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
+        S3Key: lambda/loopback-communication-prep-worker/loopback_communication_prep_worker.zip
+      Environment:
+        Variables:
+          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+      Timeout: 900
+      MemorySize: 256
+
+  # Allow external event conductor role to invoke the Lambda function
+  LoopbackCommunicationPrepWorkerLambdaPermissionExternalEventConductor:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LoopbackCommunicationPrepWorkerFunction
+      Action: lambda:InvokeFunction
+      Principal: !Ref BlocksAccountId
+
+  # Allow EventBridge to invoke the Lambda function
+  LoopbackCommunicationPrepWorkerLambdaPermissionEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LoopbackCommunicationPrepWorkerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt LoopbackCommunicationPrepWorkerEventRule.Arn
+
+  # Event rule on ExternalEventConductorEventBus to trigger loopback_communication_prep_worker
+  LoopbackCommunicationPrepWorkerEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: BlocksLoopbackCommunicationPrepRequested
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Triggers Lambda on EventBridge events."
+      EventBusName: !Ref ExternalEventConductorEventBus
+      EventPattern:
+        source:
+          - external_event_conductor.blocks.cloud
+        detail-type:
+          - loopback_communication_prep.requested
+      State: ENABLED
+      Targets:
+        - Id: LoopbackCommunicationPrepWorkerLambda
+          Arn: !GetAtt LoopbackCommunicationPrepWorkerFunction.Arn
+
+  LoopbackCommunicationWorkerLambdaExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub BlocksLoopbackCommunicationWorkerLambdaPolicy-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-${BlocksCustomerId}:*
+
+  LoopbackCommunicationWorkerLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub BlocksLoopbackWorkerRole-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref LoopbackCommunicationWorkerLambdaExecutionPolicy
+
+  LoopbackCommunicationWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/BlocksLoopbackCommunicationWorker-${BlocksCustomerId}
+      RetentionInDays: 30
+
+  LoopbackCommunicationWorkerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LoopbackCommunicationWorkerLogGroup
+    Properties:
+      FunctionName: !Sub BlocksLoopbackCommunicationWorker-${BlocksCustomerId}
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Processes loopback communication events."
+      Runtime: python3.14
+      Handler: loopback_communication_worker.handler
+      Role: !GetAtt LoopbackCommunicationWorkerLambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
+        S3Key: lambda/loopback-communication-worker/loopback_communication_worker.zip
+      Environment:
+        Variables:
+          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+      Timeout: 900
+      MemorySize: 256
+
+  RunbookActionForwardingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ForwardRunbookActionsToBlocks-${BlocksCustomerId}"
+      EventBusName: default
+      State: ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS
+      EventPattern:
+        $or:
+          - source:
+              - aws.ssm
+            detail-type:
+              - EC2 Automation Step Status-change Notification
+              - EC2 Automation Execution Status-change Notification
+          - source:
+              - prefix: aws.
+            detail-type:
+              - AWS API Call via CloudTrail
+            detail:
+              $or:
+                - eventSource:
+                    - ssm.amazonaws.com
+                - userIdentity:
+                    invokedBy:
+                      - ssm.amazonaws.com
+          - source:
+              - blocks.actions
+            detail-type:
+              - Runbook Notification
+      Targets:
+        - Id: blocks-bus
+          Arn: !Sub arn:${AWS::Partition}:events:eu-central-1:${BlocksAccountId}:event-bus/default
+          RoleArn: !GetAtt RunbookActionForwardingRole.Arn
+
+  RunbookActionForwardingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BlocksRunbookActionForwardingRole-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud to forward runbook events. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: events.amazonaws.com
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/ForwardRunbookActionsToBlocks-${BlocksCustomerId}
+      Policies:
+        - PolicyName: InlinePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub arn:${AWS::Partition}:events:eu-central-1:${BlocksAccountId}:event-bus/default
+
+Outputs:
+  BlocksExecutionRoleArn:
+    Description: "Cross-account role for cost and resource optimization analysis within a sub-account"
+    Value: !GetAtt BlocksExecutionRole.Arn
+  BlocksExecutionRoleName:
+    Description: "Name of the cross-account Blocks read role"
+    Value: !Ref BlocksExecutionRole
+  BlocksReadRoleArn:
+    Description: "Read-only cross-account role ARN for cost analysis"
+    Value: !GetAtt BlocksReadRole.Arn
+  BlocksReadRoleName:
+    Description: "Name of the read-only Blocks role"
+    Value: !Ref BlocksReadRole
+
+  ###################
+  # MajorTom Roles  #
+  ###################
+  MajorTomReadRoleArn:
+    Description: "Read-only AI role ARN for cost analysis and monitoring"
+    Value: !GetAtt MajorTomReadRole.Arn
+  MajorTomReadRoleName:
+    Description: "Name of the MajorTom read-only role"
+    Value: !Ref MajorTomReadRole
+
+  ############################
+  # External Event Conductor #
+  ############################
+  ExternalEventConductorEventBusArn:
+    Description: ARN of the EventBridge event bus
+    Value: !GetAtt ExternalEventConductorEventBus.Arn
+
+  ExternalEventConductorEventBusName:
+    Description: Name of the EventBridge event bus
+    Value: !Ref ExternalEventConductorEventBus
+
+  ###################################
+  # Terraform State File ETL Worker #
+  ###################################
+  TfStateFileEtlWorkerLambdaFunctionArn:
+    Description: ARN of the Terraform State File ETL Worker Lambda function
+    Value: !GetAtt TfStateFileEtlWorkerFunction.Arn
+
+  TfStateFileEtlWorkerLambdaRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt TfStateFileEtlWorkerLambdaExecutionRole.Arn
+
+  TfStateFileEtlWorkerConfigParameterName:
+    Description: Name of the SSM parameter containing Lambda configuration
+    Value: !Ref TfStateFileEtlWorkerConfig
+
+  ##########################
+  # Loopback Communication #
+  ##########################
+  LoopbackCommunicationPrepWorkerLambdaFunctionArn:
+    Description: ARN of the Loopback Communication Prep Worker Lambda function
+    Value: !GetAtt LoopbackCommunicationPrepWorkerFunction.Arn
+
+  LoopbackCommunicationPrepWorkerLambdaRoleArn:
+    Description: ARN of the Loopback Communication Prep Worker Lambda execution role
+    Value: !GetAtt LoopbackCommunicationPrepWorkerLambdaExecutionRole.Arn
+
+  LoopbackCommunicationWorkerLambdaFunctionArn:
+    Description: ARN of the Loopback Communication Worker Lambda function
+    Value: !GetAtt LoopbackCommunicationWorkerFunction.Arn
+
+  LoopbackCommunicationWorkerLambdaRoleArn:
+    Description: ARN of the Loopback Communication Worker Lambda execution role
+    Value: !GetAtt LoopbackCommunicationWorkerLambdaExecutionRole.Arn

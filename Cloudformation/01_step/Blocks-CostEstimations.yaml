@@ -1,0 +1,553 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  SUMMARY:
+
+  This CloudFormation template grants Blocks secure, read-only access applying least privilege to only the services required to perform cost optimization analysis across all linked accounts:
+  Creates a read-only IAM role to selected AWS services.
+  Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
+
+Metadata:
+  TemplateVersion: "0.1.1"
+  LastUpdated: "2026-01-08"
+
+Rules:
+  EnforceUsEast1:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - !Ref AWS::Region
+            - us-east-1
+        AssertDescription: "You must deploy to region us-east-1 only. Organizations APIs are only available in us-east-1."
+
+Resources:
+  EnableStackSetsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "EnableStackSetsLambdaRole-{{BLOCKS_CUSTOMER_ID}}"
+      Description: "Used by Blocks.cloud to enable StackSets trusted access. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: Onboarding
+      Policies:
+        - PolicyName: BlocksOnboardingLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:ActivateOrganizationsAccess
+                  - cloudformation:DescribeOrganizationsAccess
+                  - cloudformation:CreateStackSet
+                  - cloudformation:CreateStackInstances
+                  - cloudformation:DeleteStackSet
+                  - cloudformation:DeleteStackInstances
+                  - cloudformation:DescribeStackSet
+                  - cloudformation:DescribeStackSetOperation
+                  - cloudformation:ListStackInstances
+                  - cloudformation:UpdateStackSet
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:EnableAWSServiceAccess
+                  - organizations:ListAWSServiceAccessForOrganization
+                  - organizations:ListRoots
+                  - organizations:ListDelegatedAdministrators
+                  - organizations:RegisterDelegatedAdministrator
+                  - organizations:DescribeOrganizationalUnit
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  EnableStackSetsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "Lambda function to enable StackSets trusted access and manage StackSet deployment"
+      FunctionName: EnableStackSets-{{BLOCKS_CUSTOMER_ID}}
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt EnableStackSetsLambdaRole.Arn
+      Timeout: 900
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          STACKSET_NAME: "Blocks-CostEstimations-{{BLOCKS_CUSTOMER_ID}}"
+          TEMPLATE_URL: "{{SUBACCOUNTS_TEMPLATE_URL}}"
+          BLOCKS_CUSTOMER_ID: "{{BLOCKS_CUSTOMER_ID}}"
+          BLOCKS_ACCOUNT_ID: "{{BLOCKS_ACCOUNT_ID}}"
+          EXTERNAL_ID: "{{EXTERNAL_ID}}"
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import time
+          import os
+          from botocore.exceptions import ClientError
+
+          def enable_stacksets(orgs, cfn):
+              """Enable StackSets trusted access with AWS Organizations."""
+              try:
+                  orgs.enable_aws_service_access(ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com')
+                  print("Enabled AWS Organizations Service Access for CloudFormation StackSets")
+                  time.sleep(10)
+              except ClientError as e:
+                  print(f"Skipped enabling service access: {e}")
+
+              if cfn.describe_organizations_access().get('Status') != 'ENABLED':
+                  try:
+                      cfn.activate_organizations_access()
+                      print("Activated Trusted Access for CloudFormation StackSets")
+                  except ClientError as e:
+                      print(f"Error activating Trusted Access: {e}")
+                      raise
+
+              for i in range(12):
+                  status = cfn.describe_organizations_access().get('Status')
+                  if status == 'ENABLED': return
+                  time.sleep(60)
+              raise Exception(f"Failed to verify StackSets activation. Status: {status}")
+
+          def detect_account_type(orgs):
+              """Detect if account is management, member, or standalone."""
+              try:
+                  org = orgs.describe_organization()['Organization']
+                  master_account_id = org['MasterAccountId']
+                  sts = boto3.client('sts')
+                  current_account = sts.get_caller_identity()['Account']
+
+                  if current_account == master_account_id:
+                      roots = orgs.list_roots()['Roots']
+                      org_root_id = roots[0]['Id'] if roots else None
+                      return ('management', org_root_id, master_account_id, None)
+                  else:
+                      warning = f"WARNING: Member account. Deploy from management account {master_account_id} for org-wide coverage."
+                      return ('member', None, master_account_id, warning)
+              except ClientError as e:
+                  error_code = e.response.get('Error', {}).get('Code', '')
+                  if error_code in ['AWSOrganizationsNotInUseException', 'AccessDeniedException']:
+                      return ('standalone', None, None, None)
+                  raise
+
+          def create_or_update_stackset(cfn, org_root_id):
+              """Create or update StackSet via boto3."""
+              stackset_name = os.environ['STACKSET_NAME']
+              template_url = os.environ['TEMPLATE_URL']
+
+              params = [
+                  {'ParameterKey': 'BlocksCustomerId', 'ParameterValue': os.environ['BLOCKS_CUSTOMER_ID']},
+                  {'ParameterKey': 'BlocksAccountId', 'ParameterValue': os.environ['BLOCKS_ACCOUNT_ID']},
+                  {'ParameterKey': 'ExternalId', 'ParameterValue': os.environ['EXTERNAL_ID']},
+              ]
+
+              try:
+                  cfn.describe_stack_set(StackSetName=stackset_name, CallAs='SELF')
+                  print(f"StackSet {stackset_name} exists, updating...")
+                  cfn.update_stack_set(
+                      StackSetName=stackset_name,
+                      TemplateURL=template_url,
+                      Parameters=params,
+                      Capabilities=['CAPABILITY_NAMED_IAM'],
+                      CallAs='SELF',
+                  )
+              except cfn.exceptions.StackSetNotFoundException:
+                  print(f"Creating StackSet {stackset_name}...")
+                  cfn.create_stack_set(
+                      StackSetName=stackset_name,
+                      Description="Blocks read-only IAM role for organization-wide cost analysis. Must remain in place for Blocks to function correctly.",
+                      TemplateURL=template_url,
+                      Parameters=params,
+                      PermissionModel='SERVICE_MANAGED',
+                      AutoDeployment={'Enabled': True, 'RetainStacksOnAccountRemoval': False},
+                      Capabilities=['CAPABILITY_NAMED_IAM'],
+                      CallAs='SELF',
+                  )
+                  operation = cfn.create_stack_instances(
+                      StackSetName=stackset_name,
+                      DeploymentTargets={'OrganizationalUnitIds': [org_root_id]},
+                      Regions=['us-east-1'],
+                      OperationPreferences={
+                          'FailureTolerancePercentage': 0,
+                          'MaxConcurrentPercentage': 100,
+                          'RegionConcurrencyType': 'PARALLEL',
+                          'ConcurrencyMode': 'SOFT_FAILURE_TOLERANCE'
+                      },
+                      CallAs='SELF',
+                  )
+                  # Wait for stack instances deployment to complete
+                  operation_id = operation['OperationId']
+                  print(f"Waiting for StackSet operation {operation_id} to complete...")
+                  for _ in range(60):  # Max 30 minutes (60 * 30s)
+                      status = cfn.describe_stack_set_operation(
+                          StackSetName=stackset_name,
+                          OperationId=operation_id,
+                          CallAs='SELF'
+                      )['StackSetOperation']['Status']
+                      if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
+                          break
+                      time.sleep(30)
+                  if status != 'SUCCEEDED':
+                      raise Exception(f"StackSet operation {operation_id} ended with status: {status}")
+              print(f"StackSet {stackset_name} deployed to org root {org_root_id}")
+
+          def delete_stackset(cfn):
+              """Delete StackSet and all instances."""
+              stackset_name = os.environ['STACKSET_NAME']
+              try:
+                  instances = cfn.list_stack_instances(StackSetName=stackset_name, CallAs='SELF')
+                  if instances.get('Summaries'):
+                      regions = list(set(i['Region'] for i in instances['Summaries']))
+                      ou_ids = list(set(i.get('OrganizationalUnitId') for i in instances['Summaries'] if i.get('OrganizationalUnitId')))
+                      if ou_ids:
+                          cfn.delete_stack_instances(
+                              StackSetName=stackset_name,
+                              DeploymentTargets={'OrganizationalUnitIds': ou_ids},
+                              Regions=regions,
+                              RetainStacks=False,
+                              CallAs='SELF',
+                          )
+                          time.sleep(30)
+                  cfn.delete_stack_set(StackSetName=stackset_name, CallAs='SELF')
+                  print(f"StackSet {stackset_name} deleted")
+              except cfn.exceptions.StackSetNotFoundException:
+                  print(f"StackSet {stackset_name} not found, nothing to delete")
+
+          def handler(event, context):
+              try:
+                  response_data = {}
+                  orgs = boto3.client("organizations")
+                  cfn = boto3.client("cloudformation")
+
+                  if event['RequestType'] in ['Create', 'Update']:
+                      time.sleep(10)  # IAM propagation
+
+                      account_type, org_root_id, mgmt_account_id, warning = detect_account_type(orgs)
+                      response_data['AccountType'] = account_type
+                      response_data['Warning'] = warning or ''
+                      response_data['ManagementAccountId'] = mgmt_account_id or ''
+
+                      if account_type == 'management':
+                          if orgs.describe_organization()['Organization']['FeatureSet'] != 'ALL':
+                              raise Exception("Organization must have 'All Features' enabled.")
+
+                          enable_stacksets(orgs, cfn)
+                          create_or_update_stackset(cfn, org_root_id)
+                          response_data['OrganizationRootId'] = org_root_id
+                          response_data['StackSetDeployed'] = 'true'
+                      else:
+                          response_data['OrganizationRootId'] = ''
+                          response_data['StackSetDeployed'] = 'false'
+                          print(f"Account type: {account_type}. StackSet skipped.")
+
+                  elif event['RequestType'] == 'Delete':
+                      try:
+                          delete_stackset(cfn)
+                      except Exception as e:
+                          print(f"StackSet deletion skipped: {e}")
+                      response_data['AccountType'] = 'unknown'
+                      response_data['OrganizationRootId'] = ''
+                      response_data['StackSetDeployed'] = 'false'
+                      response_data['ManagementAccountId'] = ''
+                      response_data['Warning'] = ''
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+              except Exception as e:
+                  print(f"Unexpected Error in EnableStackSets: {e}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  # Custom Resource: Enable StackSets Trusted Access & manage StackSet deployment
+  # Triggers Lambda to enable CloudFormation StackSets trusted access with AWS Organizations
+  # and deploy StackSet to management account
+  EnableStackSets:
+    Type: Custom::EnableStackSets
+    Properties:
+      ServiceToken: !GetAtt EnableStackSetsLambda.Arn
+
+  # IAM Policy: Cost Optimization Read Permissions
+  # Read-only access to configuration and usage data across compute, storage,
+  # database, and monitoring services for cost optimization analysis
+  BlocksSavingsEstimationReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: "BlocksSavingsEstimationReadOnlyPolicy-{{BLOCKS_CUSTOMER_ID}}"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Cost and usage analytics APIs
+          # Services: Cost Explorer, Cost Optimization Hub
+          - Sid: CostAndUsageReadOnly
+            Effect: Allow
+            Action:
+              - ce:Get*
+              - ce:List*
+              - ce:Describe*
+              - ce:StartCommitmentPurchaseAnalysis
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
+              - pricing:GetProducts
+              - pricing:DescribeServices
+              - pricing:GetAttributeValues
+              - billing:GetCredits
+            Resource: "*"
+
+          # Compute, scaling, and load balancing
+          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda
+          - Sid: ComputeAndScalingReadOnly
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+              - dlm:Get*
+              - elasticloadbalancing:Describe*
+              - autoscaling:Describe*
+              - autoscaling:Get*
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
+              - lambda:List*
+              - lambda:GetFunctionConfiguration
+            Resource: "*"
+
+          # Containers, orchestration, and build/deploy
+          # Services: ECS, EKS, ECR
+          - Sid: ContainersAndBuildReadOnly
+            Effect: Allow
+            Action:
+              - ecs:List*
+              - ecs:Describe*
+              - eks:List*
+              - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+            Resource: "*"
+
+          # Databases and caching
+          # Services: RDS, DynamoDB, DAX, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Aurora DSQL
+          - Sid: DatabasesAndCachingReadOnly
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+              - dsql:Get*
+              - dsql:List*
+              - dynamodb:List*
+              - dynamodb:Describe*
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+              - elasticache:Describe*
+              - elasticache:List*
+              - memorydb:Describe*
+              - memorydb:List*
+            Resource: "*"
+
+          # Storage, backup, and content delivery
+          # Services: S3 (metadata only), FSx, EFS, Backup
+          - Sid: StorageAndContentReadOnly
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:ListBucketVersions
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+              - fsx:Describe*
+              - fsx:List*
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+
+          # End-user compute and application streaming
+          # Services: WorkSpaces, AppStream
+          - Sid: EndUserServicesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+
+          # Monitoring, observability
+          # Services: CloudWatch, CloudWatch Logs
+          - Sid: ObservabilityReadOnly
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:List*
+              - config:Describe*
+              - config:Get*
+              - config:List*
+            Resource: "*"
+
+          - Sid: NetworkAndEdgeReadOnly
+            Effect: Allow
+            Action:
+              - wafv2:List*
+            Resource: "*"
+
+  # IAM Role: Blocks Estimations Execution Role (Management Account)
+  # Cross-account role assumed by Blocks to execute cost optimization estimations
+  # Combines write policy with read-only policies
+  BlocksEstimationsReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksEstimationsReadRole-{{BLOCKS_CUSTOMER_ID}}"
+      Description: "Used by Blocks.cloud to analyze cost savings. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostAnalysis
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": "{{EXTERNAL_ID}}"
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:TagSession
+
+      ManagedPolicyArns:
+        - !Ref BlocksSavingsEstimationReadOnlyPolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
+
+  BlocksEstimationsNotifierRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksEstimationsNotifierRole-{{BLOCKS_CUSTOMER_ID}}"
+      Description: "Used by Blocks.cloud to notify about deployment events. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: EventNotification
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SendToBlocksSQS
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: "arn:aws:sqs:us-east-1:{{BLOCKS_ACCOUNT_ID}}:Blocks-Onboarding-Queue"
+
+  # EventBridge Rule: Stack Completion Notification
+  # Sends CloudFormation status events to Blocks SQS queue
+  CloudFormationCompleteRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "NotifyBlocksStep1Complete-{{BLOCKS_CUSTOMER_ID}}"
+      Description: "Notifies Blocks when CloudFormation stack deployment completes"
+      EventPattern:
+        source:
+          - "aws.cloudformation"
+        detail-type:
+          - "CloudFormation Stack Status Change"
+        detail:
+          stack-id:
+            - prefix: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/"
+      Targets:
+        - Arn: "arn:aws:sqs:us-east-1:{{BLOCKS_ACCOUNT_ID}}:Blocks-Onboarding-Queue"
+          Id: "BlocksSQSQueue"
+          RoleArn: !GetAtt BlocksEstimationsNotifierRole.Arn
+          InputTransformer:
+            InputPathsMap:
+              account: "$.account"
+              region: "$.region"
+              time: "$.time"
+              stackId: "$.detail.stack-id"
+              statusDetails: "$.detail.status-details"
+            InputTemplate: !Sub |
+              {
+                "source": "aws.cloudformation",
+                "account": <account>,
+                "region": <region>,
+                "time": <time>,
+                "stackId": <stackId>,
+                "statusDetails": <statusDetails>,
+                "templateVersion": "0.1.1",
+                "customerId": "{{BLOCKS_CUSTOMER_ID}}",
+                "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
+                "externalId": "{{EXTERNAL_ID}}",
+                "step": "1",
+                "accountType": "${EnableStackSets.AccountType}",
+                "stackSetDeployed": "${EnableStackSets.StackSetDeployed}",
+                "organizationRootId": "${EnableStackSets.OrganizationRootId}",
+                "managementAccountId": "${EnableStackSets.ManagementAccountId}"
+              }
+
+Outputs:
+  BlocksEstimationsReadRoleArn:
+    Description: "Read-only cross-account role ARN. Return this role ARN to Blocks to complete the setup"
+    Value: !GetAtt BlocksEstimationsReadRole.Arn
+  BlocksEstimationsReadRoleName:
+    Description: "Cross-account role Name with read-only access to billing services, and 20+ AWS services for complete cost visibility and optimization"
+    Value: !Ref BlocksEstimationsReadRole
+  AccountType:
+    Description: "Type of AWS account: management, member, or standalone"
+    Value: !GetAtt EnableStackSets.AccountType
+  StackSetDeployed:
+    Description: "Whether organization-wide StackSet was deployed (true only for management accounts)"
+    Value: !GetAtt EnableStackSets.StackSetDeployed
+  ManagementAccountId:
+    Description: "Management account ID of the organization (empty for standalone accounts)"
+    Value: !GetAtt EnableStackSets.ManagementAccountId
+  DeploymentWarning:
+    Description: "Warning message if deployment is limited (empty if no warning)"
+    Value: !GetAtt EnableStackSets.Warning

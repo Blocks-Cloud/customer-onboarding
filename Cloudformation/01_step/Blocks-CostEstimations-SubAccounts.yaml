@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  This template creates a cross-account read-only role for Blocks to analyze cost savings
+  within a sub-account. It provides read access to billing, cost management, resource configuration,
+  and optimization services across compute, storage, database, and monitoring services.
+
+Metadata:
+  TemplateVersion: "0.1.1"
+  LastUpdated: "2026-01-08"
+
+Parameters:
+  BlocksCustomerId:
+    Type: String
+    Description: "Unique customer identifier provided by Blocks"
+    AllowedPattern: "^[a-zA-Z0-9-_]+$"
+    ConstraintDescription: "Must contain only alphanumeric characters, hyphens, and underscores"
+
+  BlocksAccountId:
+    Type: String
+    Description: "Blocks AWS account ID for cross-account access"
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: "Must be a valid 12-digit AWS account ID"
+
+  ExternalId:
+    Type: String
+    Description: "External ID for secure cross-account role assumption"
+    NoEcho: true
+
+Resources:
+  BlocksSavingsEstimationReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "BlocksSavingsEstimationReadOnlyPolicy-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Cost and usage analytics APIs
+          # Services: Cost Explorer, Cost Optimization Hub
+          - Sid: CostAndUsageReadOnly
+            Effect: Allow
+            Action:
+              - ce:Get*
+              - ce:List*
+              - ce:Describe*
+              - ce:StartCommitmentPurchaseAnalysis
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
+              - pricing:GetProducts
+              - pricing:DescribeServices
+              - pricing:GetAttributeValues
+            Resource: "*"
+          # Compute, scaling, and load balancing
+          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda
+          - Sid: ComputeAndScalingReadOnly
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+              - dlm:Get*
+              - elasticloadbalancing:Describe*
+              - autoscaling:Describe*
+              - autoscaling:Get*
+              - application-autoscaling:Describe*
+              - application-autoscaling:List*
+              - application-autoscaling:Get*
+              - autoscaling-plans:Describe*
+              - autoscaling-plans:Get*
+              - lambda:List*
+              - lambda:GetFunctionConfiguration
+            Resource: "*"
+
+          # Containers, orchestration, and build/deploy
+          # Services: ECS, EKS, ECR
+          - Sid: ContainersAndBuildReadOnly
+            Effect: Allow
+            Action:
+              - ecs:List*
+              - ecs:Describe*
+              - eks:List*
+              - eks:Describe*
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+            Resource: "*"
+
+          # Databases and caching
+          # Services: RDS, DynamoDB, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Aurora DSQL
+          - Sid: DatabasesAndCachingReadOnly
+            Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+              - dsql:Get*
+              - dsql:List*
+              - dynamodb:List*
+              - dynamodb:Describe*
+              - redshift:Describe*
+              - redshift:Get*
+              - redshift:List*
+              - redshift-serverless:Describe*
+              - redshift-serverless:List*
+              - elasticache:Describe*
+              - elasticache:List*
+              - memorydb:Describe*
+              - memorydb:List*
+            Resource: "*"
+
+          # Storage, backup, and content delivery
+          # Services: S3 (metadata only), FSx, EFS, Backup
+          - Sid: StorageAndContentReadOnly
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:ListBucketVersions
+              - s3vectors:ListVectorBuckets
+              - s3:GetLifecycleConfiguration
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:GetObjectRetention
+              - s3:GetBucketTagging
+              - fsx:Describe*
+              - fsx:List*
+              - elasticfilesystem:Describe*
+              - elasticfilesystem:List*
+              - backup:Describe*
+              - backup:Get*
+              - backup:List*
+            Resource: "*"
+
+          # End-user compute and application streaming
+          # Services: WorkSpaces, AppStream
+          - Sid: EndUserServicesReadOnly
+            Effect: Allow
+            Action:
+              - workspaces:Describe*
+              - appstream:Describe*
+              - appstream:List*
+            Resource: "*"
+
+          # Monitoring, observability
+          # Services: CloudWatch, CloudWatch Logs
+          - Sid: ObservabilityReadOnly
+            Effect: Allow
+            Action:
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:List*
+              - oam:ListSinks
+              - logs:Describe*
+              - logs:List*
+              - config:Describe*
+              - config:Get*
+              - config:List*
+            Resource: "*"
+
+          - Sid: NetworkAndEdgeReadOnly
+            Effect: Allow
+            Action:
+              - wafv2:List*
+            Resource: "*"
+
+  BlocksEstimationsReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BlocksEstimationsReadRole-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud to analyze cost savings. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostAnalysis
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
+            Action:
+              - sts:TagSession
+
+      ManagedPolicyArns:
+        - !Ref BlocksSavingsEstimationReadOnlyPolicy
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
+
+Outputs:
+  BlocksEstimationsReadRoleArn:
+    Description: "Cross-account role for cost and resource optimization analysis within a sub-account"
+    Value: !GetAtt BlocksEstimationsReadRole.Arn
+  BlocksEstimationsReadRoleName:
+    Description: "Name of the cross-account Blocks read role"
+    Value: !Ref BlocksEstimationsReadRole

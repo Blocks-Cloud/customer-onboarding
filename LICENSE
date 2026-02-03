@@ -1,0 +1,30 @@
+Blocks Customer License
+
+Copyright (c) 2024 Blocks.cloud. All rights reserved.
+
+TERMS OF USE
+
+This software and associated documentation ("Software") is provided by Blocks.cloud
+for use exclusively by authorized Blocks customers in connection with Blocks services.
+
+PERMITTED USE:
+- Deploy the Software in your AWS environment as part of Blocks onboarding
+- Use the Software to enable Blocks cost analysis and optimization services
+
+RESTRICTIONS:
+- You may NOT modify, adapt, or create derivative works of the Software
+- You may NOT redistribute, sublicense, sell, or transfer the Software to third parties
+- You may NOT use the Software independently of Blocks services
+- You may NOT remove or alter any copyright notices or this license
+
+DISCLAIMER:
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL BLOCKS.CLOUD BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+TERMINATION:
+This license terminates automatically if you breach any of its terms or if your
+Blocks subscription ends.
+
+For questions, contact support@blocks.cloud
