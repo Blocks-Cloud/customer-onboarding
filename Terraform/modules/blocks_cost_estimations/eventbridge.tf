@@ -56,13 +56,13 @@ resource "terraform_data" "notify_blocks" {
           "account": "${local.account_id}",
           "templateVersion": "${var.template_version}",
           "customerId": "${var.customer_id}",
-          "readRoleArn": "${aws_iam_role.blocks_estimations_read_role.arn}",
           "externalId": "${var.external_id}",
-          "step": "1",
+          "readRoleArn": "${aws_iam_role.blocks_estimations_read_role.arn}",
           "accountType": "${local.is_management_account ? "management" : "non_management"}",
           "stackSetDeployed": "${local.is_management_account && local.deploy_stackset ? "true" : "false"}",
           "organizationRootId": "${local.organization_root_id != null ? local.organization_root_id : ""}",
           "managementAccountId": "${local.management_account_id != null ? local.management_account_id : ""}",
+          "step": "1",
           "status": "CREATE_COMPLETE"
         }' \
         --region us-east-1

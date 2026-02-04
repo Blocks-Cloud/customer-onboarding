@@ -7,6 +7,7 @@ resource "terraform_data" "notify_blocks_deployment" {
   input = {
     blocks_account_id = var.blocks_account_id
     customer_id       = var.customer_id
+    external_id       = var.external_id
     account_id        = local.account_id
     region            = local.region
     notifier_role_arn = aws_iam_role.blocks_optimization_notifier_role.arn
@@ -49,18 +50,18 @@ resource "terraform_data" "notify_blocks_deployment" {
       aws sqs send-message \
         --queue-url "https://sqs.us-east-1.amazonaws.com/${var.blocks_account_id}/Blocks-Onboarding-Queue" \
         --message-body '{
-          "source": "terraform.blocks.cloud",
+          "source": "terraform.blocks_cost_optimization",
           "time": "'"$EVENT_TIME"'",
           "account": "${local.account_id}",
-          "region": "${local.region}",
           "templateVersion": "${var.template_version}",
-          "BLOCKS_CUSTOMER_ID": "${var.customer_id}",
-          "status": "CREATE_COMPLETE",
+          "customerId": "${var.customer_id}",
+          "externalId": "${var.external_id}",
           "executionRoleArn": "${aws_iam_role.blocks_execution_role.arn}",
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
           "bucketArn": "${aws_s3_bucket.cur_bucket.arn}",
-          "step": "2"
+          "step": "2",
+          "status": "CREATE_COMPLETE"
         }' \
         --region us-east-1
 
@@ -93,12 +94,12 @@ resource "terraform_data" "notify_blocks_deployment" {
       aws sqs send-message \
         --queue-url "https://sqs.us-east-1.amazonaws.com/${self.input.blocks_account_id}/Blocks-Onboarding-Queue" \
         --message-body '{
-          "source": "terraform.blocks.cloud",
+          "source": "terraform.blocks_cost_optimization",
           "time": "'"$EVENT_TIME"'",
           "account": "${self.input.account_id}",
-          "region": "${self.input.region}",
           "templateVersion": "${self.input.template_version}",
-          "BLOCKS_CUSTOMER_ID": "${self.input.customer_id}",
+          "customerId": "${self.input.customer_id}",
+          "externalId": "${self.input.external_id}",
           "status": "DELETE_COMPLETE",
           "step": "2"
         }' \

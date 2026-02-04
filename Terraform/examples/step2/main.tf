@@ -54,10 +54,10 @@ module "blocks_cost_optimization" {
   # source = "github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_cost_optimization?ref=v1.0.0"
 
   # Required variables - provided by Blocks
-  customer_id           = "<provided-by-blocks>"
-  external_id           = "<provided-by-blocks>"
-  blocks_account_id     = "<provided-by-blocks>"
-  stackset_template_url = "<provided-by-blocks>"
+  customer_id           = "example-customer"                                      # provided by blocks
+  external_id           = "example-external-id"                                   # provided by blocks
+  blocks_account_id     = "123456789012"                                          # provided by blocks
+  stackset_template_url = "https://s3.amazonaws.com/example-bucket/template.yaml" # provided by blocks
 
   # Optional variables
   enable_cost_allocation_backfill = false
@@ -66,7 +66,6 @@ module "blocks_cost_optimization" {
 output "deployment_summary" {
   description = "Summary of the deployment for Blocks onboarding - share this with Blocks"
   value = {
-    customer_id            = module.blocks_cost_optimization.customer_id
     execution_role_arn     = module.blocks_cost_optimization.execution_role_arn
     read_role_arn          = module.blocks_cost_optimization.read_role_arn
     majortom_read_role_arn = module.blocks_cost_optimization.majortom_read_role_arn
@@ -77,4 +76,3 @@ output "deployment_summary" {
     status                 = "Step 2 Complete - Blocks now has full access for cost optimization"
   }
 }
-

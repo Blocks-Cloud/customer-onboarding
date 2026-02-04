@@ -25,7 +25,8 @@ resource "aws_iam_policy" "blocks_savings_estimation_read_only" {
           "cost-optimization-hub:List*",
           "pricing:GetProducts",
           "pricing:DescribeServices",
-          "pricing:GetAttributeValues"
+          "pricing:GetAttributeValues",
+          "billing:GetCredits"
         ]
         Resource = "*"
       },
