@@ -10,16 +10,17 @@
 resource "terraform_data" "notify_blocks" {
   # Store values needed for destroy provisioner
   input = {
-    customer_id           = var.customer_id
     blocks_account_id     = var.blocks_account_id
-    read_role_arn         = aws_iam_role.blocks_estimations_read_role.arn
     notifier_role_arn     = aws_iam_role.blocks_estimations_notifier_role.arn
+    account_id            = local.account_id
+    template_version      = var.template_version
+    customer_id           = var.customer_id
+    external_id           = var.external_id
+    read_role_arn         = aws_iam_role.blocks_estimations_read_role.arn
     account_type          = local.is_management_account ? "management" : "non_management"
     stackset_deployed     = local.is_management_account && local.deploy_stackset ? "true" : "false"
     organization_root_id  = local.organization_root_id != null ? local.organization_root_id : ""
-    account_id            = local.account_id                                                       # Current account (where deployed)
-    management_account_id = local.management_account_id != null ? local.management_account_id : "" # Real org management account
-    template_version      = var.template_version
+    management_account_id = local.management_account_id != null ? local.management_account_id : ""
   }
 
   # Notify on successful deployment
@@ -101,12 +102,13 @@ resource "terraform_data" "notify_blocks" {
           "account": "${self.input.account_id}",
           "templateVersion": "${self.input.template_version}",
           "customerId": "${self.input.customer_id}",
+          "externalId": "${self.input.external_id}",
           "readRoleArn": "${self.input.read_role_arn}",
-          "step": "1",
           "accountType": "${self.input.account_type}",
           "stackSetDeployed": "${self.input.stackset_deployed}",
           "organizationRootId": "${self.input.organization_root_id}",
           "managementAccountId": "${self.input.management_account_id}",
+          "step": "1",
           "status": "DELETE_COMPLETE"
         }' \
         --region us-east-1 || true

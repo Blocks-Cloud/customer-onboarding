@@ -5,13 +5,17 @@
 resource "terraform_data" "notify_blocks_deployment" {
   # Store values in input for use in destroy provisioner
   input = {
-    blocks_account_id = var.blocks_account_id
-    customer_id       = var.customer_id
-    external_id       = var.external_id
-    account_id        = local.account_id
-    region            = local.region
-    notifier_role_arn = aws_iam_role.blocks_optimization_notifier_role.arn
-    template_version  = var.template_version
+    blocks_account_id      = var.blocks_account_id
+    notifier_role_arn      = aws_iam_role.blocks_optimization_notifier_role.arn
+    region                 = local.region
+    account_id             = local.account_id
+    template_version       = var.template_version
+    customer_id            = var.customer_id
+    external_id            = var.external_id
+    execution_role_arn     = aws_iam_role.blocks_execution_role.arn
+    read_role_arn          = aws_iam_role.blocks_read_role.arn
+    majortom_read_role_arn = aws_iam_role.majortom_read_role.arn
+    bucket_arn             = aws_s3_bucket.cur_bucket.arn
   }
 
   triggers_replace = [
@@ -100,8 +104,12 @@ resource "terraform_data" "notify_blocks_deployment" {
           "templateVersion": "${self.input.template_version}",
           "customerId": "${self.input.customer_id}",
           "externalId": "${self.input.external_id}",
-          "status": "DELETE_COMPLETE",
-          "step": "2"
+          "executionRoleArn": "${self.input.execution_role_arn}",
+          "readRoleArn": "${self.input.read_role_arn}",
+          "majorTomReadRoleArn": "${self.input.majortom_read_role_arn}",
+          "bucketArn": "${self.input.bucket_arn}",
+          "step": "2",
+          "status": "DELETE_COMPLETE"
         }' \
         --region us-east-1 || true
 

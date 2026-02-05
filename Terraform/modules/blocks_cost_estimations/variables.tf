@@ -50,7 +50,7 @@ variable "stackset_template_url" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.2"
+  default     = "0.1.3"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+$", var.template_version))
