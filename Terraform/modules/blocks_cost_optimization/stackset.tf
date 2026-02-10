@@ -45,7 +45,6 @@ resource "aws_cloudformation_stack_set" "cost_optimization" {
   lifecycle {
     ignore_changes = [
       administration_role_arn,
-      parameters,
     ]
   }
 }

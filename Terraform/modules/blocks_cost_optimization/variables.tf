@@ -20,7 +20,6 @@ variable "customer_resource_id" {
 variable "external_id" {
   type        = string
   description = "External ID for cross-account role assumption (security token)"
-  sensitive   = true
 
   validation {
     condition     = length(var.external_id) >= 10
@@ -89,7 +88,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "v0.1.8"
+  default     = "v0.1.9"
 
   validation {
     condition     = length(var.template_version) > 0
