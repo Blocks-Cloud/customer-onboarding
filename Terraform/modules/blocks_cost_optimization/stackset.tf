@@ -45,6 +45,7 @@ resource "aws_cloudformation_stack_set" "cost_optimization" {
   lifecycle {
     ignore_changes = [
       administration_role_arn,
+      parameters,
     ]
   }
 }
@@ -63,6 +64,7 @@ resource "aws_cloudformation_stack_set_instance" "cost_optimization" {
     failure_tolerance_percentage = 0
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
+    concurrency_mode             = "SOFT_FAILURE_TOLERANCE"
   }
 
   lifecycle {

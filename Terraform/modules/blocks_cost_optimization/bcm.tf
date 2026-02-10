@@ -15,7 +15,7 @@ resource "aws_bcmdataexports_export" "cur2" {
           BILLING_VIEW_ARN                      = "arn:${local.partition}:billing::${local.account_id}:billingview/primary"
           TIME_GRANULARITY                      = "HOURLY"
           INCLUDE_RESOURCES                     = "TRUE"
-          INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "TRUE"
+          INCLUDE_SPLIT_COST_ALLOCATION_DATA    = "FALSE"
           INCLUDE_MANUAL_DISCOUNT_COMPATIBILITY = "FALSE"
         }
       }

@@ -113,16 +113,5 @@ SELECT bill_bill_type,
        savings_plan_savings_plan_rate,
        savings_plan_start_time,
        savings_plan_total_commitment_to_date,
-       savings_plan_used_commitment,
-       split_line_item_actual_usage,
-       split_line_item_net_split_cost,
-       split_line_item_net_unused_cost,
-       split_line_item_parent_resource_id,
-       split_line_item_public_on_demand_split_cost,
-       split_line_item_public_on_demand_unused_cost,
-       split_line_item_reserved_usage,
-       split_line_item_split_cost,
-       split_line_item_split_usage,
-       split_line_item_split_usage_ratio,
-       split_line_item_unused_cost
+       savings_plan_used_commitment
 FROM COST_AND_USAGE_REPORT

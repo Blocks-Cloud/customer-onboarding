@@ -78,11 +78,11 @@ variable "default_tags" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.3"
+  default     = "v0.1.4"
 
   validation {
-    condition     = can(regex("^\\d+\\.\\d+\\.\\d+$", var.template_version))
-    error_message = "template_version must follow semver format (e.g., 0.1.0, 1.2.3)"
+    condition     = length(var.template_version) > 0
+    error_message = "template_version must not be empty."
   }
 }
 

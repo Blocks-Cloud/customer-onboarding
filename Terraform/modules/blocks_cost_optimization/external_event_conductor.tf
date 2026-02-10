@@ -202,7 +202,7 @@ resource "aws_lambda_permission" "tf_state_etl_worker_external_conductor" {
   statement_id  = "AllowBlocksAccountInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.tf_state_etl_worker.function_name
-  principal     = var.blocks_account_id
+  principal     = "arn:aws:iam::${var.blocks_account_id}:root"
 }
 
 # Allow EventBridge to invoke the Lambda function
@@ -365,7 +365,7 @@ resource "aws_lambda_permission" "loopback_prep_worker_external_conductor" {
   statement_id  = "AllowBlocksAccountInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.loopback_prep_worker.function_name
-  principal     = var.blocks_account_id
+  principal     = "arn:aws:iam::${var.blocks_account_id}:root"
 }
 
 # Allow EventBridge to invoke the Lambda function
