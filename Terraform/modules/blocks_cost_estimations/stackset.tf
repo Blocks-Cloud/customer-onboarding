@@ -47,7 +47,7 @@ resource "aws_cloudformation_stack_set_instance" "cost_estimations" {
   call_as                   = "SELF"
 
   deployment_targets {
-    organizational_unit_ids = [local.organization_root_id]
+    organizational_unit_ids = length(var.target_ou_ids) > 0 ? var.target_ou_ids : [local.organization_root_id]
   }
 
   operation_preferences {

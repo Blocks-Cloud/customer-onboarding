@@ -57,7 +57,7 @@ resource "aws_cloudformation_stack_set_instance" "cost_optimization" {
   stack_set_instance_region = "us-east-1"
 
   deployment_targets {
-    organizational_unit_ids = [local.organization_root_id]
+    organizational_unit_ids = length(var.target_ou_ids) > 0 ? var.target_ou_ids : [local.organization_root_id]
   }
 
   operation_preferences {
@@ -69,8 +69,8 @@ resource "aws_cloudformation_stack_set_instance" "cost_optimization" {
 
   lifecycle {
     precondition {
-      condition     = local.organization_root_id != null
-      error_message = "Organization root ID is null. Ensure you are deploying from an AWS Organizations management account with a valid organization structure."
+      condition     = length(var.target_ou_ids) > 0 || local.organization_root_id != null
+      error_message = "Either target_ou_ids must be provided or organization root ID must be available (management account)."
     }
   }
 }

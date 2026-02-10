@@ -47,10 +47,21 @@ variable "stackset_template_url" {
   }
 }
 
+variable "target_ou_ids" {
+  type        = list(string)
+  description = "List of Organization Unit IDs to target for StackSet deployment. Empty list deploys to all accounts (organization root)."
+  default     = []
+
+  validation {
+    condition     = alltrue([for ou in var.target_ou_ids : can(regex("^(ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}|r-[a-z0-9]{4,32})$", ou))])
+    error_message = "Each target_ou_ids entry must be a valid OU ID (ou-xxxx-xxxxxxxx) or organization root ID (r-xxxx)."
+  }
+}
+
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "v0.1.6"
+  default     = "v0.1.7"
 
   validation {
     condition     = length(var.template_version) > 0
