@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.4"
+  TemplateVersion: "0.1.5"
   LastUpdated: "2026-01-08"
 
 Parameters:

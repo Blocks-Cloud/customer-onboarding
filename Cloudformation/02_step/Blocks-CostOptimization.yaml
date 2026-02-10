@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.4"
+  TemplateVersion: "0.1.5"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -699,7 +699,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.4"
+          Value: "0.1.5"
       CallAs: SELF
 
   # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
@@ -1407,7 +1407,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.4",
+                "templateVersion": "0.1.5",
                 "BLOCKS_CUSTOMER_ID": "{{BLOCKS_CUSTOMER_ID}}",
                 "executionRoleArn": "${BlocksExecutionRole.Arn}",
                 "readRoleArn": "${BlocksReadRole.Arn}",
