@@ -50,7 +50,7 @@ variable "stackset_template_url" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "v0.1.5"
+  default     = "v0.1.6"
 
   validation {
     condition     = length(var.template_version) > 0

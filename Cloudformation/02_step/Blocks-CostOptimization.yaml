@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.5"
+  TemplateVersion: "0.1.6"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -699,7 +699,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.5"
+          Value: "0.1.6"
       CallAs: SELF
 
   # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
@@ -798,7 +798,7 @@ Resources:
             Resource: "*"
 
           # Organization Management
-          # Allows Blocks to manage organization structure, create accounts,
+          # Allows Blocks to manage organization structure, create accounts, create OUs,
           # and enable AWS service integrations for cost optimization workflows
           # Services: Organizations
           - Sid: OrgManagementWrite
@@ -806,6 +806,10 @@ Resources:
             Action:
               - organizations:MoveAccount
               - organizations:CreateAccount
+              - organizations:CreateOrganizationalUnit
+              - organizations:ListRoots
+              - organizations:ListOrganizationalUnitsForParent
+              - organizations:ListParents
               - organizations:TagResource
               - organizations:UntagResource
               - organizations:AcceptHandshake
@@ -1407,7 +1411,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.5",
+                "templateVersion": "0.1.6",
                 "BLOCKS_CUSTOMER_ID": "{{BLOCKS_CUSTOMER_ID}}",
                 "executionRoleArn": "${BlocksExecutionRole.Arn}",
                 "readRoleArn": "${BlocksReadRole.Arn}",

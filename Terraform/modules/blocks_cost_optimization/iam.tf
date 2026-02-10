@@ -144,7 +144,7 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
   }
 
   # Organization Management
-  # Allows Blocks to manage organization structure, create accounts,
+  # Allows Blocks to manage organization structure, create accounts, create OUs,
   # and enable AWS service integrations for cost optimization workflows
   # Services: Organizations
   statement {
@@ -153,10 +153,30 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     actions = [
       "organizations:MoveAccount",
       "organizations:CreateAccount",
+      "organizations:CreateOrganizationalUnit",
+      "organizations:ListRoots",
+      "organizations:ListOrganizationalUnitsForParent",
+      "organizations:ListParents",
       "organizations:TagResource",
       "organizations:UntagResource",
       "organizations:AcceptHandshake",
       "organizations:EnableAWSServiceAccess"
+    ]
+    resources = ["*"]
+  }
+
+  # Account Transfer Operations
+  # Required for commitment service to move accounts between organizations
+  # Services: Organizations
+  statement {
+    sid    = "AccountTransferOperations"
+    effect = "Allow"
+    actions = [
+      "organizations:InviteAccountToOrganization",
+      "organizations:DescribeHandshake",
+      "organizations:ListHandshakesForOrganization",
+      "organizations:CancelHandshake",
+      "organizations:DescribeOrganization"
     ]
     resources = ["*"]
   }
