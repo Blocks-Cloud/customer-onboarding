@@ -14,7 +14,7 @@ resource "terraform_data" "notify_blocks" {
     notifier_role_arn     = aws_iam_role.blocks_estimations_notifier_role.arn
     account_id            = local.account_id
     template_version      = var.template_version
-    customer_id           = var.customer_id
+    customer_resource_id  = var.customer_resource_id
     external_id           = var.external_id
     read_role_arn         = aws_iam_role.blocks_estimations_read_role.arn
     account_type          = local.is_management_account ? "management" : "non_management"
@@ -56,7 +56,7 @@ resource "terraform_data" "notify_blocks" {
           "time": "'"$EVENT_TIME"'",
           "account": "${local.account_id}",
           "templateVersion": "${var.template_version}",
-          "customerId": "${var.customer_id}",
+          "customerResourceId": "${var.customer_resource_id}",
           "externalId": "${var.external_id}",
           "readRoleArn": "${aws_iam_role.blocks_estimations_read_role.arn}",
           "accountType": "${local.is_management_account ? "management" : "non_management"}",
@@ -101,7 +101,7 @@ resource "terraform_data" "notify_blocks" {
           "time": "'"$EVENT_TIME"'",
           "account": "${self.input.account_id}",
           "templateVersion": "${self.input.template_version}",
-          "customerId": "${self.input.customer_id}",
+          "customerResourceId": "${self.input.customer_resource_id}",
           "externalId": "${self.input.external_id}",
           "readRoleArn": "${self.input.read_role_arn}",
           "accountType": "${self.input.account_type}",

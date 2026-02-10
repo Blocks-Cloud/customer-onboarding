@@ -10,7 +10,7 @@ resource "terraform_data" "notify_blocks_deployment" {
     region                 = local.region
     account_id             = local.account_id
     template_version       = var.template_version
-    customer_id            = var.customer_id
+    customer_resource_id   = var.customer_resource_id
     external_id            = var.external_id
     execution_role_arn     = aws_iam_role.blocks_execution_role.arn
     read_role_arn          = aws_iam_role.blocks_read_role.arn
@@ -58,7 +58,7 @@ resource "terraform_data" "notify_blocks_deployment" {
           "time": "'"$EVENT_TIME"'",
           "account": "${local.account_id}",
           "templateVersion": "${var.template_version}",
-          "customerId": "${var.customer_id}",
+          "customerResourceId": "${var.customer_resource_id}",
           "externalId": "${var.external_id}",
           "executionRoleArn": "${aws_iam_role.blocks_execution_role.arn}",
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
@@ -102,7 +102,7 @@ resource "terraform_data" "notify_blocks_deployment" {
           "time": "'"$EVENT_TIME"'",
           "account": "${self.input.account_id}",
           "templateVersion": "${self.input.template_version}",
-          "customerId": "${self.input.customer_id}",
+          "customerResourceId": "${self.input.customer_resource_id}",
           "externalId": "${self.input.external_id}",
           "executionRoleArn": "${self.input.execution_role_arn}",
           "readRoleArn": "${self.input.read_role_arn}",

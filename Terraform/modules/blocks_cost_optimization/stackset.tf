@@ -9,7 +9,7 @@
 resource "aws_cloudformation_stack_set" "cost_optimization" {
   count = local.is_management_account ? 1 : 0
 
-  name             = "Blocks-CostOptimization-${var.customer_id}"
+  name             = "Blocks-CostOptimization-${var.customer_resource_id}"
   description      = "Deploys Blocks IAM roles to all member accounts for organization-wide cost analysis and optimization. Must remain in place for Blocks to function correctly."
   permission_model = "SERVICE_MANAGED"
 
@@ -19,7 +19,7 @@ resource "aws_cloudformation_stack_set" "cost_optimization" {
   template_url = var.stackset_template_url
 
   parameters = {
-    BlocksCustomerId = var.customer_id
+    BlocksCustomerId = var.customer_resource_id
     BlocksAccountId  = var.blocks_account_id
     ExternalId       = var.external_id
   }

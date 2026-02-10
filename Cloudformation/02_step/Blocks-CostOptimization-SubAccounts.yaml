@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.7"
+  TemplateVersion: "0.1.8"
   LastUpdated: "2026-01-08"
 
 Parameters:
@@ -652,7 +652,7 @@ Resources:
       ManagedPolicyName: !Sub BlocksTfStateFileEtlWorkerLambdaPolicy-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants S3, SSM Parameter Store, STS, and CloudWatch permissions."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # List all S3 buckets and objects in current account
           # (required to find Terraform state file buckets and list workspace folders)
@@ -708,7 +708,7 @@ Resources:
             Effect: Allow
             Action:
               - sts:GetCallerIdentity
-            Resource: '*'
+            Resource: "*"
 
           # Publish notifications to Blocks SNS topic
           - Sid: SNSPublishNotifications
@@ -733,7 +733,7 @@ Resources:
       RoleName: !Sub BlocksTfEtlWorkerRole-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants S3, SSM Parameter Store, STS, and CloudWatch permissions."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -762,7 +762,7 @@ Resources:
         S3Key: lambda/tf-state-file-etl-worker/tf_state_file_etl_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: !Sub "${BlocksCustomerId}"
           SNS_ACCOUNT: !Sub "${BlocksAccountId}"
       Timeout: 900
       MemorySize: 256
@@ -823,7 +823,7 @@ Resources:
       ManagedPolicyName: !Sub BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # EventBridge permissions to create/manage rules on default event bus
           - Sid: EventBridgeRuleManagement
@@ -862,7 +862,7 @@ Resources:
       RoleName: !Sub BlocksLoopbackPrepRole-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -891,7 +891,7 @@ Resources:
         S3Key: lambda/loopback-communication-prep-worker/loopback_communication_prep_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: !Sub "${BlocksCustomerId}"
       Timeout: 900
       MemorySize: 256
 
@@ -935,7 +935,7 @@ Resources:
       ManagedPolicyName: !Sub BlocksLoopbackCommunicationWorkerLambdaPolicy-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: CloudWatchLogs
             Effect: Allow
@@ -952,7 +952,7 @@ Resources:
       RoleName: !Sub BlocksLoopbackWorkerRole-${BlocksCustomerId}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -981,7 +981,7 @@ Resources:
         S3Key: lambda/loopback-communication-worker/loopback_communication_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: !Sub "${BlocksCustomerId}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: !Sub "${BlocksCustomerId}"
       Timeout: 900
       MemorySize: 256
 

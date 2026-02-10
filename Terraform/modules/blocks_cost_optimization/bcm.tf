@@ -4,7 +4,7 @@
 
 resource "aws_bcmdataexports_export" "cur2" {
   export {
-    name        = "blocks-cur-data-${var.customer_id}"
+    name        = "blocks-cur-data-${var.customer_resource_id}"
     description = "CUR 2.0 export - Hourly granularity with resource IDs for Blocks.cloud cost optimization"
 
     data_query {

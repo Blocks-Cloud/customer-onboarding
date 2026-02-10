@@ -2,13 +2,13 @@
 # Required Variables
 ############################
 
-variable "customer_id" {
+variable "customer_resource_id" {
   type        = string
-  description = "Unique customer identifier used for resource naming (e.g., 'acme-corp-12345')"
+  description = "Unique resource identifier assigned by Blocks to distinguish each client's deployed infrastructure (e.g., 'acme-corp-12345')"
 
   validation {
-    condition     = can(regex("^[a-zA-Z0-9-_]+$", var.customer_id))
-    error_message = "customer_id must contain only alphanumeric characters, hyphens, and underscores."
+    condition     = can(regex("^[a-zA-Z0-9-_]+$", var.customer_resource_id))
+    error_message = "customer_resource_id must contain only alphanumeric characters, hyphens, and underscores."
   }
 }
 
@@ -61,7 +61,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "v0.1.7"
+  default     = "v0.1.8"
 
   validation {
     condition     = length(var.template_version) > 0

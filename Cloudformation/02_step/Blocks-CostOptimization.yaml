@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.7"
+  TemplateVersion: "0.1.8"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -46,7 +46,7 @@ Resources:
   BlocksOnboardingLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "BlocksOnboardingLambdaRole-{{BLOCKS_CUSTOMER_ID}}"
+      RoleName: "BlocksOnboardingLambdaRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud to enable organization services. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -104,7 +104,7 @@ Resources:
                 Action:
                   - cloudformation:DeleteStack
                   - cloudformation:DescribeStacks
-                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/blocks-customer-step-1-{{BLOCKS_CUSTOMER_ID}}/*"
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/blocks-customer-step-1-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/*"
               # Permissions to delete Step 1 StackSet
               - Effect: Allow
                 Action:
@@ -113,12 +113,12 @@ Resources:
                   - cloudformation:DescribeStackSet
                   - cloudformation:DescribeStackSetOperation
                   - cloudformation:ListStackInstances
-                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_ID}}:*"
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
               - Effect: Allow
                 Action:
                   - cloudformation:DeleteStackInstances
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:cloudformation::${AWS::AccountId}:stackset-target/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_ID}}:*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation::${AWS::AccountId}:stackset-target/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}::type/resource/AWS-IAM-ManagedPolicy"
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}::type/resource/AWS-IAM-Role"
               # Permissions to delete Step 1 EventBridge rule
@@ -128,7 +128,7 @@ Resources:
                   - events:RemoveTargets
                   - events:DescribeRule
                   - events:ListTargetsByRule
-                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/NotifyBlocksStep1Complete-{{BLOCKS_CUSTOMER_ID}}"
+                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/NotifyBlocksStep1Complete-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
               # Permissions to delete Step 1 IAM resources
               - Effect: Allow
                 Action:
@@ -139,9 +139,9 @@ Resources:
                   - iam:ListAttachedRolePolicies
                   - iam:GetRole
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEstimationsReadRole-{{BLOCKS_CUSTOMER_ID}}"
-                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEstimationsNotifierRole-{{BLOCKS_CUSTOMER_ID}}"
-                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/EnableStackSetsLambdaRole-{{BLOCKS_CUSTOMER_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEstimationsReadRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEstimationsNotifierRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/EnableStackSetsLambdaRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
               - Effect: Allow
                 Action:
                   - iam:DeletePolicy
@@ -149,20 +149,20 @@ Resources:
                   - iam:ListPolicyVersions
                   - iam:DeletePolicyVersion
                   - iam:ListEntitiesForPolicy
-                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksSavingsEstimationReadOnlyPolicy-{{BLOCKS_CUSTOMER_ID}}"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksSavingsEstimationReadOnlyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
               # Permissions to delete Step 1 Lambda
               - Effect: Allow
                 Action:
                   - lambda:DeleteFunction
                   - lambda:GetFunction
                   - lambda:InvokeFunction
-                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:EnableStackSets-{{BLOCKS_CUSTOMER_ID}}"
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:EnableStackSets-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
 
   EnableOrgServicesLambda:
     Type: AWS::Lambda::Function
     Properties:
       Description: "Lambda function to enable Organization services access"
-      FunctionName: EnableOrgServices-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: EnableOrgServices-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt BlocksOnboardingLambdaRole.Arn
@@ -278,7 +278,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       Description: "Lambda function to delete Step 1 stack"
-      FunctionName: DeleteStep1Stack-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: DeleteStep1Stack-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt BlocksOnboardingLambdaRole.Arn
@@ -291,7 +291,7 @@ Resources:
           import cfnresponse
           from botocore.exceptions import ClientError
 
-          STACK_NAME = "blocks-customer-step-1-{{BLOCKS_CUSTOMER_ID}}"
+          STACK_NAME = "blocks-customer-step-1-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
 
           def handler(event, context):
               print(f"Received event: {event}")
@@ -338,9 +338,9 @@ Resources:
   CURBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "blocks-cur-data-{{BLOCKS_CUSTOMER_ID}}"
+      BucketName: "blocks-cur-data-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       OwnershipControls:
-        Rules: [ { ObjectOwnership: BucketOwnerEnforced } ]
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -403,7 +403,7 @@ Resources:
             Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
             Condition:
               StringLike:
-                s3:prefix: [ "cur2/*" ]
+                s3:prefix: ["cur2/*"]
           - Sid: AllowReadRoleGetObject
             Effect: Allow
             Principal:
@@ -419,7 +419,7 @@ Resources:
     DependsOn: CURBucketPolicy
     Properties:
       Export:
-        Name: "blocks-cur-data-{{BLOCKS_CUSTOMER_ID}}"
+        Name: "blocks-cur-data-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
         Description: "CUR 2.0 export to S3 (Parquet), hourly with resource IDs"
         DataQuery:
           QueryStatement: |
@@ -564,7 +564,7 @@ Resources:
     DependsOn: Cur20Export
     Properties:
       Description: "Lambda function to enable Cost Allocation Backfill"
-      FunctionName: EnableCostAllocationBackfill-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: EnableCostAllocationBackfill-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt BlocksOnboardingLambdaRole.Arn
@@ -670,7 +670,7 @@ Resources:
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
     Properties:
-      StackSetName: "Blocks-CostOptimization-{{BLOCKS_CUSTOMER_ID}}"
+      StackSetName: "Blocks-CostOptimization-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Deploys the Blocks IAM roles to all member accounts for organization-wide cost analysis and optimization. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       PermissionModel: SERVICE_MANAGED
       AutoDeployment:
@@ -681,7 +681,7 @@ Resources:
       TemplateURL: "{{SUBACCOUNTS_TEMPLATE_URL}}"
       Parameters:
         - ParameterKey: BlocksCustomerId
-          ParameterValue: "{{BLOCKS_CUSTOMER_ID}}"
+          ParameterValue: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
         - ParameterKey: BlocksAccountId
           ParameterValue: "{{BLOCKS_ACCOUNT_ID}}"
         - ParameterKey: ExternalId
@@ -699,7 +699,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.7"
+          Value: "0.1.8"
       CallAs: SELF
 
   # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
@@ -707,7 +707,7 @@ Resources:
   BlocksBaseReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: "BlocksBaseReadPolicy-{{BLOCKS_CUSTOMER_ID}}"
+      ManagedPolicyName: "BlocksBaseReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Shared read-only permissions for all Blocks roles - Cost Explorer, CloudWatch, Pricing. Must remain in place for Blocks to function correctly."
       PolicyDocument:
         Version: "2012-10-17"
@@ -774,7 +774,7 @@ Resources:
   BlocksCostOptimizationWritePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: "BlocksCostOptimizationWritePolicy-{{BLOCKS_CUSTOMER_ID}}"
+      ManagedPolicyName: "BlocksCostOptimizationWritePolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
       PolicyDocument:
         Version: "2012-10-17"
@@ -935,7 +935,7 @@ Resources:
   BlocksCostOptimizationReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: "BlocksCostOptimizationReadPolicy-{{BLOCKS_CUSTOMER_ID}}"
+      ManagedPolicyName: "BlocksCostOptimizationReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to compute, storage, database, and infrastructure services for savings analysis."
       PolicyDocument:
         Version: "2012-10-17"
@@ -1131,7 +1131,7 @@ Resources:
   BlocksExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "BlocksExecutionRole-{{BLOCKS_CUSTOMER_ID}}"
+      RoleName: "BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud to execute cost optimization actions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       MaxSessionDuration: 3600
       Tags:
@@ -1170,7 +1170,7 @@ Resources:
   BlocksReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "BlocksReadRole-{{BLOCKS_CUSTOMER_ID}}"
+      RoleName: "BlocksReadRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Read-only role for Blocks.cloud cost analysis and monitoring. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       MaxSessionDuration: 3600
       Tags:
@@ -1210,7 +1210,7 @@ Resources:
   MajorTomReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: "MajorTomReadPolicy-{{BLOCKS_CUSTOMER_ID}}"
+      ManagedPolicyName: "MajorTomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "MajorTom AI read permissions for Cloud Control API, CloudTrail, and cost analysis. Must remain in place for MajorTom to function correctly."
       PolicyDocument:
         Version: "2012-10-17"
@@ -1313,13 +1313,12 @@ Resources:
               - bcm-pricing-calculator:ListWorkloadEstimates
             Resource: "*"
 
-
   # IAM Role: MajorTom Read Role
   # Read-only AI role for cost analysis and monitoring
   MajorTomReadRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "MajorTomReadRole-{{BLOCKS_CUSTOMER_ID}}"
+      RoleName: "MajorTomReadRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Read-only AI role for Blocks.cloud cost analysis and monitoring. Must remain in place for MajorTom to function correctly."
       MaxSessionDuration: 3600
       Tags:
@@ -1353,7 +1352,7 @@ Resources:
   BlocksOptimizationNotifierRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "BlocksOptimizationNotifierRole-{{BLOCKS_CUSTOMER_ID}}"
+      RoleName: "BlocksOptimizationNotifierRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud to notify about deployment events. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
       Tags:
         - Key: OwnedBy
@@ -1382,7 +1381,7 @@ Resources:
   CloudFormationCompleteRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: "NotifyBlocksStep2Complete-{{BLOCKS_CUSTOMER_ID}}"
+      Name: "NotifyBlocksStep2Complete-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Notifies Blocks when CloudFormation stack deployment completes"
       EventPattern:
         source:
@@ -1411,8 +1410,8 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.7",
-                "BLOCKS_CUSTOMER_ID": "{{BLOCKS_CUSTOMER_ID}}",
+                "templateVersion": "0.1.8",
+                "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                 "executionRoleArn": "${BlocksExecutionRole.Arn}",
                 "readRoleArn": "${BlocksReadRole.Arn}",
                 "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
@@ -1428,7 +1427,7 @@ Resources:
   ExternalEventConductorEventBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: BlocksExternalEventsOutbound-{{BLOCKS_CUSTOMER_ID}}
+      Name: BlocksExternalEventsOutbound-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Allows convenient cross-account communication."
 
   # Allow external event conductor to put events
@@ -1446,10 +1445,10 @@ Resources:
   TfStateFileEtlWorkerLambdaExecutionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: BlocksTfStateFileEtlWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_ID}}
+      ManagedPolicyName: BlocksTfStateFileEtlWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # List all S3 buckets and objects in current account
           # (required to find Terraform state file buckets and list workspace folders)
@@ -1489,7 +1488,7 @@ Resources:
             Action:
               - ssm:GetParameter
             Resource:
-              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_ID}}/TfStateFileEtlWorker/Config
+              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
 
           # SSM write access for self-provisioning config parameter
           - Sid: SSMWriteConfig
@@ -1498,14 +1497,14 @@ Resources:
               - ssm:PutParameter
               - ssm:PutResourcePolicy
             Resource:
-              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_ID}}/TfStateFileEtlWorker/Config
+              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
 
           # STS for getting current account ID
           - Sid: STSGetCallerIdentity
             Effect: Allow
             Action:
               - sts:GetCallerIdentity
-            Resource: '*'
+            Resource: "*"
 
           # Publish notifications to Blocks SNS topic
           - Sid: SNSPublishNotifications
@@ -1513,7 +1512,7 @@ Resources:
             Action:
               - sns:Publish
             Resource:
-              - !Sub arn:${AWS::Partition}:sns:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:gh-app-inbound-{{BLOCKS_CUSTOMER_ID}}
+              - !Sub arn:${AWS::Partition}:sns:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:gh-app-inbound-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
 
           - Sid: CloudWatchLogs
             Effect: Allow
@@ -1522,15 +1521,15 @@ Resources:
               - logs:CreateLogStream
               - logs:PutLogEvents
             Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_ID}}:*
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
 
   TfStateFileEtlWorkerLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: BlocksTfEtlWorkerRole-{{BLOCKS_CUSTOMER_ID}}
+      RoleName: BlocksTfEtlWorkerRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -1542,14 +1541,14 @@ Resources:
   TfStateFileEtlWorkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_ID}}
+      LogGroupName: /aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       RetentionInDays: 30
 
   TfStateFileEtlWorkerFunction:
     Type: AWS::Lambda::Function
     DependsOn: TfStateFileEtlWorkerLogGroup
     Properties:
-      FunctionName: BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses S3 and SSM for Terraform state file processing."
       Runtime: python3.14
       Handler: tf_state_file_etl_worker.handler
@@ -1559,7 +1558,7 @@ Resources:
         S3Key: lambda/tf-state-file-etl-worker/tf_state_file_etl_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: "{{BLOCKS_CUSTOMER_ID}}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
           SNS_ACCOUNT: "{{BLOCKS_ACCOUNT_ID}}"
       Timeout: 900
       MemorySize: 256
@@ -1601,7 +1600,7 @@ Resources:
   TfStateFileEtlWorkerConfig:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: /Blocks-{{BLOCKS_CUSTOMER_ID}}/TfStateFileEtlWorker/Config
+      Name: /Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
       Type: String
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Stores Lambda configuration."
       Value: |
@@ -1617,10 +1616,10 @@ Resources:
   LoopbackCommunicationPrepWorkerLambdaExecutionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_ID}}
+      ManagedPolicyName: BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           # EventBridge permissions to create/manage rules on default event bus
           - Sid: EventBridgeRuleManagement
@@ -1651,15 +1650,15 @@ Resources:
               - logs:CreateLogStream
               - logs:PutLogEvents
             Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_ID}}:*
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
 
   LoopbackCommunicationPrepWorkerLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: BlocksLoopbackPrepRole-{{BLOCKS_CUSTOMER_ID}}
+      RoleName: BlocksLoopbackPrepRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -1671,14 +1670,14 @@ Resources:
   LoopbackCommunicationPrepWorkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_ID}}
+      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       RetentionInDays: 30
 
   LoopbackCommunicationPrepWorkerFunction:
     Type: AWS::Lambda::Function
     DependsOn: LoopbackCommunicationPrepWorkerLogGroup
     Properties:
-      FunctionName: BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses EventBridge and Lambda for loopback setup."
       Runtime: python3.14
       Handler: loopback_communication_prep_worker.handler
@@ -1688,7 +1687,7 @@ Resources:
         S3Key: lambda/loopback-communication-prep-worker/loopback_communication_prep_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: "{{BLOCKS_CUSTOMER_ID}}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Timeout: 900
       MemorySize: 256
 
@@ -1729,10 +1728,10 @@ Resources:
   LoopbackCommunicationWorkerLambdaExecutionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: BlocksLoopbackCommunicationWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_ID}}
+      ManagedPolicyName: BlocksLoopbackCommunicationWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: CloudWatchLogs
             Effect: Allow
@@ -1741,15 +1740,15 @@ Resources:
               - logs:CreateLogStream
               - logs:PutLogEvents
             Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_ID}}:*
+              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
 
   LoopbackCommunicationWorkerLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: BlocksLoopbackWorkerRole-{{BLOCKS_CUSTOMER_ID}}
+      RoleName: BlocksLoopbackWorkerRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -1761,14 +1760,14 @@ Resources:
   LoopbackCommunicationWorkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_ID}}
+      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       RetentionInDays: 30
 
   LoopbackCommunicationWorkerFunction:
     Type: AWS::Lambda::Function
     DependsOn: LoopbackCommunicationWorkerLogGroup
     Properties:
-      FunctionName: BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_ID}}
+      FunctionName: BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Processes loopback communication events."
       Runtime: python3.14
       Handler: loopback_communication_worker.handler
@@ -1778,7 +1777,7 @@ Resources:
         S3Key: lambda/loopback-communication-worker/loopback_communication_worker.zip
       Environment:
         Variables:
-          BLOCKS_CUSTOMER_ID: "{{BLOCKS_CUSTOMER_ID}}"
+          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Timeout: 900
       MemorySize: 256
 

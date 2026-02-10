@@ -3,7 +3,7 @@
 ############################
 
 resource "aws_iam_policy" "blocks_savings_estimation_read_only" {
-  name        = "BlocksSavingsEstimationReadOnlyPolicy-${var.customer_id}"
+  name        = "BlocksSavingsEstimationReadOnlyPolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to configuration and usage data across compute, storage, database, and monitoring services for savings analysis."
   tags        = local.common_tags
 
@@ -155,6 +155,16 @@ resource "aws_iam_policy" "blocks_savings_estimation_read_only" {
           "wafv2:List*"
         ]
         Resource = "*"
+      },
+      # IAM Policy Simulation
+      # Enables pre-flight permission validation before executing operations
+      {
+        Sid    = "IamPolicySimulationRead"
+        Effect = "Allow"
+        Action = [
+          "iam:SimulatePrincipalPolicy"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -166,7 +176,7 @@ resource "aws_iam_policy" "blocks_savings_estimation_read_only" {
 ############################
 
 resource "aws_iam_role" "blocks_estimations_read_role" {
-  name                 = "BlocksEstimationsReadRole-${var.customer_id}"
+  name                 = "BlocksEstimationsReadRole-${var.customer_resource_id}"
   description          = "Used by Blocks.cloud to analyze cost savings. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
   max_session_duration = 3600
   tags = merge(local.common_tags, {
@@ -236,7 +246,7 @@ resource "aws_iam_role_policy_attachment" "blocks_estimations_read_role_resource
 ############################
 
 resource "aws_iam_role" "blocks_estimations_notifier_role" {
-  name        = "BlocksEstimationsNotifierRole-${var.customer_id}"
+  name        = "BlocksEstimationsNotifierRole-${var.customer_resource_id}"
   description = "Used by Blocks.cloud to send deployment notifications. Must remain in place for Blocks to function correctly."
 
   # Allow the Terraform runner (current user/role) to assume this role
@@ -259,7 +269,7 @@ resource "aws_iam_role" "blocks_estimations_notifier_role" {
 }
 
 resource "aws_iam_role_policy" "blocks_estimations_notifier_policy" {
-  name = "BlocksEstimationsNotifierPolicy-${var.customer_id}"
+  name = "BlocksEstimationsNotifierPolicy-${var.customer_resource_id}"
   role = aws_iam_role.blocks_estimations_notifier_role.id
 
   policy = jsonencode({

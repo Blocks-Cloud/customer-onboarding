@@ -7,7 +7,7 @@
 # - Loopback communication workflows
 
 resource "aws_cloudwatch_event_bus" "external_event_conductor" {
-  name = "BlocksExternalEventsOutbound-${var.customer_id}"
+  name = "BlocksExternalEventsOutbound-${var.customer_resource_id}"
 
   tags = merge(local.common_tags, {
     Purpose = "CrossAccountCommunication"
@@ -88,7 +88,7 @@ data "aws_iam_policy_document" "tf_state_etl_worker" {
       "ssm:GetParameter"
     ]
     resources = [
-      "arn:${local.partition}:ssm:*:${local.account_id}:parameter/Blocks-${var.customer_id}/TfStateFileEtlWorker/Config"
+      "arn:${local.partition}:ssm:*:${local.account_id}:parameter/Blocks-${var.customer_resource_id}/TfStateFileEtlWorker/Config"
     ]
   }
 
@@ -101,7 +101,7 @@ data "aws_iam_policy_document" "tf_state_etl_worker" {
       "ssm:PutResourcePolicy"
     ]
     resources = [
-      "arn:${local.partition}:ssm:*:${local.account_id}:parameter/Blocks-${var.customer_id}/TfStateFileEtlWorker/Config"
+      "arn:${local.partition}:ssm:*:${local.account_id}:parameter/Blocks-${var.customer_resource_id}/TfStateFileEtlWorker/Config"
     ]
   }
 
@@ -123,7 +123,7 @@ data "aws_iam_policy_document" "tf_state_etl_worker" {
       "sns:Publish"
     ]
     resources = [
-      "arn:${local.partition}:sns:eu-central-1:${var.blocks_account_id}:gh-app-inbound-${var.customer_id}"
+      "arn:${local.partition}:sns:eu-central-1:${var.blocks_account_id}:gh-app-inbound-${var.customer_resource_id}"
     ]
   }
 
@@ -137,13 +137,13 @@ data "aws_iam_policy_document" "tf_state_etl_worker" {
       "logs:PutLogEvents"
     ]
     resources = [
-      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-${var.customer_id}:*"
+      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-${var.customer_resource_id}:*"
     ]
   }
 }
 
 resource "aws_iam_policy" "tf_state_etl_worker" {
-  name        = "BlocksTfStateFileEtlWorkerLambdaPolicy-${var.customer_id}"
+  name        = "BlocksTfStateFileEtlWorkerLambdaPolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
   policy      = data.aws_iam_policy_document.tf_state_etl_worker.json
   tags        = local.common_tags
@@ -161,7 +161,7 @@ data "aws_iam_policy_document" "tf_state_etl_worker_assume" {
 }
 
 resource "aws_iam_role" "tf_state_etl_worker" {
-  name               = "BlocksTfEtlWorkerRole-${var.customer_id}"
+  name               = "BlocksTfEtlWorkerRole-${var.customer_resource_id}"
   description        = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
   assume_role_policy = data.aws_iam_policy_document.tf_state_etl_worker_assume.json
   tags               = local.common_tags
@@ -173,7 +173,7 @@ resource "aws_iam_role_policy_attachment" "tf_state_etl_worker" {
 }
 
 resource "aws_lambda_function" "tf_state_etl_worker" {
-  function_name = "BlocksTfStateFileEtlWorker-${var.customer_id}"
+  function_name = "BlocksTfStateFileEtlWorker-${var.customer_resource_id}"
   description   = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses S3 and SSM for Terraform state file processing."
   role          = aws_iam_role.tf_state_etl_worker.arn
 
@@ -187,8 +187,8 @@ resource "aws_lambda_function" "tf_state_etl_worker" {
 
   environment {
     variables = {
-      BLOCKS_CUSTOMER_ID = var.customer_id
-      SNS_ACCOUNT        = var.blocks_account_id
+      BLOCKS_CUSTOMER_RESOURCE_ID = var.customer_resource_id
+      SNS_ACCOUNT                 = var.blocks_account_id
     }
   }
 
@@ -236,7 +236,7 @@ resource "aws_cloudwatch_event_target" "tf_state_etl_worker" {
 
 # SSM Parameter for additional Lambda configuration
 resource "aws_ssm_parameter" "tf_state_etl_worker_config" {
-  name        = "/Blocks-${var.customer_id}/TfStateFileEtlWorker/Config"
+  name        = "/Blocks-${var.customer_resource_id}/TfStateFileEtlWorker/Config"
   type        = "String"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Stores Lambda configuration."
 
@@ -301,13 +301,13 @@ data "aws_iam_policy_document" "loopback_prep_worker" {
       "logs:PutLogEvents"
     ]
     resources = [
-      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-${var.customer_id}:*"
+      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-${var.customer_resource_id}:*"
     ]
   }
 }
 
 resource "aws_iam_policy" "loopback_prep_worker" {
-  name        = "BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-${var.customer_id}"
+  name        = "BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
   policy      = data.aws_iam_policy_document.loopback_prep_worker.json
   tags        = local.common_tags
@@ -325,7 +325,7 @@ data "aws_iam_policy_document" "loopback_prep_worker_assume" {
 }
 
 resource "aws_iam_role" "loopback_prep_worker" {
-  name               = "BlocksLoopbackPrepRole-${var.customer_id}"
+  name               = "BlocksLoopbackPrepRole-${var.customer_resource_id}"
   description        = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
   assume_role_policy = data.aws_iam_policy_document.loopback_prep_worker_assume.json
   tags               = local.common_tags
@@ -337,7 +337,7 @@ resource "aws_iam_role_policy_attachment" "loopback_prep_worker" {
 }
 
 resource "aws_lambda_function" "loopback_prep_worker" {
-  function_name = "BlocksLoopbackCommunicationPrepWorker-${var.customer_id}"
+  function_name = "BlocksLoopbackCommunicationPrepWorker-${var.customer_resource_id}"
   description   = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses EventBridge and Lambda for loopback setup."
   role          = aws_iam_role.loopback_prep_worker.arn
 
@@ -351,7 +351,7 @@ resource "aws_lambda_function" "loopback_prep_worker" {
 
   environment {
     variables = {
-      BLOCKS_CUSTOMER_ID = var.customer_id
+      BLOCKS_CUSTOMER_RESOURCE_ID = var.customer_resource_id
     }
   }
 
@@ -412,13 +412,13 @@ data "aws_iam_policy_document" "loopback_worker" {
       "logs:PutLogEvents"
     ]
     resources = [
-      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-${var.customer_id}:*"
+      "arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-${var.customer_resource_id}:*"
     ]
   }
 }
 
 resource "aws_iam_policy" "loopback_worker" {
-  name        = "BlocksLoopbackCommunicationWorkerLambdaPolicy-${var.customer_id}"
+  name        = "BlocksLoopbackCommunicationWorkerLambdaPolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
   policy      = data.aws_iam_policy_document.loopback_worker.json
   tags        = local.common_tags
@@ -436,7 +436,7 @@ data "aws_iam_policy_document" "loopback_worker_assume" {
 }
 
 resource "aws_iam_role" "loopback_worker" {
-  name               = "BlocksLoopbackWorkerRole-${var.customer_id}"
+  name               = "BlocksLoopbackWorkerRole-${var.customer_resource_id}"
   description        = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
   assume_role_policy = data.aws_iam_policy_document.loopback_worker_assume.json
   tags               = local.common_tags
@@ -448,7 +448,7 @@ resource "aws_iam_role_policy_attachment" "loopback_worker" {
 }
 
 resource "aws_lambda_function" "loopback_worker" {
-  function_name = "BlocksLoopbackCommunicationWorker-${var.customer_id}"
+  function_name = "BlocksLoopbackCommunicationWorker-${var.customer_resource_id}"
   description   = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Processes loopback communication events."
   role          = aws_iam_role.loopback_worker.arn
 
@@ -462,7 +462,7 @@ resource "aws_lambda_function" "loopback_worker" {
 
   environment {
     variables = {
-      BLOCKS_CUSTOMER_ID = var.customer_id
+      BLOCKS_CUSTOMER_RESOURCE_ID = var.customer_resource_id
     }
   }
 

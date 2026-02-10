@@ -54,7 +54,7 @@ module "blocks_cost_optimization" {
   # source = "github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_cost_optimization?ref=v1.0.0"
 
   # Required variables - provided by Blocks
-  customer_id           = "example-customer"                                      # provided by blocks
+  customer_resource_id  = "example-customer"                                      # provided by blocks
   external_id           = "example-external-id"                                   # provided by blocks
   blocks_account_id     = "123456789012"                                          # provided by blocks
   stackset_template_url = "https://s3.amazonaws.com/example-bucket/template.yaml" # provided by blocks

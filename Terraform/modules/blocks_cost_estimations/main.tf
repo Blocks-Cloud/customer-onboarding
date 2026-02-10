@@ -25,8 +25,8 @@ locals {
   region     = data.aws_region.current.region
   partition  = data.aws_partition.current.partition
 
-  # Resource naming with customer_id suffix
-  resource_suffix = var.customer_id
+  # Resource naming with customer_resource_id suffix
+  resource_suffix = var.customer_resource_id
 
   ############################
   # Auto-Detection Logic

@@ -19,7 +19,7 @@ resource "terraform_data" "enable_stacksets_trusted_access" {
   count = local.is_management_account && local.deploy_stackset ? 1 : 0
 
   input = {
-    customer_id = var.customer_id
+    customer_resource_id = var.customer_resource_id
   }
 
   provisioner "local-exec" {

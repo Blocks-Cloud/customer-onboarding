@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.7"
+  TemplateVersion: "0.1.8"
   LastUpdated: "2026-01-08"
 
 Parameters:
@@ -160,6 +160,14 @@ Resources:
             Effect: Allow
             Action:
               - wafv2:List*
+            Resource: "*"
+
+          # IAM Policy Simulation
+          # Enables pre-flight permission validation before executing operations
+          - Sid: IamPolicySimulationRead
+            Effect: Allow
+            Action:
+              - iam:SimulatePrincipalPolicy
             Resource: "*"
 
   BlocksEstimationsReadRole:

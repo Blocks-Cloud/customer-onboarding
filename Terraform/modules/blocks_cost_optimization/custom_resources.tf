@@ -6,7 +6,7 @@
 resource "terraform_data" "enable_org_services" {
   # Only run on create (triggers_replace would force recreation)
   input = {
-    customer_id = var.customer_id
+    customer_resource_id = var.customer_resource_id
   }
 
   provisioner "local-exec" {
@@ -28,7 +28,7 @@ resource "terraform_data" "enable_cost_allocation_backfill" {
 
   # Only run on create
   input = {
-    customer_id = var.customer_id
+    customer_resource_id = var.customer_resource_id
   }
 
   provisioner "local-exec" {

@@ -23,9 +23,9 @@ output "stackset_id" {
   value       = local.is_management_account && local.deploy_stackset ? aws_cloudformation_stack_set.cost_estimations[0].id : ""
 }
 
-output "customer_id" {
-  description = "Customer ID used for resource naming"
-  value       = var.customer_id
+output "customer_resource_id" {
+  description = "Customer resource ID used for resource naming"
+  value       = var.customer_resource_id
 }
 
 output "organization_root_id" {

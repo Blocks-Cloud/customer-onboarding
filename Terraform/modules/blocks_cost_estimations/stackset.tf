@@ -9,7 +9,7 @@
 resource "aws_cloudformation_stack_set" "cost_estimations" {
   count = local.is_management_account && local.deploy_stackset ? 1 : 0
 
-  name             = "Blocks-CostEstimations-${var.customer_id}"
+  name             = "Blocks-CostEstimations-${var.customer_resource_id}"
   description      = "Blocks read-only IAM role for organization-wide cost analysis. Must remain in place for Blocks to function correctly."
   permission_model = "SERVICE_MANAGED"
 
@@ -22,7 +22,7 @@ resource "aws_cloudformation_stack_set" "cost_estimations" {
   call_as      = "SELF"
 
   parameters = {
-    BlocksCustomerId = var.customer_id
+    BlocksCustomerId = var.customer_resource_id
     BlocksAccountId  = var.blocks_account_id
     ExternalId       = var.external_id
   }

@@ -111,7 +111,7 @@ data "aws_iam_policy_document" "blocks_base_read" {
 }
 
 resource "aws_iam_policy" "blocks_base_read" {
-  name        = "BlocksBaseReadPolicy-${var.customer_id}"
+  name        = "BlocksBaseReadPolicy-${var.customer_resource_id}"
   description = "Shared read-only permissions for all Blocks roles - Cost Explorer, CloudWatch, Pricing. Must remain in place for Blocks to function correctly."
   policy      = data.aws_iam_policy_document.blocks_base_read.json
   tags        = local.common_tags
@@ -293,7 +293,7 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_write" {
-  name        = "BlocksCostOptimizationWritePolicy-${var.customer_id}"
+  name        = "BlocksCostOptimizationWritePolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
   policy      = data.aws_iam_policy_document.blocks_cost_optimization_write.json
   tags        = local.common_tags
@@ -536,7 +536,7 @@ data "aws_iam_policy_document" "blocks_cost_optimization_read" {
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_read" {
-  name        = "BlocksCostOptimizationReadPolicy-${var.customer_id}"
+  name        = "BlocksCostOptimizationReadPolicy-${var.customer_resource_id}"
   description = "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to compute, storage, database, and infrastructure services for savings analysis."
   policy      = data.aws_iam_policy_document.blocks_cost_optimization_read.json
   tags        = local.common_tags
@@ -662,7 +662,7 @@ data "aws_iam_policy_document" "majortom_read" {
 }
 
 resource "aws_iam_policy" "majortom_read" {
-  name        = "MajorTomReadPolicy-${var.customer_id}"
+  name        = "MajorTomReadPolicy-${var.customer_resource_id}"
   description = "MajorTom AI read permissions for Cloud Control API, CloudTrail, and cost analysis. Must remain in place for MajorTom to function correctly."
   policy      = data.aws_iam_policy_document.majortom_read.json
   tags        = local.common_tags
@@ -677,7 +677,7 @@ resource "aws_iam_policy" "majortom_read" {
 ############################
 
 resource "aws_iam_role" "blocks_execution_role" {
-  name                 = "BlocksExecutionRole-${var.customer_id}"
+  name                 = "BlocksExecutionRole-${var.customer_resource_id}"
   description          = "Used by Blocks.cloud to execute cost optimization actions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
   max_session_duration = 3600
   assume_role_policy   = data.aws_iam_policy_document.blocks_cross_account_trust.json
@@ -719,7 +719,7 @@ resource "aws_iam_role_policy_attachment" "blocks_execution_managed" {
 ############################
 
 resource "aws_iam_role" "blocks_read_role" {
-  name                 = "BlocksReadRole-${var.customer_id}"
+  name                 = "BlocksReadRole-${var.customer_resource_id}"
   description          = "Read-only role for Blocks.cloud cost analysis and monitoring. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
   max_session_duration = 3600
   assume_role_policy   = data.aws_iam_policy_document.blocks_cross_account_trust.json
@@ -757,7 +757,7 @@ resource "aws_iam_role_policy_attachment" "blocks_read_managed" {
 ############################
 
 resource "aws_iam_role" "majortom_read_role" {
-  name                 = "MajorTomReadRole-${var.customer_id}"
+  name                 = "MajorTomReadRole-${var.customer_resource_id}"
   description          = "Read-only AI role for Blocks.cloud cost analysis and monitoring. Must remain in place for MajorTom to function correctly."
   max_session_duration = 3600
   assume_role_policy   = data.aws_iam_policy_document.blocks_cross_account_trust.json
@@ -821,7 +821,7 @@ data "aws_iam_policy_document" "blocks_notifier_permissions" {
 }
 
 resource "aws_iam_role" "blocks_optimization_notifier_role" {
-  name               = "BlocksOptimizationNotifierRole-${var.customer_id}"
+  name               = "BlocksOptimizationNotifierRole-${var.customer_resource_id}"
   description        = "Used by Blocks.cloud to notify about deployment events. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
   assume_role_policy = data.aws_iam_policy_document.blocks_notifier_assume.json
 

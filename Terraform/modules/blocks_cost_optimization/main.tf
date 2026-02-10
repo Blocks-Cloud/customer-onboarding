@@ -34,8 +34,8 @@ locals {
   region     = data.aws_region.current.id
   partition  = data.aws_partition.current.partition
 
-  # Resource naming with customer_id suffix
-  resource_suffix = var.customer_id
+  # Resource naming with customer_resource_id suffix
+  resource_suffix = var.customer_resource_id
 
   ############################
   # Account Type Detection
@@ -78,7 +78,7 @@ locals {
   ############################
 
   # S3 bucket for CUR data
-  cur_bucket_name = "blocks-cur-data-${var.customer_id}"
+  cur_bucket_name = "blocks-cur-data-${var.customer_resource_id}"
 
   # Blocks SQS queue ARN
   blocks_sqs_arn = "arn:${local.partition}:sqs:us-east-1:${var.blocks_account_id}:Blocks-Onboarding-Queue"
