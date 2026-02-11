@@ -10,7 +10,7 @@ resource "terraform_data" "enable_org_services" {
   }
 
   provisioner "local-exec" {
-    command     = "bash ${path.module}/scripts/enable_org_services.sh"
+    command     = "bash scripts/enable_org_services.sh"
     working_dir = path.module
   }
 }
@@ -32,7 +32,7 @@ resource "terraform_data" "enable_cost_allocation_backfill" {
   }
 
   provisioner "local-exec" {
-    command     = "bash ${path.module}/scripts/enable_cost_allocation_backfill.sh"
+    command     = "bash scripts/enable_cost_allocation_backfill.sh"
     working_dir = path.module
   }
 }
