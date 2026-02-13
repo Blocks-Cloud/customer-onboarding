@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.10"
+  TemplateVersion: "0.1.11"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -327,8 +327,6 @@ Resources:
     DependsOn:
       - SubAccountStackSet
       - BlocksExecutionRole
-      - CURBucket
-      - Cur20Export
     Properties:
       ServiceToken: !GetAtt DeleteStep1StackLambda.Arn
 
@@ -337,6 +335,7 @@ Resources:
   # with encryption, versioning, and 365-day lifecycle policy
   CURBucket:
     Type: AWS::S3::Bucket
+    Condition: EnableCostAllocationBackfill
     Properties:
       BucketName: "blocks-cur-data-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       OwnershipControls:
@@ -363,6 +362,7 @@ Resources:
   # BlocksExecutionRole read access to the exported cost reports
   CURBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Condition: EnableCostAllocationBackfill
     Properties:
       Bucket: !Ref CURBucket
       PolicyDocument:
@@ -416,6 +416,7 @@ Resources:
   # Outputs Parquet files to CURBucket for analysis by Blocks
   Cur20Export:
     Type: AWS::BCMDataExports::Export
+    Condition: EnableCostAllocationBackfill
     DependsOn: CURBucketPolicy
     Properties:
       Export:
@@ -699,7 +700,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.10"
+          Value: "0.1.11"
       CallAs: SELF
 
   # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
@@ -805,7 +806,6 @@ Resources:
             Effect: Allow
             Action:
               - organizations:MoveAccount
-              - organizations:CreateAccount
               - organizations:CreateOrganizationalUnit
               - organizations:ListRoots
               - organizations:ListOrganizationalUnitsForParent
@@ -1402,393 +1402,40 @@ Resources:
               time: "$.time"
               stackId: "$.detail.stack-id"
               statusDetails: "$.detail.status-details"
-            InputTemplate: !Sub |
-              {
-                "source": "aws.cloudformation",
-                "account": <account>,
-                "region": <region>,
-                "time": <time>,
-                "stackId": <stackId>,
-                "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.10",
-                "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
-                "executionRoleArn": "${BlocksExecutionRole.Arn}",
-                "readRoleArn": "${BlocksReadRole.Arn}",
-                "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
-                "bucketArn": "arn:${AWS::Partition}:s3:::${CURBucket}",
-                "externalId": "{{EXTERNAL_ID}}",
-                "step": "2"
-              }
-
-  ############################
-  # External Event Conductor #
-  ############################
-  # Dedicated EventBridge event bus to communicate with our external workers
-  ExternalEventConductorEventBus:
-    Type: AWS::Events::EventBus
-    Properties:
-      Name: BlocksExternalEventsOutbound-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Allows convenient cross-account communication."
-
-  # Allow external event conductor to put events
-  ExternalEventConductorEventBusPolicy:
-    Type: AWS::Events::EventBusPolicy
-    Properties:
-      EventBusName: !Ref ExternalEventConductorEventBus
-      StatementId: AllowExternalEventConductor
-      Action: events:PutEvents
-      Principal: "{{BLOCKS_ACCOUNT_ID}}"
-
-  ###################################
-  # Terraform State File ETL Worker #
-  ###################################
-  TfStateFileEtlWorkerLambdaExecutionPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: BlocksTfStateFileEtlWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          # List all S3 buckets and objects in current account
-          # (required to find Terraform state file buckets and list workspace folders)
-          - Sid: S3List
-            Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:ListAllMyBuckets
-              - s3:ListBucket
-            Resource:
-              - "*"
-
-          # Read .tfstate files in any S3 buckets in current account
-          - Sid: S3Get
-            Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:GetObjectVersion
-            Resource:
-              - !Sub arn:${AWS::Partition}:s3:::*.tfstate
-
-          # Write access to target bucket path for this account
-          - Sid: S3WriteTfStateFileEtlWorkerTargetBucket
-            Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetObject
-              - s3:ListBucket
-              - s3:PutObject
-            Resource:
-              - "arn:aws:s3:::blocks-tf-state-file-etl-target-{{BLOCKS_ACCOUNT_ID}}"
-              - !Sub "arn:aws:s3:::blocks-tf-state-file-etl-target-{{BLOCKS_ACCOUNT_ID}}/customer-accounts/${AWS::AccountId}/*"
-
-          # Access to SSM parameter to read its config
-          - Sid: SSMReadConfig
-            Effect: Allow
-            Action:
-              - ssm:GetParameter
-            Resource:
-              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
-
-          # SSM write access for self-provisioning config parameter
-          - Sid: SSMWriteConfig
-            Effect: Allow
-            Action:
-              - ssm:PutParameter
-              - ssm:PutResourcePolicy
-            Resource:
-              - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
-
-          # STS for getting current account ID
-          - Sid: STSGetCallerIdentity
-            Effect: Allow
-            Action:
-              - sts:GetCallerIdentity
-            Resource: "*"
-
-          # Publish notifications to Blocks SNS topic
-          - Sid: SNSPublishNotifications
-            Effect: Allow
-            Action:
-              - sns:Publish
-            Resource:
-              - !Sub arn:${AWS::Partition}:sns:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:gh-app-inbound-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-
-          - Sid: CloudWatchLogs
-            Effect: Allow
-            Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
-
-  TfStateFileEtlWorkerLambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: BlocksTfEtlWorkerRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to S3, SSM, STS, and CloudWatch Logs."
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Ref TfStateFileEtlWorkerLambdaExecutionPolicy
-
-  TfStateFileEtlWorkerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      RetentionInDays: 30
-
-  TfStateFileEtlWorkerFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: TfStateFileEtlWorkerLogGroup
-    Properties:
-      FunctionName: BlocksTfStateFileEtlWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses S3 and SSM for Terraform state file processing."
-      Runtime: python3.14
-      Handler: tf_state_file_etl_worker.handler
-      Role: !GetAtt TfStateFileEtlWorkerLambdaExecutionRole.Arn
-      Code:
-        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
-        S3Key: lambda/tf-state-file-etl-worker/tf_state_file_etl_worker.zip
-      Environment:
-        Variables:
-          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-          SNS_ACCOUNT: "{{BLOCKS_ACCOUNT_ID}}"
-      Timeout: 900
-      MemorySize: 256
-
-  # Allow external event conductor role to invoke the Lambda function
-  TfStateFileEtlWorkerLambdaPermissionExternalEventConductor:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref TfStateFileEtlWorkerFunction
-      Action: lambda:InvokeFunction
-      Principal: "{{BLOCKS_ACCOUNT_ID}}"
-
-  # Allow EventBridge to invoke the Lambda function
-  TfStateFileEtlWorkerLambdaPermissionEventBridge:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref TfStateFileEtlWorkerFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt TfStateFileEtlWorkerEventRule.Arn
-
-  TfStateFileEtlWorkerEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: BlocksTfStateFileEtlRequested
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Triggers Lambda on EventBridge events."
-      EventBusName: !Ref ExternalEventConductorEventBus
-      EventPattern:
-        source:
-          - state_bucket_finder
-        detail-type:
-          - state_bucket_finder.succeeded
-      State: ENABLED
-      Targets:
-        - Id: TfStateFileEtlWorkerLambda
-          Arn: !GetAtt TfStateFileEtlWorkerFunction.Arn
-
-  # SSM Parameter for additional Lambda configuration
-  TfStateFileEtlWorkerConfig:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: /Blocks-{{BLOCKS_CUSTOMER_RESOURCE_ID}}/TfStateFileEtlWorker/Config
-      Type: String
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Stores Lambda configuration."
-      Value: |
-        {
-          "log_level": "error",
-          "allow_eb_events": true,
-          "allow_direct_invocation": true
-        }
-
-  ##########################
-  # Loopback Communication #
-  ##########################
-  LoopbackCommunicationPrepWorkerLambdaExecutionPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: BlocksLoopbackCommunicationPrepWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          # EventBridge permissions to create/manage rules on default event bus
-          - Sid: EventBridgeRuleManagement
-            Effect: Allow
-            Action:
-              - events:PutRule
-              - events:PutTargets
-              - events:DeleteRule
-              - events:RemoveTargets
-              - events:DescribeRule
-              - events:ListTargetsByRule
-            Resource:
-              - !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/BlocksExternalEventsOutbound-*
-
-          # Lambda permissions to add invoke permissions for the worker
-          - Sid: LambdaPermissionManagement
-            Effect: Allow
-            Action:
-              - lambda:AddPermission
-              - lambda:RemovePermission
-            Resource:
-              - !GetAtt LoopbackCommunicationWorkerFunction.Arn
-
-          - Sid: CloudWatchLogs
-            Effect: Allow
-            Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
-
-  LoopbackCommunicationPrepWorkerLambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: BlocksLoopbackPrepRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to EventBridge, Lambda, and CloudWatch Logs."
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Ref LoopbackCommunicationPrepWorkerLambdaExecutionPolicy
-
-  LoopbackCommunicationPrepWorkerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      RetentionInDays: 30
-
-  LoopbackCommunicationPrepWorkerFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: LoopbackCommunicationPrepWorkerLogGroup
-    Properties:
-      FunctionName: BlocksLoopbackCommunicationPrepWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Accesses EventBridge and Lambda for loopback setup."
-      Runtime: python3.14
-      Handler: loopback_communication_prep_worker.handler
-      Role: !GetAtt LoopbackCommunicationPrepWorkerLambdaExecutionRole.Arn
-      Code:
-        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
-        S3Key: lambda/loopback-communication-prep-worker/loopback_communication_prep_worker.zip
-      Environment:
-        Variables:
-          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Timeout: 900
-      MemorySize: 256
-
-  # Allow external event conductor role to invoke the Lambda function
-  LoopbackCommunicationPrepWorkerLambdaPermissionExternalEventConductor:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref LoopbackCommunicationPrepWorkerFunction
-      Action: lambda:InvokeFunction
-      Principal: "{{BLOCKS_ACCOUNT_ID}}"
-
-  # Allow EventBridge to invoke the Lambda function
-  LoopbackCommunicationPrepWorkerLambdaPermissionEventBridge:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref LoopbackCommunicationPrepWorkerFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt LoopbackCommunicationPrepWorkerEventRule.Arn
-
-  # Event rule on ExternalEventConductorEventBus to trigger loopback_communication_prep_worker
-  LoopbackCommunicationPrepWorkerEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: BlocksLoopbackCommunicationPrepRequested
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Triggers Lambda on EventBridge events."
-      EventBusName: !Ref ExternalEventConductorEventBus
-      EventPattern:
-        source:
-          - external_event_conductor.blocks.cloud
-        detail-type:
-          - loopback_communication_prep.requested
-      State: ENABLED
-      Targets:
-        - Id: LoopbackCommunicationPrepWorkerLambda
-          Arn: !GetAtt LoopbackCommunicationPrepWorkerFunction.Arn
-
-  LoopbackCommunicationWorkerLambdaExecutionPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: BlocksLoopbackCommunicationWorkerLambdaPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: CloudWatchLogs
-            Effect: Allow
-            Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource:
-              - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*
-
-  LoopbackCommunicationWorkerLambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: BlocksLoopbackWorkerRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants access to CloudWatch Logs."
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Ref LoopbackCommunicationWorkerLambdaExecutionPolicy
-
-  LoopbackCommunicationWorkerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      RetentionInDays: 30
-
-  LoopbackCommunicationWorkerFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: LoopbackCommunicationWorkerLogGroup
-    Properties:
-      FunctionName: BlocksLoopbackCommunicationWorker-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Processes loopback communication events."
-      Runtime: python3.14
-      Handler: loopback_communication_worker.handler
-      Role: !GetAtt LoopbackCommunicationWorkerLambdaExecutionRole.Arn
-      Code:
-        S3Bucket: !Sub "blocks-cloud-public-artifacts-${AWS::Region}"
-        S3Key: lambda/loopback-communication-worker/loopback_communication_worker.zip
-      Environment:
-        Variables:
-          BLOCKS_CUSTOMER_RESOURCE_ID: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Timeout: 900
-      MemorySize: 256
+            InputTemplate: !Sub
+              - |
+                {
+                  "source": "aws.cloudformation",
+                  "account": <account>,
+                  "region": <region>,
+                  "time": <time>,
+                  "stackId": <stackId>,
+                  "statusDetails": <statusDetails>,
+                  "templateVersion": "0.1.11",
+                  "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
+                  "executionRoleArn": "${BlocksExecutionRole.Arn}",
+                  "readRoleArn": "${BlocksReadRole.Arn}",
+                  "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
+                  "bucketArn": "${BucketArn}",
+                  "externalId": "{{EXTERNAL_ID}}",
+                  "step": "2"
+                }
+              - BucketArn: !If
+                  - EnableCostAllocationBackfill
+                  - !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
+                  - ""
 
 Outputs:
   CURBucketName:
+    Condition: EnableCostAllocationBackfill
     Description: "S3 bucket where CUR 2.0 data is stored"
     Value: !Ref CURBucket
   CURBucketArn:
+    Condition: EnableCostAllocationBackfill
     Description: "ARN of the S3 bucket where CUR 2.0 data is stored"
     Value: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
   Cur20ExportName:
+    Condition: EnableCostAllocationBackfill
     Description: "Name of the CUR 2.0 export"
     Value: !Ref Cur20Export
   BlocksExecutionRoleArn:
@@ -1813,48 +1460,3 @@ Outputs:
   MajorTomReadRoleName:
     Description: "Name of the MajorTom read-only role"
     Value: !Ref MajorTomReadRole
-
-  ############################
-  # External Event Conductor #
-  ############################
-  ExternalEventConductorEventBusArn:
-    Description: ARN of the EventBridge event bus
-    Value: !GetAtt ExternalEventConductorEventBus.Arn
-
-  ExternalEventConductorEventBusName:
-    Description: Name of the EventBridge event bus
-    Value: !Ref ExternalEventConductorEventBus
-
-  ###################################
-  # Terraform State File ETL Worker #
-  ###################################
-  TfStateFileEtlWorkerLambdaFunctionArn:
-    Description: ARN of the Terraform State File ETL Worker Lambda function
-    Value: !GetAtt TfStateFileEtlWorkerFunction.Arn
-
-  TfStateFileEtlWorkerLambdaRoleArn:
-    Description: ARN of the Lambda execution role
-    Value: !GetAtt TfStateFileEtlWorkerLambdaExecutionRole.Arn
-
-  TfStateFileEtlWorkerConfigParameterName:
-    Description: Name of the SSM parameter containing Lambda configuration
-    Value: !Ref TfStateFileEtlWorkerConfig
-
-  ##########################
-  # Loopback Communication #
-  ##########################
-  LoopbackCommunicationPrepWorkerLambdaFunctionArn:
-    Description: ARN of the Loopback Communication Prep Worker Lambda function
-    Value: !GetAtt LoopbackCommunicationPrepWorkerFunction.Arn
-
-  LoopbackCommunicationPrepWorkerLambdaRoleArn:
-    Description: ARN of the Loopback Communication Prep Worker Lambda execution role
-    Value: !GetAtt LoopbackCommunicationPrepWorkerLambdaExecutionRole.Arn
-
-  LoopbackCommunicationWorkerLambdaFunctionArn:
-    Description: ARN of the Loopback Communication Worker Lambda function
-    Value: !GetAtt LoopbackCommunicationWorkerFunction.Arn
-
-  LoopbackCommunicationWorkerLambdaRoleArn:
-    Description: ARN of the Loopback Communication Worker Lambda execution role
-    Value: !GetAtt LoopbackCommunicationWorkerLambdaExecutionRole.Arn

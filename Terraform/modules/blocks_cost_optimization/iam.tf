@@ -152,7 +152,6 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     effect = "Allow"
     actions = [
       "organizations:MoveAccount",
-      "organizations:CreateAccount",
       "organizations:CreateOrganizationalUnit",
       "organizations:ListRoots",
       "organizations:ListOrganizationalUnitsForParent",
