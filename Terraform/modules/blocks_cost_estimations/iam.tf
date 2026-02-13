@@ -275,10 +275,12 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
   }
 
   statement {
-    sid    = "SavingsPlansRecommendationGeneration"
+    sid    = "CommitmentAnalysisAndRecommendations"
     effect = "Allow"
     actions = [
+      "ce:StartCommitmentPurchaseAnalysis",
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+      "ce:GetSavingsPlansPurchaseRecommendation",
     ]
     resources = ["*"]
   }
@@ -297,6 +299,8 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     effect = "Allow"
     actions = [
       "pricing:GetProducts",
+      "pricing:DescribeServices",
+      "pricing:GetAttributeValues",
     ]
     resources = ["*"]
   }

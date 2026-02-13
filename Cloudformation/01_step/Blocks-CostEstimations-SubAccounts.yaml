@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.12"
+  TemplateVersion: "0.1.14"
   LastUpdated: "2026-01-08"
 
 Parameters:
@@ -246,10 +246,12 @@ Resources:
             Action:
               - iam:SimulatePrincipalPolicy
             Resource: "*"
-          - Sid: SavingsPlansRecommendationGeneration
+          - Sid: CommitmentAnalysisAndRecommendations
             Effect: Allow
             Action:
+              - ce:StartCommitmentPurchaseAnalysis
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:GetSavingsPlansPurchaseRecommendation
             Resource: "*"
           - Sid: S3BucketDiscovery
             Effect: Allow
@@ -260,6 +262,8 @@ Resources:
             Effect: Allow
             Action:
               - pricing:GetProducts
+              - pricing:DescribeServices
+              - pricing:GetAttributeValues
             Resource: "*"
 
   BlocksEstimationsReadRole:

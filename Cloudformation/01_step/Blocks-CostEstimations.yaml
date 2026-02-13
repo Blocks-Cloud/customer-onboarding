@@ -7,7 +7,7 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.12"
+  TemplateVersion: "0.1.14"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -500,10 +500,12 @@ Resources:
             Action:
               - iam:SimulatePrincipalPolicy
             Resource: "*"
-          - Sid: SavingsPlansRecommendationGeneration
+          - Sid: CommitmentAnalysisAndRecommendations
             Effect: Allow
             Action:
+              - ce:StartCommitmentPurchaseAnalysis
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:GetSavingsPlansPurchaseRecommendation
             Resource: "*"
           - Sid: S3BucketDiscovery
             Effect: Allow
@@ -514,6 +516,8 @@ Resources:
             Effect: Allow
             Action:
               - pricing:GetProducts
+              - pricing:DescribeServices
+              - pricing:GetAttributeValues
             Resource: "*"
 
   # IAM Role: Blocks Estimations Execution Role (Management Account)
@@ -618,7 +622,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.12",
+                "templateVersion": "0.1.14",
                 "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                 "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
                 "externalId": "{{EXTERNAL_ID}}",
