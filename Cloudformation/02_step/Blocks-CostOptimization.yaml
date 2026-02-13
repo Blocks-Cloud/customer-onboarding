@@ -957,6 +957,16 @@ Resources:
               - ce:ListCommitmentPurchaseAnalyses
               - sagemaker:SearchTrainingPlanOfferings
             Resource: "*"
+          - Sid: SavingsPlansRecommendationGeneration
+            Effect: Allow
+            Action:
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+            Resource: "*"
+          - Sid: S3BucketDiscovery
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+            Resource: "*"
 
   # IAM Policy: Cost Optimization Write Permissions
   # Grants Blocks execution permissions for purchasing RIs/Savings Plans,

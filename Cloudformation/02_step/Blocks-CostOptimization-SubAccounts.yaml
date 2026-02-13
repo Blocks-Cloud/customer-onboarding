@@ -277,6 +277,16 @@ Resources:
               - ce:ListCommitmentPurchaseAnalyses
               - sagemaker:SearchTrainingPlanOfferings
             Resource: "*"
+          - Sid: SavingsPlansRecommendationGeneration
+            Effect: Allow
+            Action:
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+            Resource: "*"
+          - Sid: S3BucketDiscovery
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+            Resource: "*"
 
   BlocksCostOptimizationWritePolicy:
     Type: AWS::IAM::ManagedPolicy

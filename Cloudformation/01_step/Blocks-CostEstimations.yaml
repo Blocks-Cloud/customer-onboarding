@@ -500,6 +500,21 @@ Resources:
             Action:
               - iam:SimulatePrincipalPolicy
             Resource: "*"
+          - Sid: SavingsPlansRecommendationGeneration
+            Effect: Allow
+            Action:
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+            Resource: "*"
+          - Sid: S3BucketDiscovery
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+            Resource: "*"
+          - Sid: PricingRead
+            Effect: Allow
+            Action:
+              - pricing:GetProducts
+            Resource: "*"
 
   # IAM Role: Blocks Estimations Execution Role (Management Account)
   # Cross-account role assumed by Blocks to execute cost optimization estimations

@@ -273,6 +273,33 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid    = "SavingsPlansRecommendationGeneration"
+    effect = "Allow"
+    actions = [
+      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "S3BucketDiscovery"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "PricingRead"
+    effect = "Allow"
+    actions = [
+      "pricing:GetProducts",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "blocks_estimations_custom_read" {

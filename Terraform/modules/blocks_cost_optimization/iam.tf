@@ -560,6 +560,24 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid    = "SavingsPlansRecommendationGeneration"
+    effect = "Allow"
+    actions = [
+      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "S3BucketDiscovery"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "blocks_custom_read" {
