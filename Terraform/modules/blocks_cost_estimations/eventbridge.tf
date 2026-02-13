@@ -122,13 +122,9 @@ resource "terraform_data" "notify_blocks" {
     aws_iam_role.blocks_estimations_read_role,
     aws_iam_role.blocks_estimations_notifier_role,
     aws_iam_role_policy.blocks_estimations_notifier_policy,
-    aws_iam_policy.blocks_savings_estimation_read_only,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_custom_policy,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_compute_optimizer,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_organizations,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_account_management,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_savings_plans,
-    aws_iam_role_policy_attachment.blocks_estimations_read_role_resource_groups,
+    aws_iam_policy.blocks_data_protection,
+    aws_iam_role_policy_attachment.blocks_estimations_read_role_data_protection,
+    aws_iam_role_policy_attachment.blocks_estimations_read_role_managed,
     aws_cloudformation_stack_set.cost_estimations,
     aws_cloudformation_stack_set_instance.cost_estimations
   ]

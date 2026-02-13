@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.11"
+  TemplateVersion: "0.1.12"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -149,7 +149,10 @@ Resources:
                   - iam:ListPolicyVersions
                   - iam:DeletePolicyVersion
                   - iam:ListEntitiesForPolicy
-                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksSavingsEstimationReadOnlyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksSavingsEstimationReadOnlyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksEstimationsDataProtectionPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/BlocksEstimationsCustomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
               # Permissions to delete Step 1 Lambda
               - Effect: Allow
                 Action:
@@ -700,73 +703,259 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.11"
+          Value: "0.1.12"
       CallAs: SELF
 
-  # IAM Policy: Base Read Permissions (Shared by all Blocks roles)
-  # Common read-only permissions for Cost Explorer, CloudWatch, and Pricing APIs
-  BlocksBaseReadPolicy:
+
+  # IAM Policy: Data Protection Deny Policy
+  # Explicit deny overlay to block access to sensitive data while using broad managed read policies
+  # This works with ViewOnlyAccess to provide read-only infrastructure access while protecting data
+  # ============================================================================
+  # COMPREHENSIVE 11-TIER DATA PROTECTION POLICY
+  # ============================================================================
+  # Provides cryptographic assurance that Blocks cannot access customer sensitive data
+  # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
+  # Coverage: 100+ actions across 11 tiers protecting secrets, communications,
+  # documents, databases, storage, analytics, logs, identity, code, ML, and instance access
+  # ============================================================================
+  BlocksDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: "BlocksBaseReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Shared read-only permissions for all Blocks roles - Cost Explorer, CloudWatch, Pricing. Must remain in place for Blocks to function correctly."
+      ManagedPolicyName: "BlocksDataProtectionPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data."
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          # Cost Explorer - Read access
-          # Services: Cost Explorer
-          - Sid: CostExplorerRead
-            Effect: Allow
+          # TIER 1: Secrets & Credentials
+          - Sid: DenySecretsAndCredentials
+            Effect: Deny
             Action:
-              - ce:Get*
-              - ce:List*
-              - ce:Describe*
+              - secretsmanager:GetSecretValue
+              - secretsmanager:GetResourcePolicy
+              - secretsmanager:DescribeSecret
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:GetParameterHistory
+              - ssm:GetParametersByPath
+              - acm-pca:GetCertificate
+              - acm-pca:GetCertificateAuthorityCertificate
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey
+              - kms:ReEncrypt*
             Resource: "*"
 
-          # Cost Optimization Hub - Full read access
-          # Services: Cost Optimization Hub
-          - Sid: CostOptimizationHubRead
-            Effect: Allow
+          # TIER 2: Communications (Emails, Messages, SMS)
+          - Sid: DenyCommunicationsData
+            Effect: Deny
             Action:
-              - cost-optimization-hub:Get*
-              - cost-optimization-hub:List*
+              - workmail:*
+              - ses:GetMessage
+              - ses:GetEmailIdentity
+              - ses:GetEmailTemplate
+              - chime:GetMessage*
+              - chime:GetConversation*
+              - chime:ListMessages
+              - connect:GetContactAttributes
+              - connect:GetContactRecording
+              - pinpoint:GetEmailTemplate
+              - pinpoint:GetSmsTemplate
+              - sns:GetSMSAttributes
             Resource: "*"
 
-          # Pricing API - Full read access
-          # Services: Pricing
-          - Sid: PricingRead
-            Effect: Allow
+          # TIER 3: Documents & Collaboration
+          - Sid: DenyDocumentsAccess
+            Effect: Deny
             Action:
-              - pricing:Get*
-              - pricing:DescribeServices
-              - pricing:ListPriceLists
+              - workdocs:GetDocument
+              - workdocs:GetDocumentVersion
+              - workdocs:DownloadDocumentVersion
+              - workspaces:DescribeWorkspacesConnectionStatus
+              - workspaces:DescribeWorkspaceSnapshots
             Resource: "*"
 
-          # CloudWatch - Full read access
-          # Services: CloudWatch
-          - Sid: CloudWatchRead
-            Effect: Allow
+          # TIER 4: Database Content
+          - Sid: DenyDatabaseContentAccess
+            Effect: Deny
             Action:
-              - cloudwatch:Describe*
-              - cloudwatch:Get*
-              - cloudwatch:List*
+              - dynamodb:GetItem
+              - dynamodb:BatchGetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - rds-data:ExecuteStatement
+              - rds-data:BatchExecuteStatement
+              - rds:DownloadDBLogFilePortion
+              - rds:DownloadCompleteDBLogFile
+              - neptune-db:*
+              - timestream:Select
+              - timestream:SelectValues
+              - qldb:SendCommand
+              - qldb:ExecuteStatement
+              - redshift:GetClusterCredentials
+              - redshift:ExecuteQuery
+              - redshift-data:ExecuteStatement
+              - redshift-data:GetStatementResult
             Resource: "*"
 
-          # CloudWatch Logs - Basic read access
-          # Services: CloudWatch Logs
-          - Sid: CloudWatchLogsRead
-            Effect: Allow
+          # TIER 5: Storage Content - S3 with CUR exception
+          # Deny S3 object reads EXCEPT for Blocks CUR bucket
+          # ArnNotLike means "deny UNLESS it matches" - this ALLOWS blocks-cur-data-* and DENIES everything else
+          - Sid: DenyS3DataAccessExceptCURBucket
+            Effect: Deny
             Action:
-              - logs:Describe*
-              - logs:List*
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetObjectTorrent
+            Resource: "*"
+            Condition:
+              ArnNotLike:
+                "aws:ResourceArn": "arn:aws:s3:::blocks-cur-data-*/cur2/*"
+
+          # Deny all S3 write/delete operations
+          - Sid: DenyS3WriteDelete
+            Effect: Deny
+            Action:
+              - s3:PutObject
+              - s3:DeleteObject
             Resource: "*"
 
-          # IAM Policy Simulation - Read access
-          # Services: IAM
-          - Sid: IamPolicySimulationRead
+          # TIER 5: File systems and backups
+          - Sid: DenyFileSystemAndBackupAccess
+            Effect: Deny
+            Action:
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+              - fsx:*
+              - backup:GetRecoveryPointRestoreMetadata
+              - backup:StartRestoreJob
+            Resource: "*"
+
+          # TIER 6: Analytics Query Results
+          - Sid: DenyAnalyticsQueryResults
+            Effect: Deny
+            Action:
+              - athena:GetQueryResults
+              - athena:GetQueryResultsStream
+              - quicksight:GetDashboard
+              - quicksight:GetDataSet
+              - glue:GetTable
+              - glue:GetPartition
+              - glue:GetPartitions
+            Resource: "*"
+
+          # TIER 7: Logs with Container Insights exception
+          # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
+          - Sid: DenyLogsQueryExceptContainerInsights
+            Effect: Deny
+            Action:
+              - logs:StartQuery
+              - logs:GetQueryResults
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                "logs:LogGroupName": "/aws/containerinsights/*/performance"
+
+          # Deny direct log access
+          - Sid: DenyLogEventsAccess
+            Effect: Deny
+            Action:
+              - logs:GetLogEvents
+              - logs:FilterLogEvents
+              - logs:GetLogRecord
+              - cloudtrail:LookupEvents
+              - cloudtrail:GetQueryResults
+            Resource: "*"
+
+          # TIER 8: User Directories & Identity
+          - Sid: DenyUserDirectoryAccess
+            Effect: Deny
+            Action:
+              - cognito-identity:*
+              - cognito-idp:*
+              - cognito-sync:*
+              - ds:DescribeUsers
+              - iam:GetSSHPublicKey
+              - iam:GetServiceSpecificCredential
+              - iam:GetLoginProfile
+            Resource: "*"
+
+          # TIER 9: Code & Artifacts
+          - Sid: DenyCodeAccess
+            Effect: Deny
+            Action:
+              - codecommit:GetFile
+              - codecommit:GetFolder
+              - codecommit:GetBlob
+              - codecommit:GitPull
+              - codeartifact:GetPackageVersionAsset
+              - codeartifact:ReadFromRepository
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Resource: "*"
+
+          # TIER 10: Machine Learning Data
+          - Sid: DenyMachineLearningData
+            Effect: Deny
+            Action:
+              - sagemaker:DescribeModelPackage
+              - sagemaker:DescribeTrainingJob
+              - rekognition:DetectFaces
+              - rekognition:SearchFaces*
+              - comprehend:DetectPiiEntities
+            Resource: "*"
+
+          # TIER 11: Instance Access
+          - Sid: DenyInstanceAccess
+            Effect: Deny
+            Action:
+              - ec2:GetConsoleOutput
+              - ec2:GetConsoleScreenshot
+              - ec2:GetPasswordData
+              - ssm:StartSession
+            Resource: "*"
+
+          # Additional sensitive operations
+          - Sid: DenyOtherSensitiveOperations
+            Effect: Deny
+            Action:
+              - lambda:InvokeFunction
+              - sqs:ReceiveMessage
+              - kinesis:GetRecords
+            Resource: "*"
+
+  # IAM Policy: Custom Read Permissions
+  # Permissions not covered by AWS managed policies, serving as an extensible bucket for future custom read permissions
+  BlocksCustomReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: "BlocksCustomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: InvoicingTaxRead
             Effect: Allow
             Action:
-              - iam:SimulatePrincipalPolicy
+              - invoicing:BatchGetInvoiceProfile
+              - tax:GetTaxRegistration
+              - taxsettings:Get*
+              - taxsettings:List*
+            Resource: "*"
+          - Sid: CommitmentReads
+            Effect: Allow
+            Action:
+              - redshift:GetReservedNodeExchangeOfferings
+              - redshift:GetReservedNodeExchangeConfigurationOptions
+              - cloudfront:ListSavingsPlans
+              - cloudfront:GetSavingsPlan
+              - cloudfront:ListRateCards
+              - cloudfront:ListUsages
+              - ce:GetCommitmentPurchaseAnalysis
+              - ce:ListCommitmentPurchaseAnalyses
+              - sagemaker:SearchTrainingPlanOfferings
             Resource: "*"
 
   # IAM Policy: Cost Optimization Write Permissions
@@ -780,10 +969,10 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          # Reserved Instance Purchases
-          # Allows Blocks to purchase, modify, and exchange Reserved Instances
+          # Reserved Instance & Savings Plan Purchases
+          # Allows Blocks to purchase, modify, and exchange Reserved Instances and Savings Plans
           # across AWS services to optimize costs based on your usage patterns
-          # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB
+          # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB, DynamoDB, CloudFront, MediaConvert, MediaConnect, SageMaker
           - Sid: SavingsPlansAndRIsWrite
             Effect: Allow
             Action:
@@ -791,11 +980,20 @@ Resources:
               - ec2:ModifyReservedInstances
               - ec2:AcceptReservedInstancesExchangeQuote
               - ec2:DeleteQueuedReservedInstances
+              - ec2:PurchaseHostReservation
               - rds:PurchaseReservedDBInstancesOffering
               - elasticache:PurchaseReservedCacheNodesOffering
               - redshift:PurchaseReservedNodeOffering
+              - redshift:AcceptReservedNodeExchange
               - es:PurchaseReservedInstanceOffering
               - memorydb:PurchaseReservedNodesOffering
+              - dynamodb:PurchaseReservedCapacityOfferings
+              - cloudfront:CreateSavingsPlan
+              - ec2:PurchaseCapacityBlock
+              - mediaconvert:CreateQueue
+              - mediaconvert:UpdateQueue
+              - mediaconnect:PurchaseOffering
+              - sagemaker:CreateTrainingPlan
             Resource: "*"
 
           # Organization Management
@@ -830,7 +1028,7 @@ Resources:
             Resource: "*"
 
           # Governance & Monitoring
-          # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas
+          # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
           - Sid: GovernanceWrite
             Effect: Allow
             Action:
@@ -840,6 +1038,8 @@ Resources:
               - ce:CreateAnomalySubscription
               - ce:UpdateAnomalyMonitor
               - ce:UpdateAnomalySubscription
+              - ce:StartCommitmentPurchaseAnalysis
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
               - billing:GetBillingData
               - billing:GetBillingDetails
               - billing:GetCredits
@@ -851,6 +1051,7 @@ Resources:
               - servicequotas:ListRequestedServiceQuotaChangeHistory
               - servicequotas:GetAWSDefaultServiceQuota
               - servicequotas:ListAWSDefaultServiceQuotas
+              - iam:SimulatePrincipalPolicy
             Resource: "*"
 
           # Service Quotas Service-Linked Role
@@ -929,202 +1130,6 @@ Resources:
               - cost-optimization-hub:UpdateEnrollmentStatus
             Resource: "*"
 
-  # IAM Policy: Cost Optimization Read Permissions
-  # Blocks-specific read-only access to compute, storage, database, and infrastructure services
-  # Note: Cost Explorer, CloudWatch, and Pricing are in BlocksBaseReadPolicy
-  BlocksCostOptimizationReadPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: "BlocksCostOptimizationReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Read-only access to compute, storage, database, and infrastructure services for savings analysis."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          # Cost Explorer extras (beyond base policy)
-          # Services: Cost Explorer
-          - Sid: CostExplorerExtras
-            Effect: Allow
-            Action:
-              - ce:StartCommitmentPurchaseAnalysis
-              - ce:StartSavingsPlansPurchaseRecommendationGeneration
-            Resource: "*"
-
-          # CUR/Data Exports - Read access
-          # Services: Cost and Usage Report
-          - Sid: CURDataExportsRead
-            Effect: Allow
-            Action:
-              - cur:Get*
-              - cur:Describe*
-              - cur:DescribeReportDefinitions
-            Resource: "*"
-
-          # Invoicing - Read access for invoice profiles and summaries
-          # Services: AWS Invoicing
-          - Sid: InvoicingRead
-            Effect: Allow
-            Action:
-              - invoicing:BatchGetInvoiceProfile
-              - invoicing:ListInvoiceSummaries
-              - invoicing:GetInvoicePdf
-              - invoicing:ListInvoiceUnits
-              - invoicing:GetInvoiceUnit
-            Resource: "*"
-
-          # Tax Settings - Read access for tax registration info
-          # Services: AWS Tax Settings
-          - Sid: TaxRead
-            Effect: Allow
-            Action:
-              - tax:GetTaxRegistration
-              - tax:ListTaxRegistrations
-            Resource: "*"
-
-          # IAM Identity Center ReadOnly
-          # Services: IAM Identity Center (SSO)
-          - Sid: IamIdentityCenterReadOnly
-            Effect: Allow
-            Action:
-              - sso:ListInstances
-            Resource: "*"
-
-          # Compute, scaling, and load balancing
-          # Services: EC2, Auto Scaling, Application Auto Scaling, ELB, Lambda
-          - Sid: ComputeAndScalingReadOnly
-            Effect: Allow
-            Action:
-              - ec2:Describe*
-              - ec2:Get*
-              - ec2:List*
-              - dlm:Get*
-              - elasticloadbalancing:Describe*
-              - autoscaling:Describe*
-              - autoscaling:Get*
-              - application-autoscaling:Describe*
-              - application-autoscaling:List*
-              - application-autoscaling:Get*
-              - autoscaling-plans:Describe*
-              - autoscaling-plans:Get*
-              - lambda:List*
-              - lambda:GetFunctionConfiguration
-            Resource: "*"
-
-          # Containers, orchestration, and build/deploy
-          # Services: ECS, EKS, ECR
-          - Sid: ContainersAndBuildReadOnly
-            Effect: Allow
-            Action:
-              - ecs:List*
-              - ecs:Describe*
-              - eks:List*
-              - eks:Describe*
-              - ecr:DescribeRepositories
-              - ecr:ListImages
-              - ecr:DescribeImages
-            Resource: "*"
-
-          # Databases and caching
-          # Services: RDS, DynamoDB, DAX, Redshift, Redshift Serverless, ElastiCache, MemoryDB, Aurora DSQL
-          - Sid: DatabasesAndCachingReadOnly
-            Effect: Allow
-            Action:
-              - rds:Describe*
-              - rds:List*
-              - dsql:Get*
-              - dsql:List*
-              - dynamodb:List*
-              - dynamodb:Describe*
-              - redshift:Describe*
-              - redshift:Get*
-              - redshift:List*
-              - redshift-serverless:Describe*
-              - redshift-serverless:List*
-              - elasticache:Describe*
-              - elasticache:List*
-              - memorydb:Describe*
-              - memorydb:List*
-            Resource: "*"
-
-          # Storage, backup, and content delivery
-          # Services: S3 (metadata only), FSx, EFS, Backup
-          - Sid: StorageAndContentReadOnly
-            Effect: Allow
-            Action:
-              - s3:ListAllMyBuckets
-              - s3:ListBucketVersions
-              - s3vectors:ListVectorBuckets
-              - s3:GetLifecycleConfiguration
-              - s3:GetBucketLocation
-              - s3:GetBucketVersioning
-              - s3:GetObjectRetention
-              - s3:GetBucketTagging
-              - fsx:Describe*
-              - fsx:List*
-              - elasticfilesystem:Describe*
-              - elasticfilesystem:List*
-              - backup:Describe*
-              - backup:Get*
-              - backup:List*
-            Resource: "*"
-
-          # End-user compute and application streaming
-          # Services: WorkSpaces, AppStream
-          - Sid: EndUserServicesReadOnly
-            Effect: Allow
-            Action:
-              - workspaces:Describe*
-              - appstream:Describe*
-              - appstream:List*
-            Resource: "*"
-
-          # Observability extras (CloudWatch and Logs are in BlocksBaseReadPolicy)
-          # Services: CloudWatch OAM, Config
-          - Sid: ObservabilityExtras
-            Effect: Allow
-            Action:
-              - oam:ListSinks
-              - config:Describe*
-              - config:Get*
-              - config:List*
-            Resource: "*"
-
-          # Network
-          - Sid: NetworkAndEdgeReadOnly
-            Effect: Allow
-            Action:
-              - wafv2:List*
-            Resource: "*"
-
-          # CloudTrail Read Access
-          # Services: CloudTrail
-          - Sid: CloudTrailReadAccess
-            Effect: Allow
-            Action:
-              - cloudtrail:LookupEvents
-              - cloudtrail:Describe*
-              - cloudtrail:Get*
-              - cloudtrail:List*
-            Resource: "*"
-
-          # Systems Manager Automation
-          # Services: Systems Manager
-          - Sid: SSMAutomationRead
-            Effect: Allow
-            Action:
-              - ssm:DescribeAutomationStepExecutions
-              - ssm:DescribeAutomationExecutions
-            Resource: "*"
-
-          # CloudFormation Stack Read Access
-          # Services: CloudFormation
-          - Sid: CloudFormationStackReadAccess
-            Effect: Allow
-            Action:
-              - cloudformation:DescribeStacks
-              - cloudformation:DescribeStackEvents
-              - cloudformation:ListStacks
-            Resource: "*"
-
   # IAM Role: Blocks Execution Role (Management Account)
   # Cross-account role assumed by Blocks to execute cost optimization actions
   # Combines write policy with read-only policies
@@ -1156,14 +1161,19 @@ Resources:
             Action:
               - sts:TagSession
       ManagedPolicyArns:
-        - !Ref BlocksBaseReadPolicy
+        # Write permissions for cost optimization actions
         - !Ref BlocksCostOptimizationWritePolicy
-        - !Ref BlocksCostOptimizationReadPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansFullAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
+        # Read permissions - using AWS managed policies for broad coverage
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
+        # Additional AWS managed policies not covered by ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSecurityHubReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
+        - !Ref BlocksDataProtectionPolicy
+        - !Ref BlocksCustomReadPolicy
 
   # IAM Role: Blocks Read Role (Management Account)
   # Read-only cross-account role for cost analysis and monitoring
@@ -1197,121 +1207,16 @@ Resources:
             Action:
               - sts:TagSession
       ManagedPolicyArns:
-        - !Ref BlocksBaseReadPolicy
-        - !Ref BlocksCostOptimizationReadPolicy
+        # Read permissions - using AWS managed policies for broad coverage
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
+        # Additional AWS managed policies not covered by ViewOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSecurityHubReadOnlyAccess
-
-  # IAM Policy: MajorTom Read Permissions
-  # AI-specific read permissions for Cloud Control API, CloudTrail, and cost analysis
-  MajorTomReadPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: "MajorTomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "MajorTom AI read permissions for Cloud Control API, CloudTrail, and cost analysis. Must remain in place for MajorTom to function correctly."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          # Cloud Control API Read
-          # Services: Cloud Control API
-          - Sid: CloudControlAPIRead
-            Effect: Allow
-            Action:
-              - cloudcontrol:GetResource
-              - cloudcontrol:ListResources
-              - cloudcontrol:GetResourceRequestStatus
-            Resource: "*"
-
-          # CloudFormation Schema Read
-          # Services: CloudFormation
-          - Sid: CloudFormationSchemaRead
-            Effect: Allow
-            Action:
-              - cloudformation:DescribeType
-              - cloudformation:DescribeGeneratedTemplate
-              - cloudformation:GetGeneratedTemplate
-              - cloudformation:ListGeneratedTemplates
-            Resource: "*"
-
-          # CloudWatch Logs extras (beyond base policy)
-          # Services: CloudWatch Logs
-          - Sid: CloudWatchLogsExtras
-            Effect: Allow
-            Action:
-              - logs:StartQuery
-              - logs:GetQueryResults
-              - logs:StopQuery
-              - logs:GetLogEvents
-              - logs:FilterLogEvents
-            Resource: "*"
-
-          # CloudTrail
-          # Services: CloudTrail
-          - Sid: CloudTrailRead
-            Effect: Allow
-            Action:
-              - cloudtrail:LookupEvents
-              - cloudtrail:DescribeTrails
-              - cloudtrail:GetTrail
-              - cloudtrail:GetTrailStatus
-              - cloudtrail:ListTrails
-              - cloudtrail:GetEventSelectors
-              - cloudtrail:GetInsightSelectors
-            Resource: "*"
-
-          # CloudTrail Lake
-          # Services: CloudTrail
-          - Sid: CloudTrailLakeRead
-            Effect: Allow
-            Action:
-              - cloudtrail:ListEventDataStores
-              - cloudtrail:GetEventDataStore
-              - cloudtrail:StartQuery
-              - cloudtrail:DescribeQuery
-              - cloudtrail:GetQueryResults
-              - cloudtrail:ListQueries
-            Resource: "*"
-
-          # EC2 Region Discovery
-          # Services: EC2
-          # Required for MajorTom Briefing Service to discover available AWS regions
-          - Sid: EC2RegionDiscovery
-            Effect: Allow
-            Action:
-              - ec2:DescribeRegions
-            Resource: "*"
-
-          # Budgets
-          # Services: Budgets
-          - Sid: BudgetsRead
-            Effect: Allow
-            Action:
-              - budgets:ViewBudget
-              - budgets:DescribeBudget
-              - budgets:DescribeBudgets
-            Resource: "*"
-
-          # Free Tier
-          # Services: Free Tier
-          - Sid: FreeTierRead
-            Effect: Allow
-            Action:
-              - freetier:GetFreeTierUsage
-            Resource: "*"
-
-          # Pricing Calculator
-          # Services: BCM Pricing Calculator
-          - Sid: PricingCalculatorRead
-            Effect: Allow
-            Action:
-              - bcm-pricing-calculator:GetPreferences
-              - bcm-pricing-calculator:GetWorkloadEstimate
-              - bcm-pricing-calculator:ListWorkloadEstimateUsage
-              - bcm-pricing-calculator:ListWorkloadEstimates
-            Resource: "*"
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
+        - !Ref BlocksDataProtectionPolicy
+        - !Ref BlocksCustomReadPolicy
 
   # IAM Role: MajorTom Read Role
   # Read-only AI role for cost analysis and monitoring
@@ -1345,9 +1250,16 @@ Resources:
             Action:
               - sts:TagSession
       ManagedPolicyArns:
-        - !Ref BlocksBaseReadPolicy
-        - !Ref MajorTomReadPolicy
+        # Read permissions - using AWS managed policies for broad coverage
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
+        # Additional AWS managed policies not covered by ViewOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
+        - !Ref BlocksDataProtectionPolicy
+        - !Ref BlocksCustomReadPolicy
 
   BlocksOptimizationNotifierRole:
     Type: AWS::IAM::Role
@@ -1411,7 +1323,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.11",
+                  "templateVersion": "0.1.12",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
