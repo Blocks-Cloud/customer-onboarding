@@ -162,16 +162,31 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     resources = ["*"]
   }
 
-  # TIER 7: Logs
+  # TIER 7: Logs (with Container Insights exception)
+  # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
   statement {
-    sid    = "DenyLogAccess"
+    sid    = "DenyLogsQueryExceptContainerInsights"
+    effect = "Deny"
+    actions = [
+      "logs:StartQuery",
+      "logs:GetQueryResults",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringNotLike"
+      variable = "logs:LogGroupName"
+      values   = ["/aws/containerinsights/*/performance"]
+    }
+  }
+
+  # Deny direct log access (all log groups)
+  statement {
+    sid    = "DenyLogEventsAccess"
     effect = "Deny"
     actions = [
       "logs:GetLogEvents",
       "logs:FilterLogEvents",
       "logs:GetLogRecord",
-      "logs:StartQuery",
-      "logs:GetQueryResults",
       "cloudtrail:LookupEvents",
       "cloudtrail:GetQueryResults",
     ]
@@ -281,6 +296,9 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
       "ce:StartCommitmentPurchaseAnalysis",
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
       "ce:GetSavingsPlansPurchaseRecommendation",
+      "ce:GetSavingsPlansCoverage",
+      "ce:GetSavingsPlansUtilization",
+      "ce:GetSavingsPlansUtilizationDetails",
     ]
     resources = ["*"]
   }
@@ -290,6 +308,8 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     effect = "Allow"
     actions = [
       "s3:GetBucketLocation",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetIntelligentTieringConfiguration",
     ]
     resources = ["*"]
   }
@@ -301,6 +321,26 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
       "pricing:GetProducts",
       "pricing:DescribeServices",
       "pricing:GetAttributeValues",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "EKSClusterDiscovery"
+    effect = "Allow"
+    actions = [
+      "eks:ListClusters",
+      "eks:DescribeCluster",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ContainerInsightsAnalysis"
+    effect = "Allow"
+    actions = [
+      "logs:StartQuery",
+      "logs:GetQueryResults",
     ]
     resources = ["*"]
   }
@@ -371,7 +411,6 @@ resource "aws_iam_role_policy_attachment" "blocks_estimations_read_role_managed"
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
-    "arn:${local.partition}:iam::aws:policy/AWSResourceGroupsReadOnlyAccess",
   ])
   role       = aws_iam_role.blocks_estimations_read_role.name
   policy_arn = each.value

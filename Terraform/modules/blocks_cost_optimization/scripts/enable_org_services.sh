@@ -124,7 +124,59 @@ else
     done
 fi
 
+# Enable Service Control Policies
+echo ""
+echo "Enabling Service Control Policies..."
+
+# 1. Get organization root ID
+ROOT_ID=$(aws organizations list-roots --query 'Roots[0].Id' --output text 2>/dev/null || echo "ERROR")
+
+if [[ "$ROOT_ID" == "ERROR" ]] || [[ -z "$ROOT_ID" ]]; then
+    echo "✗ Error: Could not retrieve organization root ID."
+    exit 1
+fi
+
+echo "  Organization Root ID: $ROOT_ID"
+
+# 2. Enable SCP policy type
+if aws organizations enable-policy-type \
+    --root-id "$ROOT_ID" \
+    --policy-type SERVICE_CONTROL_POLICY 2>/dev/null; then
+    echo "✓ Enabled Service Control Policies (SCPs)"
+    echo "  Waiting 15 seconds for policy type to propagate..."
+    sleep 15
+else
+    # Check if already enabled
+    POLICY_TYPES=$(aws organizations list-roots --query 'Roots[0].PolicyTypes[?Type==`SERVICE_CONTROL_POLICY`].Status' --output text 2>/dev/null || echo "")
+    if [[ "$POLICY_TYPES" == *"ENABLED"* ]]; then
+        echo "✓ Service Control Policies already enabled"
+    else
+        echo "⚠ Warning: Could not enable Service Control Policies (may already be enabled)"
+    fi
+fi
+
+# 3. Verify SCP policy type is enabled before proceeding
+echo "  Verifying SCP policy type status..."
+MAX_RETRIES=6
+RETRY_COUNT=0
+while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
+    SCP_STATUS=$(aws organizations list-roots --query 'Roots[0].PolicyTypes[?Type==`SERVICE_CONTROL_POLICY`].Status' --output text 2>/dev/null || echo "")
+    if [[ "$SCP_STATUS" == *"ENABLED"* ]]; then
+        echo "✓ Service Control Policy type is enabled and ready"
+        break
+    else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; then
+            echo "  Policy type not yet enabled, waiting... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+            sleep 5
+        else
+            echo "⚠ Warning: Could not verify SCP policy type status after $MAX_RETRIES attempts"
+            echo "  Proceeding anyway - policy creation may fail if type is not enabled"
+        fi
+    fi
+done
+
 echo ""
 echo "============================================================"
-echo "✓ Successfully enabled Cost Optimization Hub and Compute Optimizer"
+echo "✓ Successfully enabled Cost Optimization Hub, Compute Optimizer, and SCPs"
 echo "============================================================"

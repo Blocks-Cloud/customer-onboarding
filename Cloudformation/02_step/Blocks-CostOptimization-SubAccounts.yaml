@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.14"
+  TemplateVersion: "0.1.15"
   LastUpdated: "2026-01-08"
 
 Parameters:
@@ -287,6 +287,8 @@ Resources:
             Effect: Allow
             Action:
               - s3:GetBucketLocation
+              - s3:GetLifecycleConfiguration
+              - s3:GetIntelligentTieringConfiguration
             Resource: "*"
 
   BlocksCostOptimizationWritePolicy:

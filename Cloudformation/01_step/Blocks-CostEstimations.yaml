@@ -7,7 +7,7 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.14"
+  TemplateVersion: "0.1.15"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -415,15 +415,25 @@ Resources:
               - glue:GetPartitions
             Resource: "*"
 
-          # TIER 7: Logs (Complete deny - no Container Insights exception in Step 1)
-          - Sid: DenyLogAccess
+          # TIER 7: Logs (with Container Insights exception)
+          # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
+          - Sid: DenyLogsQueryExceptContainerInsights
+            Effect: Deny
+            Action:
+              - logs:StartQuery
+              - logs:GetQueryResults
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                "logs:LogGroupName": "/aws/containerinsights/*/performance"
+
+          # Deny direct log access
+          - Sid: DenyLogEventsAccess
             Effect: Deny
             Action:
               - logs:GetLogEvents
               - logs:FilterLogEvents
               - logs:GetLogRecord
-              - logs:StartQuery
-              - logs:GetQueryResults
               - cloudtrail:LookupEvents
               - cloudtrail:GetQueryResults
             Resource: "*"
@@ -506,11 +516,16 @@ Resources:
               - ce:StartCommitmentPurchaseAnalysis
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
               - ce:GetSavingsPlansPurchaseRecommendation
+              - ce:GetSavingsPlansCoverage
+              - ce:GetSavingsPlansUtilization
+              - ce:GetSavingsPlansUtilizationDetails
             Resource: "*"
           - Sid: S3BucketDiscovery
             Effect: Allow
             Action:
               - s3:GetBucketLocation
+              - s3:GetLifecycleConfiguration
+              - s3:GetIntelligentTieringConfiguration
             Resource: "*"
           - Sid: PricingRead
             Effect: Allow
@@ -518,6 +533,18 @@ Resources:
               - pricing:GetProducts
               - pricing:DescribeServices
               - pricing:GetAttributeValues
+            Resource: "*"
+          - Sid: EKSClusterDiscovery
+            Effect: Allow
+            Action:
+              - eks:ListClusters
+              - eks:DescribeCluster
+            Resource: "*"
+          - Sid: ContainerInsightsAnalysis
+            Effect: Allow
+            Action:
+              - logs:StartQuery
+              - logs:GetQueryResults
             Resource: "*"
 
   # IAM Role: Blocks Estimations Execution Role (Management Account)
@@ -622,7 +649,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.14",
+                "templateVersion": "0.1.15",
                 "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                 "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
                 "externalId": "{{EXTERNAL_ID}}",

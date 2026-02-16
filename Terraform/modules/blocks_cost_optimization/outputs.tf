@@ -4,12 +4,12 @@
 
 output "cur_bucket_name" {
   description = "Name of the S3 bucket storing CUR 2.0 data"
-  value       = aws_s3_bucket.cur_bucket.id
+  value       = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].id : null
 }
 
 output "cur_bucket_arn" {
   description = "ARN of the S3 bucket storing CUR 2.0 data"
-  value       = aws_s3_bucket.cur_bucket.arn
+  value       = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : null
 }
 
 ############################
@@ -80,5 +80,43 @@ output "stackset_name" {
 
 output "bcm_export_arn" {
   description = "ARN of the BCM Data Export (CUR 2.0)"
-  value       = aws_bcmdataexports_export.cur2.arn
+  value       = var.enable_cost_allocation_backfill ? aws_bcmdataexports_export.cur2[0].arn : null
+}
+
+############################
+# SCP Policy Outputs
+############################
+
+output "savings_plans_scp_id" {
+  description = "ID of the Savings Plans deny SCP policy"
+  value       = local.is_management_account ? aws_organizations_policy.savings_plans_deny[0].id : null
+}
+
+output "savings_plans_scp_arn" {
+  description = "ARN of the Savings Plans deny SCP policy"
+  value       = local.is_management_account ? aws_organizations_policy.savings_plans_deny[0].arn : null
+}
+
+output "governance_scp_id" {
+  description = "ID of the Blocks Governance deny SCP policy (attached to BlocksOptimization OU)"
+  value       = local.is_management_account ? aws_organizations_policy.blocks_governance[0].id : null
+}
+
+output "governance_scp_arn" {
+  description = "ARN of the Blocks Governance deny SCP policy"
+  value       = local.is_management_account ? aws_organizations_policy.blocks_governance[0].arn : null
+}
+
+############################
+# Organizational Unit Outputs
+############################
+
+output "blocks_optimization_ou_id" {
+  description = "Organizational Unit ID for Blocks-managed accounts (exempted from Savings Plans SCP)"
+  value       = local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].id : null
+}
+
+output "blocks_optimization_ou_arn" {
+  description = "ARN of the Blocks Optimization OU"
+  value       = local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].arn : null
 }

@@ -3,6 +3,8 @@
 ############################
 
 resource "aws_s3_bucket" "cur_bucket" {
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
   bucket        = local.cur_bucket_name
   force_destroy = false
 
@@ -12,7 +14,9 @@ resource "aws_s3_bucket" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_versioning" "cur_bucket" {
-  bucket = aws_s3_bucket.cur_bucket.id
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket = aws_s3_bucket.cur_bucket[0].id
 
   versioning_configuration {
     status = "Enabled"
@@ -20,7 +24,9 @@ resource "aws_s3_bucket_versioning" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
-  bucket = aws_s3_bucket.cur_bucket.id
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket = aws_s3_bucket.cur_bucket[0].id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
@@ -28,7 +34,9 @@ resource "aws_s3_bucket_ownership_controls" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
-  bucket = aws_s3_bucket.cur_bucket.id
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket = aws_s3_bucket.cur_bucket[0].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -39,7 +47,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_public_access_block" "cur_bucket" {
-  bucket                  = aws_s3_bucket.cur_bucket.id
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket                  = aws_s3_bucket.cur_bucket[0].id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -47,15 +57,13 @@ resource "aws_s3_bucket_public_access_block" "cur_bucket" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
-  bucket = aws_s3_bucket.cur_bucket.id
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket = aws_s3_bucket.cur_bucket[0].id
 
   rule {
     id     = "expire-old-cur-data"
     status = "Enabled"
-
-    filter {
-      prefix = "cur2/"
-    }
 
     expiration {
       days = var.cur_data_retention_days
@@ -63,6 +71,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
 
     noncurrent_version_expiration {
       noncurrent_days = 30
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 30
     }
   }
 }
@@ -72,6 +84,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "cur_bucket" {
 ############################
 
 data "aws_iam_policy_document" "cur_bucket_policy" {
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
   # BCM Data Exports - PutObject
   statement {
     sid    = "AllowBCMDataExportsPut"
@@ -81,7 +95,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
       identifiers = ["bcm-data-exports.amazonaws.com"]
     }
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.cur_bucket.arn}/*"]
+    resources = ["${aws_s3_bucket.cur_bucket[0].arn}/*"]
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
@@ -108,7 +122,7 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
       "s3:GetBucketLocation",
       "s3:ListBucket"
     ]
-    resources = [aws_s3_bucket.cur_bucket.arn]
+    resources = [aws_s3_bucket.cur_bucket[0].arn]
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
@@ -121,72 +135,16 @@ data "aws_iam_policy_document" "cur_bucket_policy" {
     }
   }
 
-  # BlocksExecutionRole - ListBucket
-  statement {
-    sid    = "AllowExecutionRoleListBucket"
-    effect = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = [aws_iam_role.blocks_execution_role.arn]
-    }
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.cur_bucket.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["cur2/*"]
-    }
-  }
-
-  # BlocksExecutionRole - GetObject
-  statement {
-    sid    = "AllowExecutionRoleGetObject"
-    effect = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = [aws_iam_role.blocks_execution_role.arn]
-    }
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.cur_bucket.arn}/cur2/*"]
-  }
-
-  # BlocksReadRole - ListBucket
-  statement {
-    sid    = "AllowReadRoleListBucket"
-    effect = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = [aws_iam_role.blocks_read_role.arn]
-    }
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.cur_bucket.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["cur2/*"]
-    }
-  }
-
-  # BlocksReadRole - GetObject
-  statement {
-    sid    = "AllowReadRoleGetObject"
-    effect = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = [aws_iam_role.blocks_read_role.arn]
-    }
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.cur_bucket.arn}/cur2/*"]
-  }
+  # No role-based statements - roles use IAM policies (ReadOnlyAccess + BlocksDataProtectionPolicy)
 }
 
 resource "aws_s3_bucket_policy" "cur_bucket" {
-  bucket = aws_s3_bucket.cur_bucket.id
-  policy = data.aws_iam_policy_document.cur_bucket_policy.json
+  count = var.enable_cost_allocation_backfill ? 1 : 0
+
+  bucket = aws_s3_bucket.cur_bucket[0].id
+  policy = data.aws_iam_policy_document.cur_bucket_policy[0].json
 
   depends_on = [
-    aws_s3_bucket.cur_bucket,
-    aws_iam_role.blocks_execution_role,
-    aws_iam_role.blocks_read_role
+    aws_s3_bucket.cur_bucket
   ]
 }

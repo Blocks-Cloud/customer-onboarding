@@ -66,15 +66,14 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
   }
 
   # Organization Management
-  # Allows Blocks to manage organization structure, create accounts, create OUs,
-  # and enable AWS service integrations for cost optimization workflows
+  # Allows Blocks to manage organization structure and enable AWS service
+  # integrations for cost optimization workflows
   # Services: Organizations
   statement {
     sid    = "OrgManagementWrite"
     effect = "Allow"
     actions = [
       "organizations:MoveAccount",
-      "organizations:CreateOrganizationalUnit",
       "organizations:ListRoots",
       "organizations:ListOrganizationalUnitsForParent",
       "organizations:ListParents",
@@ -130,6 +129,23 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "iam:SimulatePrincipalPolicy"
     ]
     resources = ["*"]
+  }
+
+  # Service Quotas Service-Linked Role
+  # Required for Service Quotas to function
+  # Services: IAM
+  statement {
+    sid    = "ServiceQuotasServiceLinkedRole"
+    effect = "Allow"
+    actions = [
+      "iam:CreateServiceLinkedRole"
+    ]
+    resources = ["arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["servicequotas.amazonaws.com"]
+    }
   }
 
   # SNS Write for Anomaly Detection Subscriptions
@@ -576,6 +592,8 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     effect = "Allow"
     actions = [
       "s3:GetBucketLocation",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetIntelligentTieringConfiguration",
     ]
     resources = ["*"]
   }
@@ -703,7 +721,13 @@ resource "aws_iam_role_policy_attachment" "majortom_read_data_protection" {
 
 resource "aws_iam_role_policy_attachment" "majortom_read_managed" {
   for_each = toset([
-    "arn:${local.partition}:iam::aws:policy/job-function/ViewOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/ReadOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
+    # Additional AWS managed policies not covered by ReadOnlyAccess
+    "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/SecurityAudit"
   ])
   role       = aws_iam_role.majortom_read_role.name
   policy_arn = each.value

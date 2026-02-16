@@ -38,6 +38,11 @@ resource "aws_cloudformation_stack_set" "cost_optimization" {
   # Match CloudFormation behavior: CallAs: SELF
   call_as = "SELF"
 
+  # Ensure SCP is applied before deploying roles to member accounts
+  depends_on = [
+    aws_organizations_policy_attachment.savings_plans_deny_root
+  ]
+
   tags = merge(local.common_tags, {
     TemplateVersion = var.template_version
   })

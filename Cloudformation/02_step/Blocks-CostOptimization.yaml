@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.14"
+  TemplateVersion: "0.1.15"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -93,6 +93,7 @@ Resources:
                 Action:
                   - organizations:DescribeOrganization
                   - organizations:EnableAWSServiceAccess
+                  - organizations:EnablePolicyType
                   - organizations:ListRoots
                 Resource: "*"
               - Effect: Allow
@@ -233,6 +234,20 @@ Resources:
               print(f"Failed to enable Compute Optimizer after {max_retries} attempts")
               raise last_error
 
+          def enable_scps(orgs, root_id):
+              """Enable Service Control Policies in the organization"""
+              try:
+                  orgs.enable_policy_type(
+                      RootId=root_id,
+                      PolicyType='SERVICE_CONTROL_POLICY'
+                  )
+                  print("Enabled Service Control Policies (SCPs)")
+              except ClientError as e:
+                  if 'PolicyTypeAlreadyEnabledException' in str(e):
+                      print("Service Control Policies already enabled")
+                  else:
+                      print(f"Warning: Could not enable SCPs: {e}")
+
           def get_organization_root_id(orgs):
               """Fetch the Organization Root ID using list_roots API."""
               roots = orgs.list_roots()['Roots']
@@ -258,10 +273,17 @@ Resources:
                       # 2. Enable & Verify Compute Optimizer
                       enable_compute_optimizer(orgs)
 
-                  # 3. Fetch Organization Root ID (needed for StackSet deployment)
-                  org_root_id = get_organization_root_id(orgs)
-                  print(f"Organization Root ID: {org_root_id}")
-                  response_data['OrganizationRootId'] = org_root_id
+                      # 3. Fetch Organization Root ID (needed for SCP and StackSet deployment)
+                      org_root_id = get_organization_root_id(orgs)
+                      print(f"Organization Root ID: {org_root_id}")
+                      response_data['OrganizationRootId'] = org_root_id
+
+                      # 4. Enable Service Control Policies
+                      enable_scps(orgs, org_root_id)
+                  else:
+                      # For Delete operations, still need to fetch root ID for response
+                      org_root_id = get_organization_root_id(orgs)
+                      response_data['OrganizationRootId'] = org_root_id
 
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
               except Exception as e:
@@ -333,6 +355,135 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DeleteStep1StackLambda.Arn
 
+  # Organizational Unit: Blocks Optimization
+  # Accounts in this OU are exempted from Savings Plans restrictions
+  # Provides organizational boundary for cost optimization governance
+  BlocksOptimizationOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    Properties:
+      Name: "BlocksOptimization-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      ParentId: !GetAtt EnableOrgServices.OrganizationRootId
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostOptimization
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Service Control Policy: Savings Plans Restriction
+  # Denies all Savings Plans write operations except for:
+  #   1. BlocksExecutionRole (works from any account)
+  #   2. Any principal in BlocksOptimization OU (organizational boundary)
+  # Applies at organization root level to enforce governance across all accounts
+  BlocksSavingsPlansDenyPolicy:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Type: SERVICE_CONTROL_POLICY
+      Name: BlocksSavingsPlansDenyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+      Description: "Denies Savings Plans write operations except BlocksExecutionRole and accounts in BlocksOptimization OU. Managed by Blocks.cloud."
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenySavingsPlansWriteExceptBlocksRoleAndOU
+            Effect: Deny
+            Action:
+              - savingsplans:CreateSavingsPlan
+              - savingsplans:DeleteQueuedSavingsPlan
+              - savingsplans:ReturnSavingsPlan
+              - savingsplans:TagResource
+              - savingsplans:UntagResource
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                aws:PrincipalArn: arn:aws:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+                aws:PrincipalOrgPaths: !Sub "o-*/r-*/${BlocksOptimizationOU}/*"
+      TargetIds:
+        - !GetAtt EnableOrgServices.OrganizationRootId
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: SavingsPlansRestriction
+
+  # Service Control Policy: Blocks Governance - Complete Lockdown
+  # Denies ALL resource creation and IAM management for accounts in BlocksOptimization OU
+  # Only BlocksExecutionRole exempted - AWS services and users completely blocked
+  # Creates frozen sandbox environment for Blocks-only operations
+  BlocksGovernanceDenyPolicy:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Type: SERVICE_CONTROL_POLICY
+      Name: BlocksGovernanceDenyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+      Description: "Complete account lockdown for BlocksOptimization OU. Only BlocksExecutionRole can create resources or manage IAM. AWS services and users are blocked. Managed by Blocks.cloud."
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyOrgAndAccountActions
+            Effect: Deny
+            Action:
+              - organizations:LeaveOrganization
+              - organizations:RemoveAccountFromOrganization
+              - account:CloseAccount
+              - account:EnableRegion
+              - account:DisableRegion
+              - iam:CreateUser
+              - iam:CreateAccessKey
+              - iam:CreateRole
+              - iam:PutRolePolicy
+              - iam:AttachRolePolicy
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                aws:PrincipalArn:
+                  - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                  - !Sub "arn:${AWS::Partition}:iam::*:role/aws-service-role/*"
+
+          - Sid: DenyResourceCreation
+            Effect: Deny
+            Action:
+              - ec2:RunInstances
+              - ec2:CreateVpc
+              - ec2:CreateSubnet
+              - ec2:CreateVolume
+              - lambda:CreateFunction
+              - s3:CreateBucket
+              - rds:CreateDBInstance
+              - rds:CreateDBCluster
+              - dynamodb:CreateTable
+              - ecs:CreateCluster
+              - eks:CreateCluster
+              - cloudwatch:PutMetricAlarm
+              - sns:CreateTopic
+              - sqs:CreateQueue
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                aws:PrincipalArn:
+                  - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+
+          - Sid: DenySecurityTampering
+            Effect: Deny
+            Action:
+              - guardduty:DeleteDetector
+              - config:DeleteConfigRule
+              - config:StopConfigurationRecorder
+              - cloudtrail:DeleteTrail
+              - cloudtrail:StopLogging
+              - securityhub:DisableSecurityHub
+            Resource: "*"
+            Condition:
+              StringNotLike:
+                aws:PrincipalArn:
+                  - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      TargetIds:
+        - !Ref BlocksOptimizationOU
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: GovernanceControl
+
   # S3 Bucket for CUR 2.0 Data
   # Stores hourly Cost and Usage Report exports in Parquet format
   # with encryption, versioning, and 365-day lifecycle policy
@@ -361,8 +512,8 @@ Resources:
           - { ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }
 
   # S3 Bucket Policy for CUR Data
-  # Allows BCM Data Exports service to write CUR 2.0 data and grants
-  # BlocksExecutionRole read access to the exported cost reports
+  # Allows BCM Data Exports service to write CUR 2.0 data
+  # Roles access bucket via IAM policies (ReadOnlyAccess + BlocksDataProtectionPolicy)
   CURBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Condition: EnableCostAllocationBackfill
@@ -396,23 +547,6 @@ Resources:
               StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
               StringLike:
                 aws:SourceArn: !Sub "arn:${AWS::Partition}:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*"
-
-          # Services: S3 (BlocksExecutionRole access)
-          - Sid: AllowReadRoleListBucket
-            Effect: Allow
-            Principal:
-              AWS: !GetAtt BlocksExecutionRole.Arn
-            Action: "s3:ListBucket"
-            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
-            Condition:
-              StringLike:
-                s3:prefix: ["cur2/*"]
-          - Sid: AllowReadRoleGetObject
-            Effect: Allow
-            Principal:
-              AWS: !GetAtt BlocksExecutionRole.Arn
-            Action: "s3:GetObject"
-            Resource: !Sub "arn:${AWS::Partition}:s3:::${CURBucket}/cur2/*"
 
   # BCM Data Export (CUR 2.0)
   # Configures hourly cost and usage data export with resource-level detail
@@ -673,6 +807,7 @@ Resources:
 
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
+    DependsOn: BlocksSavingsPlansDenyPolicy
     Properties:
       StackSetName: "Blocks-CostOptimization-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Deploys the Blocks IAM roles to all member accounts for organization-wide cost analysis and optimization. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
@@ -703,7 +838,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.14"
+          Value: "0.1.15"
       CallAs: SELF
 
 
@@ -967,6 +1102,8 @@ Resources:
             Effect: Allow
             Action:
               - s3:GetBucketLocation
+              - s3:GetLifecycleConfiguration
+              - s3:GetIntelligentTieringConfiguration
             Resource: "*"
 
   # IAM Policy: Cost Optimization Write Permissions
@@ -1015,7 +1152,6 @@ Resources:
             Effect: Allow
             Action:
               - organizations:MoveAccount
-              - organizations:CreateOrganizationalUnit
               - organizations:ListRoots
               - organizations:ListOrganizationalUnitsForParent
               - organizations:ListParents
@@ -1334,12 +1470,13 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.14",
+                  "templateVersion": "0.1.15",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
                   "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
                   "bucketArn": "${BucketArn}",
+                  "blocksOptimizationOUId": "${BlocksOptimizationOU}",
                   "externalId": "{{EXTERNAL_ID}}",
                   "step": "2"
                 }
@@ -1383,3 +1520,35 @@ Outputs:
   MajorTomReadRoleName:
     Description: "Name of the MajorTom read-only role"
     Value: !Ref MajorTomReadRole
+
+  ###################################
+  # Organizational Unit             #
+  ###################################
+  BlocksOptimizationOUId:
+    Description: "Organizational Unit ID for Blocks-managed accounts (exempted from Savings Plans SCP)"
+    Value: !Ref BlocksOptimizationOU
+    Export:
+      Name: !Sub "${AWS::StackName}-BlocksOptimizationOUId"
+
+  BlocksOptimizationOUArn:
+    Description: "ARN of the Blocks Optimization OU"
+    Value: !GetAtt BlocksOptimizationOU.Arn
+
+  ###################################
+  # Service Control Policies        #
+  ###################################
+  SavingsPlansSCPId:
+    Description: "ID of the Savings Plans deny SCP policy (attached to organization root)"
+    Value: !Ref BlocksSavingsPlansDenyPolicy
+
+  SavingsPlansSCPArn:
+    Description: "ARN of the Savings Plans deny SCP policy"
+    Value: !GetAtt BlocksSavingsPlansDenyPolicy.Arn
+
+  GovernanceSCPId:
+    Description: "ID of the Blocks Governance deny SCP policy (attached to BlocksOptimization OU)"
+    Value: !Ref BlocksGovernanceDenyPolicy
+
+  GovernanceSCPArn:
+    Description: "ARN of the Blocks Governance deny SCP policy"
+    Value: !GetAtt BlocksGovernanceDenyPolicy.Arn

@@ -5,25 +5,26 @@
 resource "terraform_data" "notify_blocks_deployment" {
   # Store values in input for use in destroy provisioner
   input = {
-    blocks_account_id      = var.blocks_account_id
-    notifier_role_arn      = aws_iam_role.blocks_optimization_notifier_role.arn
-    region                 = local.region
-    account_id             = local.account_id
-    template_version       = var.template_version
-    customer_resource_id   = var.customer_resource_id
-    external_id            = var.external_id
-    execution_role_arn     = aws_iam_role.blocks_execution_role.arn
-    read_role_arn          = aws_iam_role.blocks_read_role.arn
-    majortom_read_role_arn = aws_iam_role.majortom_read_role.arn
-    bucket_arn             = aws_s3_bucket.cur_bucket.arn
+    blocks_account_id         = var.blocks_account_id
+    notifier_role_arn         = aws_iam_role.blocks_optimization_notifier_role.arn
+    region                    = local.region
+    account_id                = local.account_id
+    template_version          = var.template_version
+    customer_resource_id      = var.customer_resource_id
+    external_id               = var.external_id
+    execution_role_arn        = aws_iam_role.blocks_execution_role.arn
+    read_role_arn             = aws_iam_role.blocks_read_role.arn
+    majortom_read_role_arn    = aws_iam_role.majortom_read_role.arn
+    bucket_arn                = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : ""
+    blocks_optimization_ou_id = local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].id : ""
   }
 
-  triggers_replace = [
+  triggers_replace = compact([
     aws_iam_role.blocks_execution_role.arn,
     aws_iam_role.blocks_read_role.arn,
-    aws_s3_bucket.cur_bucket.arn,
-    aws_bcmdataexports_export.cur2.arn
-  ]
+    var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : "",
+    var.enable_cost_allocation_backfill ? aws_bcmdataexports_export.cur2[0].arn : "",
+  ])
 
   # Notify on create/update
   provisioner "local-exec" {
@@ -63,7 +64,8 @@ resource "terraform_data" "notify_blocks_deployment" {
           "executionRoleArn": "${aws_iam_role.blocks_execution_role.arn}",
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
-          "bucketArn": "${aws_s3_bucket.cur_bucket.arn}",
+          "bucketArn": "${self.input.bucket_arn}",
+          "blocksOptimizationOUId": "${local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].id : ""}",
           "step": "2",
           "status": "CREATE_COMPLETE"
         }' \
@@ -108,6 +110,7 @@ resource "terraform_data" "notify_blocks_deployment" {
           "readRoleArn": "${self.input.read_role_arn}",
           "majorTomReadRoleArn": "${self.input.majortom_read_role_arn}",
           "bucketArn": "${self.input.bucket_arn}",
+          "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
           "status": "DELETE_COMPLETE"
         }' \
