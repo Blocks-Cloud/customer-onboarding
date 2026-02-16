@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.16"
+  TemplateVersion: "0.1.17"
   LastUpdated: "2026-01-08"
 
 Parameters:
@@ -281,6 +281,7 @@ Resources:
             Effect: Allow
             Action:
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:ListSavingsPlansPurchaseRecommendationGeneration
               - ce:GetSavingsPlansPurchaseRecommendation
             Resource: "*"
           - Sid: S3BucketDiscovery

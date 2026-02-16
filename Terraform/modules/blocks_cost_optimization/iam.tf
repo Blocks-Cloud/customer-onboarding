@@ -582,6 +582,7 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     effect = "Allow"
     actions = [
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
       "ce:GetSavingsPlansPurchaseRecommendation",
     ]
     resources = ["*"]

@@ -7,7 +7,7 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.16"
+  TemplateVersion: "0.1.17"
   LastUpdated: "2026-01-08"
 
 Rules:
@@ -515,6 +515,7 @@ Resources:
             Action:
               - ce:StartCommitmentPurchaseAnalysis
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:ListSavingsPlansPurchaseRecommendationGeneration
               - ce:GetSavingsPlansPurchaseRecommendation
               - ce:GetSavingsPlansCoverage
               - ce:GetSavingsPlansUtilization
@@ -649,7 +650,7 @@ Resources:
                 "time": <time>,
                 "stackId": <stackId>,
                 "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.16",
+                "templateVersion": "0.1.17",
                 "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                 "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
                 "externalId": "{{EXTERNAL_ID}}",

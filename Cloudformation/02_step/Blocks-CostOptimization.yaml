@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.16"
+  TemplateVersion: "0.1.17"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -862,7 +862,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.16"
+          Value: "0.1.17"
       CallAs: SELF
 
 
@@ -1120,6 +1120,7 @@ Resources:
             Effect: Allow
             Action:
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:ListSavingsPlansPurchaseRecommendationGeneration
               - ce:GetSavingsPlansPurchaseRecommendation
             Resource: "*"
           - Sid: S3BucketDiscovery
@@ -1494,7 +1495,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.16",
+                  "templateVersion": "0.1.17",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",

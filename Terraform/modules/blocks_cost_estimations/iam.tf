@@ -295,6 +295,7 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     actions = [
       "ce:StartCommitmentPurchaseAnalysis",
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
       "ce:GetSavingsPlansPurchaseRecommendation",
       "ce:GetSavingsPlansCoverage",
       "ce:GetSavingsPlansUtilization",
