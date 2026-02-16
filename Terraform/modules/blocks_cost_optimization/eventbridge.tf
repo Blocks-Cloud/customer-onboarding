@@ -2,6 +2,20 @@
 # EventBridge Notifications
 ############################
 
+locals {
+  # Base triggers that always exist
+  base_notification_triggers = [
+    aws_iam_role.blocks_execution_role.arn,
+    aws_iam_role.blocks_read_role.arn,
+  ]
+
+  # Optional triggers for CUR bucket and export (only when backfill enabled)
+  optional_notification_triggers = var.enable_cost_allocation_backfill ? [
+    try(aws_s3_bucket.cur_bucket[0].arn, null),
+    try(aws_bcmdataexports_export.cur2[0].arn, null),
+  ] : []
+}
+
 resource "terraform_data" "notify_blocks_deployment" {
   # Store values in input for use in destroy provisioner
   input = {
@@ -15,16 +29,14 @@ resource "terraform_data" "notify_blocks_deployment" {
     execution_role_arn        = aws_iam_role.blocks_execution_role.arn
     read_role_arn             = aws_iam_role.blocks_read_role.arn
     majortom_read_role_arn    = aws_iam_role.majortom_read_role.arn
-    bucket_arn                = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : ""
-    blocks_optimization_ou_id = local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].id : ""
+    bucket_arn                = var.enable_cost_allocation_backfill ? try(aws_s3_bucket.cur_bucket[0].arn, "") : ""
+    blocks_optimization_ou_id = try(aws_organizations_organizational_unit.blocks_optimization[0].id, "")
   }
 
-  triggers_replace = compact([
-    aws_iam_role.blocks_execution_role.arn,
-    aws_iam_role.blocks_read_role.arn,
-    var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : "",
-    var.enable_cost_allocation_backfill ? aws_bcmdataexports_export.cur2[0].arn : "",
-  ])
+  triggers_replace = compact(concat(
+    local.base_notification_triggers,
+    local.optional_notification_triggers,
+  ))
 
   # Notify on create/update
   provisioner "local-exec" {
@@ -65,7 +77,7 @@ resource "terraform_data" "notify_blocks_deployment" {
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
           "bucketArn": "${self.input.bucket_arn}",
-          "blocksOptimizationOUId": "${local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].id : ""}",
+          "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
           "status": "CREATE_COMPLETE"
         }' \
@@ -126,8 +138,6 @@ resource "terraform_data" "notify_blocks_deployment" {
     aws_iam_role.majortom_read_role,
     aws_iam_role.blocks_optimization_notifier_role,
     aws_iam_role_policy.blocks_notifier_permissions,
-    aws_s3_bucket.cur_bucket,
-    aws_s3_bucket_policy.cur_bucket,
-    aws_bcmdataexports_export.cur2
+    # Conditional resources removed - dependencies inferred from self.input references
   ]
 }

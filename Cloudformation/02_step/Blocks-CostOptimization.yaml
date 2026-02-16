@@ -14,8 +14,8 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.15"
-  LastUpdated: "2026-01-08"
+  TemplateVersion: "0.1.16"
+  LastUpdated: "2026-02-16"
 
 Rules:
   EnforceUsEast1:
@@ -234,19 +234,43 @@ Resources:
               print(f"Failed to enable Compute Optimizer after {max_retries} attempts")
               raise last_error
 
-          def enable_scps(orgs, root_id):
-              """Enable Service Control Policies in the organization"""
-              try:
-                  orgs.enable_policy_type(
-                      RootId=root_id,
-                      PolicyType='SERVICE_CONTROL_POLICY'
-                  )
-                  print("Enabled Service Control Policies (SCPs)")
-              except ClientError as e:
-                  if 'PolicyTypeAlreadyEnabledException' in str(e):
-                      print("Service Control Policies already enabled")
-                  else:
-                      print(f"Warning: Could not enable SCPs: {e}")
+          def enable_scps(orgs, root_id, max_attempts=3):
+              """Enable Service Control Policies in the organization with retry logic"""
+              last_error = None
+
+              for attempt in range(max_attempts):
+                  try:
+                      orgs.enable_policy_type(
+                          RootId=root_id,
+                          PolicyType='SERVICE_CONTROL_POLICY'
+                      )
+                      print(f"Enabled Service Control Policies (SCPs) on attempt {attempt + 1}")
+                      # Wait for AWS Organizations to propagate the policy type enablement
+                      print("Waiting for SCP policy type propagation...")
+                      time.sleep(5)
+                      return
+                  except ClientError as e:
+                      if 'PolicyTypeAlreadyEnabledException' in str(e):
+                          print("Service Control Policies already enabled")
+                          return
+
+                      last_error = e
+                      error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                      print(f"Attempt {attempt + 1}/{max_attempts} failed to enable SCPs: [{error_code}] {e}")
+
+                      if attempt < max_attempts - 1:
+                          wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                          print(f"Retrying in {wait_time} seconds...")
+                          time.sleep(wait_time)
+
+              # All retries exhausted
+              error_msg = (
+                  f"Failed to enable SCPs after {max_attempts} attempts. "
+                  f"Verify organization has 'All Features' enabled and you have "
+                  f"organizations:EnablePolicyType permission. Last error: {last_error}"
+              )
+              print(f"Error: {error_msg}")
+              raise Exception(error_msg)
 
           def get_organization_root_id(orgs):
               """Fetch the Organization Root ID using list_roots API."""
@@ -838,7 +862,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.15"
+          Value: "0.1.16"
       CallAs: SELF
 
 
@@ -1470,7 +1494,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.15",
+                  "templateVersion": "0.1.16",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
