@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.19"
+  TemplateVersion: "0.1.20"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -320,6 +320,8 @@ Resources:
     Type: Custom::EnableOrgServices
     Properties:
       ServiceToken: !GetAtt EnableOrgServicesLambda.Arn
+      # Force re-execution on template updates by including version
+      TemplateVersion: "0.1.20"
 
   # Lambda Function: Delete Step 1 Stack
   # Deletes the Step 1 stack after Step 2 deployment completes
@@ -863,7 +865,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.19"
+          Value: "0.1.20"
       CallAs: SELF
 
 
@@ -1477,7 +1479,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.19",
+                  "templateVersion": "0.1.20",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
