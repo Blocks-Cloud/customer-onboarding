@@ -111,10 +111,7 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
       "account:EnableRegion",
       "account:DisableRegion",
       "iam:CreateUser",
-      "iam:CreateAccessKey",
-      "iam:CreateRole",
-      "iam:PutRolePolicy",
-      "iam:AttachRolePolicy"
+      "iam:CreateAccessKey"
     ]
     resources = ["*"]
     condition {
@@ -136,6 +133,7 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
       "ec2:CreateVpc",
       "ec2:CreateSubnet",
       "ec2:CreateVolume",
+      "ec2:CreateSecurityGroup",
       "lambda:CreateFunction",
       "s3:CreateBucket",
       "rds:CreateDBInstance",

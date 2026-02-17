@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.20"
+  TemplateVersion: "0.1.21"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -165,7 +165,7 @@ Resources:
   EnableOrgServicesLambda:
     Type: AWS::Lambda::Function
     Properties:
-      Description: "Lambda function to enable Organization services access"
+      Description: "Lambda function to enable Organization services access (enables SCPs, Cost Optimization Hub, Compute Optimizer)"
       FunctionName: EnableOrgServices-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Runtime: python3.11
       Handler: index.handler
@@ -321,7 +321,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt EnableOrgServicesLambda.Arn
       # Force re-execution on template updates by including version
-      TemplateVersion: "0.1.20"
+      TemplateVersion: "0.1.21"
 
   # Lambda Function: Delete Step 1 Stack
   # Deletes the Step 1 stack after Step 2 deployment completes
@@ -456,9 +456,6 @@ Resources:
               - account:DisableRegion
               - iam:CreateUser
               - iam:CreateAccessKey
-              - iam:CreateRole
-              - iam:PutRolePolicy
-              - iam:AttachRolePolicy
             Resource: "*"
             Condition:
               ArnNotLike:
@@ -473,6 +470,7 @@ Resources:
               - ec2:CreateVpc
               - ec2:CreateSubnet
               - ec2:CreateVolume
+              - ec2:CreateSecurityGroup
               - lambda:CreateFunction
               - s3:CreateBucket
               - rds:CreateDBInstance
@@ -865,7 +863,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.20"
+          Value: "0.1.21"
       CallAs: SELF
 
 
@@ -1479,7 +1477,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.20",
+                  "templateVersion": "0.1.21",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
