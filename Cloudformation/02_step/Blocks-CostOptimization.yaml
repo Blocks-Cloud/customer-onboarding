@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.22"
+  TemplateVersion: "0.1.23"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -321,7 +321,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt EnableOrgServicesLambda.Arn
       # Force re-execution on template updates by including version
-      TemplateVersion: "0.1.22"
+      TemplateVersion: "0.1.23"
 
   # Lambda Function: Delete Step 1 Stack
   # Deletes the Step 1 stack after Step 2 deployment completes
@@ -411,7 +411,8 @@ Resources:
       Content:
         Version: "2012-10-17"
         Statement:
-          - Sid: DenySavingsPlansWriteExceptBlocksRoleAndOU
+          # Deny if NOT using BlocksExecutionRole (regardless of OU)
+          - Sid: DenySavingsPlansIfNotUsingBlocksRole
             Effect: Deny
             Action:
               - savingsplans:CreateSavingsPlan
@@ -423,8 +424,22 @@ Resources:
             Condition:
               ArnNotLike:
                 aws:PrincipalArn: arn:aws:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+
+          # Deny if NOT in BlocksOptimization OU (regardless of role)
+          - Sid: DenySavingsPlansIfNotInBlocksOU
+            Effect: Deny
+            Action:
+              - savingsplans:CreateSavingsPlan
+              - savingsplans:DeleteQueuedSavingsPlan
+              - savingsplans:ReturnSavingsPlan
+              - savingsplans:TagResource
+              - savingsplans:UntagResource
+            Resource: "*"
+            Condition:
               ForAllValues:StringNotLike:
-                aws:PrincipalOrgPaths: !Sub "o-*/r-*/${BlocksOptimizationOU}/*"
+                aws:PrincipalOrgPaths:
+                  - !Sub "o-*/r-*/${BlocksOptimizationOU}/*"
+                  - !Sub "o-*/r-*/${BlocksOptimizationOU}/"
       TargetIds:
         - !GetAtt EnableOrgServices.OrganizationRootId
       Tags:
@@ -863,7 +878,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.22"
+          Value: "0.1.23"
       CallAs: SELF
 
 
@@ -1477,7 +1492,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.22",
+                  "templateVersion": "0.1.23",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",

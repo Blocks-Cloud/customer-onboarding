@@ -31,8 +31,9 @@ resource "terraform_data" "scp_policy_type_ready" {
 
 # Policy Document
 data "aws_iam_policy_document" "savings_plans_deny" {
+  # Deny if NOT using BlocksExecutionRole (regardless of OU)
   statement {
-    sid    = "DenySavingsPlansWriteExceptBlocksRoleAndOU"
+    sid    = "DenySavingsPlansIfNotUsingBlocksRole"
     effect = "Deny"
 
     actions = [
@@ -45,19 +46,35 @@ data "aws_iam_policy_document" "savings_plans_deny" {
 
     resources = ["*"]
 
-    # Deny unless principal is BlocksExecutionRole OR in BlocksOptimization OU
-    # Both conditions must be false for deny to apply (AND logic)
-    # Result: allowed if EITHER condition matches (OR exemption)
     condition {
       test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
       values   = ["arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"]
     }
+  }
+
+  # Deny if NOT in BlocksOptimization OU (regardless of role)
+  statement {
+    sid    = "DenySavingsPlansIfNotInBlocksOU"
+    effect = "Deny"
+
+    actions = [
+      "savingsplans:CreateSavingsPlan",
+      "savingsplans:DeleteQueuedSavingsPlan",
+      "savingsplans:ReturnSavingsPlan",
+      "savingsplans:TagResource",
+      "savingsplans:UntagResource"
+    ]
+
+    resources = ["*"]
 
     condition {
       test     = "ForAllValues:StringNotLike"
       variable = "aws:PrincipalOrgPaths"
-      values   = ["o-*/r-*/${aws_organizations_organizational_unit.blocks_optimization[0].id}/*"]
+      values = [
+        "o-*/r-*/${aws_organizations_organizational_unit.blocks_optimization[0].id}/*",
+        "o-*/r-*/${aws_organizations_organizational_unit.blocks_optimization[0].id}/"
+      ]
     }
   }
 }
