@@ -22,7 +22,7 @@ resource "aws_organizations_organizational_unit" "blocks_optimization" {
 resource "terraform_data" "scp_policy_type_ready" {
   count = local.is_management_account ? 1 : 0
 
-  depends_on = [terraform_data.enable_org_services]
+  depends_on = [terraform_data.enable_org_services[0]]
 
   provisioner "local-exec" {
     command = "echo 'Waiting for SCP policy type propagation...' && sleep 10"

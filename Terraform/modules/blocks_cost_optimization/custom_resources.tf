@@ -4,9 +4,11 @@
 ############################
 
 resource "terraform_data" "enable_org_services" {
-  # Only run on create (triggers_replace would force recreation)
-  input = {
-    customer_resource_id = var.customer_resource_id
+  count = local.is_management_account ? 1 : 0
+
+  # Force re-run when script content changes
+  triggers_replace = {
+    script_hash = filemd5("${path.module}/scripts/enable_org_services.sh")
   }
 
   provisioner "local-exec" {
@@ -26,9 +28,9 @@ resource "terraform_data" "enable_cost_allocation_backfill" {
   # Depends on CUR export being created first
   depends_on = [aws_bcmdataexports_export.cur2]
 
-  # Only run on create
-  input = {
-    customer_resource_id = var.customer_resource_id
+  # Force re-run when script content changes
+  triggers_replace = {
+    script_hash = filemd5("${path.module}/scripts/enable_cost_allocation_backfill.sh")
   }
 
   provisioner "local-exec" {
