@@ -697,7 +697,6 @@ resource "aws_iam_role_policy_attachment" "blocks_execution_managed" {
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansFullAccess",
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
     # Additional AWS managed policies not covered by ReadOnlyAccess
-    "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/SecurityAudit"

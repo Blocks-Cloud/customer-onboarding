@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.18"
+  TemplateVersion: "0.1.19"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -419,8 +419,9 @@ Resources:
               - savingsplans:UntagResource
             Resource: "*"
             Condition:
-              StringNotLike:
+              ArnNotLike:
                 aws:PrincipalArn: arn:aws:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+              ForAllValues:StringNotLike:
                 aws:PrincipalOrgPaths: !Sub "o-*/r-*/${BlocksOptimizationOU}/*"
       TargetIds:
         - !GetAtt EnableOrgServices.OrganizationRootId
@@ -458,7 +459,7 @@ Resources:
               - iam:AttachRolePolicy
             Resource: "*"
             Condition:
-              StringNotLike:
+              ArnNotLike:
                 aws:PrincipalArn:
                   - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
                   - !Sub "arn:${AWS::Partition}:iam::*:role/aws-service-role/*"
@@ -482,7 +483,7 @@ Resources:
               - sqs:CreateQueue
             Resource: "*"
             Condition:
-              StringNotLike:
+              ArnNotLike:
                 aws:PrincipalArn:
                   - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
 
@@ -497,7 +498,7 @@ Resources:
               - securityhub:DisableSecurityHub
             Resource: "*"
             Condition:
-              StringNotLike:
+              ArnNotLike:
                 aws:PrincipalArn:
                   - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       TargetIds:
@@ -862,7 +863,7 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.18"
+          Value: "0.1.19"
       CallAs: SELF
 
 
@@ -1476,7 +1477,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.18",
+                  "templateVersion": "0.1.19",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",

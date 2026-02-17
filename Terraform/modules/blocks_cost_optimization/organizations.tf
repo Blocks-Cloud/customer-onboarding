@@ -49,13 +49,13 @@ data "aws_iam_policy_document" "savings_plans_deny" {
     # Both conditions must be false for deny to apply (AND logic)
     # Result: allowed if EITHER condition matches (OR exemption)
     condition {
-      test     = "StringNotLike"
+      test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
       values   = ["arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"]
     }
 
     condition {
-      test     = "StringNotLike"
+      test     = "ForAllValues:StringNotLike"
       variable = "aws:PrincipalOrgPaths"
       values   = ["o-*/r-*/${aws_organizations_organizational_unit.blocks_optimization[0].id}/*"]
     }
@@ -118,7 +118,7 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
     ]
     resources = ["*"]
     condition {
-      test     = "StringNotLike"
+      test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
       values = [
         "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}",
@@ -149,7 +149,7 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
     ]
     resources = ["*"]
     condition {
-      test     = "StringNotLike"
+      test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
       values = [
         "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"
@@ -171,7 +171,7 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
     ]
     resources = ["*"]
     condition {
-      test     = "StringNotLike"
+      test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
       values = [
         "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"
