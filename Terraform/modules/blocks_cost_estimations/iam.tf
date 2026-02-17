@@ -1,28 +1,126 @@
+# ==== BEGIN GENERATED IAM POLICIES ====
+# Source: iam-policies/policies/
+# DO NOT EDIT MANUALLY
+
 ############################
-# BlocksDataProtectionPolicy
+# BlocksEstimationsCustomReadPolicy
 ############################
 
-# IAM Policy: Data Protection Deny Policy
-# Explicit deny overlay to block access to sensitive data while using broad managed read policies
+# IAM Policy: Custom Read Permissions for Cost Estimations
+# Custom read permissions for Blocks cost estimations not covered by AWS managed policies
+# Note: Most read permissions come from AWS managed policies (ViewOnlyAccess, etc.)
+data "aws_iam_policy_document" "blocks_estimations_custom_read" {
+  # IAM - Policy simulation for access analysis
+  # Services: IAM
+  statement {
+    sid    = "IamPolicySimulationRead"
+    effect = "Allow"
+    actions = [
+      "iam:SimulatePrincipalPolicy",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Cost Explorer - Combined commitment analysis for BlocksEstimationsCustomReadPolicy
+  # Services: Cost Explorer
+  statement {
+    sid    = "CommitmentAnalysisAndRecommendations"
+    effect = "Allow"
+    actions = [
+      "ce:StartCommitmentPurchaseAnalysis",
+      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
+      "ce:GetSavingsPlansPurchaseRecommendation",
+      "ce:GetSavingsPlansCoverage",
+      "ce:GetSavingsPlansUtilization",
+      "ce:GetSavingsPlansUtilizationDetails",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # S3 - Bucket configuration discovery for cost optimization
+  # Services: S3
+  statement {
+    sid    = "S3BucketDiscovery"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetIntelligentTieringConfiguration",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Pricing API - Full read access for cost calculations
+  # Services: Pricing
+  statement {
+    sid    = "PricingRead"
+    effect = "Allow"
+    actions = [
+      "pricing:Get*",
+      "pricing:DescribeServices",
+      "pricing:ListPriceLists",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # EKS - Cluster discovery for rightsizing analysis
+  # Services: EKS
+  statement {
+    sid    = "EKSClusterDiscovery"
+    effect = "Allow"
+    actions = [
+      "eks:ListClusters",
+      "eks:DescribeCluster",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # CloudWatch Logs Insights - Container Insights performance log queries only (restricted by data protection policy)
+  # Services: CloudWatch Logs
+  statement {
+    sid    = "ContainerInsightsAnalysis"
+    effect = "Allow"
+    actions = [
+      "logs:StartQuery",
+      "logs:GetQueryResults",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+}
+
+resource "aws_iam_policy" "blocks_estimations_custom_read" {
+  name        = "BlocksEstimationsCustomReadPolicy-${var.customer_resource_id}"
+  description = "Custom read permissions for Blocks cost estimations not covered by AWS managed policies"
+  policy      = data.aws_iam_policy_document.blocks_estimations_custom_read.json
+  tags        = local.common_tags
+}
+
+############################
+# BlocksEstimationsDataProtectionPolicy
+############################
+
 # ============================================================================
-# COMPREHENSIVE 11-TIER DATA PROTECTION POLICY
+# IAM Managed Policy: Data Protection Policy (Step 1 - Cost Estimations)
+# 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
 # ============================================================================
-# This policy provides cryptographic assurance that Blocks cannot access
-# customer sensitive data. IAM evaluation: Explicit Deny > Allow > Implicit Deny
-# Denies always win - even if future policies grant access, these denies prevail.
-#
-# Coverage: 100+ actions across 11 tiers protecting:
-# - Secrets & Credentials
-# - Communications (Email, SMS, Messages)
-# - Documents & Collaboration
-# - Database Content
-# - Storage Content
-# - Analytics Query Results
-# - Logs
-# - User Directories & Identity
-# - Code & Artifacts
-# - Machine Learning Data
-# - Instance Access (Console, Screenshots, Sessions)
+# IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
+# Coverage: 100+ actions across 11 tiers protecting secrets, communications,
+# documents, databases, storage, analytics, logs, identity, code, ML, and instance access
+# Note: Step 1 has no exceptions (no CUR access needed)
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
   # TIER 1: Secrets & Credentials
@@ -44,7 +142,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "kms:GenerateDataKey",
       "kms:ReEncrypt*",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 2: Communications (Emails, Messages, SMS)
@@ -65,7 +165,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "pinpoint:GetSmsTemplate",
       "sns:GetSMSAttributes",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 3: Documents & Collaboration
@@ -79,7 +181,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "workspaces:DescribeWorkspacesConnectionStatus",
       "workspaces:DescribeWorkspaceSnapshots",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 4: Database Content
@@ -107,10 +211,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "redshift-data:ExecuteStatement",
       "redshift-data:GetStatementResult",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # TIER 5: Storage Content (S3, EFS, FSx, Backups)
+  # TIER 5: Storage Content (Complete S3 deny - no CUR exception in Step 1)
   statement {
     sid    = "DenyS3DataAccess"
     effect = "Deny"
@@ -119,9 +225,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "s3:GetObjectVersion",
       "s3:GetObjectTorrent",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
+  # Deny all S3 write/delete operations
   statement {
     sid    = "DenyS3WriteDelete"
     effect = "Deny"
@@ -129,9 +238,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "s3:PutObject",
       "s3:DeleteObject",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
+  # TIER 5: File systems and backups
   statement {
     sid    = "DenyFileSystemAndBackupAccess"
     effect = "Deny"
@@ -143,7 +255,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "backup:GetRecoveryPointRestoreMetadata",
       "backup:StartRestoreJob",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 6: Analytics Query Results
@@ -159,11 +273,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "glue:GetPartition",
       "glue:GetPartitions",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 7: Logs (with Container Insights exception)
-  # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
   statement {
     sid    = "DenyLogsQueryExceptContainerInsights"
     effect = "Deny"
@@ -171,7 +286,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "logs:StartQuery",
       "logs:GetQueryResults",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
     condition {
       test     = "StringNotLike"
       variable = "logs:LogGroupName"
@@ -179,7 +296,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     }
   }
 
-  # Deny direct log access (all log groups)
+  # Deny direct log access
   statement {
     sid    = "DenyLogEventsAccess"
     effect = "Deny"
@@ -190,7 +307,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "cloudtrail:LookupEvents",
       "cloudtrail:GetQueryResults",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 8: User Directories & Identity
@@ -206,7 +325,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "iam:GetServiceSpecificCredential",
       "iam:GetLoginProfile",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 9: Code & Artifacts
@@ -223,7 +344,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 10: Machine Learning Data
@@ -237,7 +360,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "rekognition:SearchFaces*",
       "comprehend:DetectPiiEntities",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 11: Instance Access
@@ -250,7 +375,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetPasswordData",
       "ssm:StartSession",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # Additional sensitive operations
@@ -262,8 +389,11 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "sqs:ReceiveMessage",
       "kinesis:GetRecords",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
+
 }
 
 resource "aws_iam_policy" "blocks_data_protection" {
@@ -273,86 +403,7 @@ resource "aws_iam_policy" "blocks_data_protection" {
   tags        = local.common_tags
 }
 
-############################
-# BlocksEstimationsCustomReadPolicy
-############################
-
-# IAM Policy: Custom Read Permissions
-# Permissions not covered by AWS managed policies, serving as an extensible bucket for future custom read permissions
-data "aws_iam_policy_document" "blocks_estimations_custom_read" {
-  statement {
-    sid    = "IAMSimulatePrincipalPolicy"
-    effect = "Allow"
-    actions = [
-      "iam:SimulatePrincipalPolicy",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "CommitmentAnalysisAndRecommendations"
-    effect = "Allow"
-    actions = [
-      "ce:StartCommitmentPurchaseAnalysis",
-      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
-      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
-      "ce:GetSavingsPlansPurchaseRecommendation",
-      "ce:GetSavingsPlansCoverage",
-      "ce:GetSavingsPlansUtilization",
-      "ce:GetSavingsPlansUtilizationDetails",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "S3BucketDiscovery"
-    effect = "Allow"
-    actions = [
-      "s3:GetBucketLocation",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetIntelligentTieringConfiguration",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "PricingRead"
-    effect = "Allow"
-    actions = [
-      "pricing:GetProducts",
-      "pricing:DescribeServices",
-      "pricing:GetAttributeValues",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "EKSClusterDiscovery"
-    effect = "Allow"
-    actions = [
-      "eks:ListClusters",
-      "eks:DescribeCluster",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "ContainerInsightsAnalysis"
-    effect = "Allow"
-    actions = [
-      "logs:StartQuery",
-      "logs:GetQueryResults",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_policy" "blocks_estimations_custom_read" {
-  name        = "BlocksEstimationsCustomReadPolicy-${var.customer_resource_id}"
-  description = "Custom read permissions for Blocks cost estimations not covered by AWS managed policies"
-  policy      = data.aws_iam_policy_document.blocks_estimations_custom_read.json
-  tags        = local.common_tags
-}
+# ==== END GENERATED IAM POLICIES ====
 
 ############################
 # IAM Role: Blocks Estimations Read Role

@@ -34,10 +34,19 @@ data "aws_iam_policy_document" "blocks_cross_account_trust" {
 # BlocksCostOptimizationWritePolicy
 ############################
 
+# ==== BEGIN GENERATED IAM POLICIES ====
+# Source: iam-policies/policies/
+# DO NOT EDIT MANUALLY
+
+############################
+# BlocksCostOptimizationWritePolicy
+############################
+
+# IAM Policy: Cost Optimization Write Permissions
+# Grants Blocks execution permissions for purchasing RIs/Savings Plans,
+# managing budgets, alarms, Cost Optimization Hub enrollment, and AWS Organizations management
 data "aws_iam_policy_document" "blocks_cost_optimization_write" {
-  # Reserved Instance & Savings Plan Purchases
-  # Allows Blocks to purchase, modify, and exchange Reserved Instances and Savings Plans
-  # across AWS services to optimize costs based on your usage patterns
+  # Reserved Instance Purchases - Allows purchasing, modifying, and exchanging RIs
   # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB, DynamoDB, CloudFront, MediaConvert, MediaConnect, SageMaker
   statement {
     sid    = "SavingsPlansAndRIsWrite"
@@ -62,31 +71,33 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "mediaconnect:PurchaseOffering",
       "sagemaker:CreateTrainingPlan",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Organization Management
-  # Allows Blocks to manage organization structure and enable AWS service
-  # integrations for cost optimization workflows
+  # Organization Management - Manage organization structure and service integrations
   # Services: Organizations
   statement {
     sid    = "OrgManagementWrite"
     effect = "Allow"
     actions = [
       "organizations:MoveAccount",
-      "organizations:ListRoots",
-      "organizations:ListOrganizationalUnitsForParent",
-      "organizations:ListParents",
       "organizations:TagResource",
       "organizations:UntagResource",
       "organizations:AcceptHandshake",
-      "organizations:EnableAWSServiceAccess"
+      "organizations:EnableAWSServiceAccess",
+      "organizations:CreateOrganizationalUnit",
+      "organizations:ListRoots",
+      "organizations:ListOrganizationalUnitsForParent",
+      "organizations:ListParents",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Account Transfer Operations
-  # Required for commitment service to move accounts between organizations
+  # Account Transfer - Required for commitment service to move accounts between organizations
   # Services: Organizations
   statement {
     sid    = "AccountTransferOperations"
@@ -96,12 +107,14 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "organizations:DescribeHandshake",
       "organizations:ListHandshakesForOrganization",
       "organizations:CancelHandshake",
-      "organizations:DescribeOrganization"
+      "organizations:DescribeOrganization",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Governance & Monitoring
+  # Governance & Monitoring - Budgets, cost tags, anomaly detection, and service quotas
   # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
   statement {
     sid    = "GovernanceWrite"
@@ -115,10 +128,6 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "ce:UpdateAnomalySubscription",
       "ce:StartCommitmentPurchaseAnalysis",
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
-      "billing:GetBillingData",
-      "billing:GetBillingDetails",
-      "billing:GetCredits",
-      "account:GetContactInformation",
       "servicequotas:RequestServiceQuotaIncrease",
       "servicequotas:GetServiceQuota",
       "servicequotas:ListServiceQuotas",
@@ -126,21 +135,24 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "servicequotas:ListRequestedServiceQuotaChangeHistory",
       "servicequotas:GetAWSDefaultServiceQuota",
       "servicequotas:ListAWSDefaultServiceQuotas",
-      "iam:SimulatePrincipalPolicy"
+      "iam:SimulatePrincipalPolicy",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Service Quotas Service-Linked Role
-  # Required for Service Quotas to function
+  # Service Quotas - Create service-linked role for Service Quotas functionality
   # Services: IAM
   statement {
     sid    = "ServiceQuotasServiceLinkedRole"
     effect = "Allow"
     actions = [
-      "iam:CreateServiceLinkedRole"
+      "iam:CreateServiceLinkedRole",
     ]
-    resources = ["arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*"]
+    resources = [
+      "arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*",
+    ]
     condition {
       test     = "StringEquals"
       variable = "iam:AWSServiceName"
@@ -148,18 +160,20 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     }
   }
 
-  # SNS Write for Anomaly Detection Subscriptions
+  # SNS - Write access for Blocks-prefixed topics (anomaly detection subscriptions)
   # Services: SNS
   statement {
     sid    = "SNSAnomalyDetectionSubscriptionsWrite"
     effect = "Allow"
     actions = [
-      "sns:*"
+      "sns:*",
     ]
-    resources = ["arn:${local.partition}:sns:*:${local.account_id}:Blocks*"]
+    resources = [
+      "arn:${local.partition}:sns:*:${local.account_id}:Blocks*",
+    ]
   }
 
-  # CloudWatch Write for Alarms
+  # CloudWatch Alarms - Create and manage Blocks-prefixed alarms only
   # Services: CloudWatch
   statement {
     sid    = "CloudWatchWrite"
@@ -168,12 +182,14 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "cloudwatch:PutMetricAlarm",
       "cloudwatch:DeleteAlarms",
       "cloudwatch:EnableAlarmActions",
-      "cloudwatch:DisableAlarmActions"
+      "cloudwatch:DisableAlarmActions",
     ]
-    resources = ["arn:${local.partition}:cloudwatch:*:${local.account_id}:alarm:Blocks-*"]
+    resources = [
+      "arn:${local.partition}:cloudwatch:*:${local.account_id}:alarm:Blocks-*",
+    ]
   }
 
-  # EventBridge Management
+  # EventBridge - Write access for Blocks-prefixed rules and event buses
   # Services: EventBridge
   statement {
     sid    = "EventBridgeWrite"
@@ -185,34 +201,38 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "events:RemoveTargets",
       "events:CreateEventBus",
       "events:DeleteEventBus",
-      "events:PutEvents"
+      "events:PutEvents",
     ]
     resources = [
       "arn:${local.partition}:events:*:*:rule/Blocks*",
-      "arn:${local.partition}:events:*:*:event-bus/Blocks*"
+      "arn:${local.partition}:events:*:*:event-bus/Blocks*",
     ]
   }
 
-  # Compute Optimizer
+  # Compute Optimizer - Full write access for optimization recommendations
   # Services: Compute Optimizer
   statement {
     sid    = "ComputeOptimizerWrite"
     effect = "Allow"
     actions = [
-      "compute-optimizer:*"
+      "compute-optimizer:*",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Cost Optimization Hub Opt-In
+  # Cost Optimization Hub - Create service-linked role for opt-in
   # Services: IAM, Cost Optimization Hub
   statement {
     sid    = "CostOptimizationHubOptIn"
     effect = "Allow"
     actions = [
-      "iam:CreateServiceLinkedRole"
+      "iam:CreateServiceLinkedRole",
     ]
-    resources = ["arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"]
+    resources = [
+      "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub",
+    ]
     condition {
       test     = "StringLike"
       variable = "iam:AWSServiceName"
@@ -220,23 +240,32 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     }
   }
 
+  # Cost Optimization Hub - Update service-linked role policy
+  # Services: IAM
   statement {
     sid    = "CostOptimizationHubPolicy"
     effect = "Allow"
     actions = [
-      "iam:PutRolePolicy"
+      "iam:PutRolePolicy",
     ]
-    resources = ["arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"]
+    resources = [
+      "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub",
+    ]
   }
 
+  # Cost Optimization Hub - Update enrollment status
+  # Services: Cost Optimization Hub
   statement {
     sid    = "CostOptimizationHubUpdateStatus"
     effect = "Allow"
     actions = [
-      "cost-optimization-hub:UpdateEnrollmentStatus"
+      "cost-optimization-hub:UpdateEnrollmentStatus",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
+
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_write" {
@@ -247,36 +276,104 @@ resource "aws_iam_policy" "blocks_cost_optimization_write" {
 }
 
 ############################
+# BlocksCustomReadPolicy
+############################
+
+# IAM Policy: Custom Read Permissions
+# Custom read permissions for Blocks cost optimization not covered by AWS managed policies
+# Note: Most read permissions come from AWS managed policies (ReadOnlyAccess, etc.)
+data "aws_iam_policy_document" "blocks_custom_read" {
+  # Invoicing & Tax - Combined read access for BlocksCustomReadPolicy
+  # Services: AWS Invoicing, AWS Tax Settings
+  statement {
+    sid    = "InvoicingTaxRead"
+    effect = "Allow"
+    actions = [
+      "invoicing:BatchGetInvoiceProfile",
+      "tax:GetTaxRegistration",
+      "taxsettings:Get*",
+      "taxsettings:List*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Commitment purchases - Read access for RI and Savings Plans analysis
+  # Services: Cost Explorer, Redshift, CloudFront, SageMaker
+  statement {
+    sid    = "CommitmentReads"
+    effect = "Allow"
+    actions = [
+      "redshift:GetReservedNodeExchangeOfferings",
+      "redshift:GetReservedNodeExchangeConfigurationOptions",
+      "cloudfront:ListSavingsPlans",
+      "cloudfront:GetSavingsPlan",
+      "cloudfront:ListRateCards",
+      "cloudfront:ListUsages",
+      "ce:GetCommitmentPurchaseAnalysis",
+      "ce:ListCommitmentPurchaseAnalyses",
+      "sagemaker:SearchTrainingPlanOfferings",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Savings Plans - Trigger and retrieve purchase recommendations
+  # Services: Cost Explorer
+  statement {
+    sid    = "SavingsPlansRecommendationGeneration"
+    effect = "Allow"
+    actions = [
+      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
+      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
+      "ce:GetSavingsPlansPurchaseRecommendation",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # S3 - Bucket configuration discovery for cost optimization
+  # Services: S3
+  statement {
+    sid    = "S3BucketDiscovery"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetIntelligentTieringConfiguration",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+}
+
+resource "aws_iam_policy" "blocks_custom_read" {
+  name        = "BlocksCustomReadPolicy-${var.customer_resource_id}"
+  description = "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
+  policy      = data.aws_iam_policy_document.blocks_custom_read.json
+  tags        = local.common_tags
+}
+
+############################
 # BlocksDataProtectionPolicy
 ############################
 
-# IAM Policy: Data Protection Deny Policy
-# Explicit deny overlay to block access to sensitive data while using broad managed read policies
-# This works with ViewOnlyAccess to provide read-only infrastructure access while protecting data
+# ============================================================================
+# IAM Managed Policy: Data Protection Policy (Step 2 - Cost Optimization)
+# 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
+# ============================================================================
+# IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
+# Coverage: 100+ actions across 11 tiers protecting secrets, communications,
+# documents, databases, storage, analytics, logs, identity, code, ML, and instance access
+# Note: Step 2 allows CUR bucket access (blocks-cur-data-*/cur2/*)
+# ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
-  # ============================================================================
-  # COMPREHENSIVE 11-TIER DATA PROTECTION POLICY
-  # ============================================================================
-  # This policy provides cryptographic assurance that Blocks cannot access
-  # customer sensitive data. IAM evaluation: Explicit Deny > Allow > Implicit Deny
-  # Denies always win - even if future policies grant access, these denies prevail.
-  #
-  # Coverage: 100+ actions across 11 tiers protecting:
-  # - Secrets & Credentials
-  # - Communications (Email, SMS, Messages)
-  # - Documents & Collaboration
-  # - Database Content
-  # - Storage Content (with CUR exception)
-  # - Analytics Query Results
-  # - Logs (with Container Insights exception)
-  # - User Directories & Identity
-  # - Code & Artifacts
-  # - Machine Learning Data
-  # - Instance Access (Console, Screenshots, Sessions)
-  # ============================================================================
-
   # TIER 1: Secrets & Credentials
-  # Prevents access to secrets, parameters, certificates, and decryption keys
   statement {
     sid    = "DenySecretsAndCredentials"
     effect = "Deny"
@@ -295,11 +392,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "kms:GenerateDataKey",
       "kms:ReEncrypt*",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 2: Communications (Emails, Messages, SMS)
-  # Prevents access to all communication services
   statement {
     sid    = "DenyCommunicationsData"
     effect = "Deny"
@@ -317,11 +415,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "pinpoint:GetSmsTemplate",
       "sns:GetSMSAttributes",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 3: Documents & Collaboration
-  # Prevents access to documents and workspace data
   statement {
     sid    = "DenyDocumentsAccess"
     effect = "Deny"
@@ -332,11 +431,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "workspaces:DescribeWorkspacesConnectionStatus",
       "workspaces:DescribeWorkspaceSnapshots",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # TIER 4: Database Content (Records, Query Execution)
-  # Prevents access to database records and query execution
+  # TIER 4: Database Content
   statement {
     sid    = "DenyDatabaseContentAccess"
     effect = "Deny"
@@ -361,12 +461,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "redshift-data:ExecuteStatement",
       "redshift-data:GetStatementResult",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # TIER 5: Storage Content (S3, EFS, FSx, Backups)
-  # S3: Deny object reads EXCEPT for Blocks CUR bucket
-  # ArnNotLike means "deny UNLESS it matches" - this ALLOWS blocks-cur-data-* and DENIES everything else
+  # TIER 5: Storage Content - S3 with CUR exception
   statement {
     sid    = "DenyS3DataAccessExceptCURBucket"
     effect = "Deny"
@@ -375,7 +475,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "s3:GetObjectVersion",
       "s3:GetObjectTorrent",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
     condition {
       test     = "ArnNotLike"
       variable = "aws:ResourceArn"
@@ -383,7 +485,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     }
   }
 
-  # Deny all S3 write/delete operations - Blocks only needs read access to CUR bucket
+  # Deny all S3 write/delete operations
   statement {
     sid    = "DenyS3WriteDelete"
     effect = "Deny"
@@ -391,10 +493,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "s3:PutObject",
       "s3:DeleteObject",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # Deny file system and backup access
+  # TIER 5: File systems and backups
   statement {
     sid    = "DenyFileSystemAndBackupAccess"
     effect = "Deny"
@@ -406,11 +510,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "backup:GetRecoveryPointRestoreMetadata",
       "backup:StartRestoreJob",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 6: Analytics Query Results
-  # Prevents access to query results from analytics services
   statement {
     sid    = "DenyAnalyticsQueryResults"
     effect = "Deny"
@@ -423,11 +528,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "glue:GetPartition",
       "glue:GetPartitions",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 7: Logs (with Container Insights exception)
-  # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
   statement {
     sid    = "DenyLogsQueryExceptContainerInsights"
     effect = "Deny"
@@ -435,7 +541,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "logs:StartQuery",
       "logs:GetQueryResults",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
     condition {
       test     = "StringNotLike"
       variable = "logs:LogGroupName"
@@ -443,7 +551,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     }
   }
 
-  # Deny direct log access (all log groups)
+  # Deny direct log access
   statement {
     sid    = "DenyLogEventsAccess"
     effect = "Deny"
@@ -454,11 +562,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "cloudtrail:LookupEvents",
       "cloudtrail:GetQueryResults",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # TIER 8: User Directories & Identity Data
-  # Prevents access to user directories and identity information
+  # TIER 8: User Directories & Identity
   statement {
     sid    = "DenyUserDirectoryAccess"
     effect = "Deny"
@@ -471,11 +580,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "iam:GetServiceSpecificCredential",
       "iam:GetLoginProfile",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 9: Code & Artifacts
-  # Prevents access to source code and container images
   statement {
     sid    = "DenyCodeAccess"
     effect = "Deny"
@@ -489,11 +599,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # TIER 10: Machine Learning Data
-  # Prevents access to ML models and training data
   statement {
     sid    = "DenyMachineLearningData"
     effect = "Deny"
@@ -504,11 +615,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "rekognition:SearchFaces*",
       "comprehend:DetectPiiEntities",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
-  # TIER 11: Instance Access (Console, Screenshots, Sessions)
-  # Prevents direct access to EC2 instances and SSM sessions
+  # TIER 11: Instance Access
   statement {
     sid    = "DenyInstanceAccess"
     effect = "Deny"
@@ -518,7 +630,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetPasswordData",
       "ssm:StartSession",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
 
   # Additional sensitive operations
@@ -530,82 +644,21 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "sqs:ReceiveMessage",
       "kinesis:GetRecords",
     ]
-    resources = ["*"]
+    resources = [
+      "*",
+    ]
   }
+
 }
 
 resource "aws_iam_policy" "blocks_data_protection" {
   name        = "BlocksDataProtectionPolicy-${var.customer_resource_id}"
-  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data. Used as security guardrail alongside ReadOnlyAccess."
+  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data."
   policy      = data.aws_iam_policy_document.blocks_data_protection.json
   tags        = local.common_tags
 }
 
-############################
-# BlocksCustomReadPolicy
-############################
-
-# IAM Policy: Custom Read Permissions
-# Permissions not covered by AWS managed policies, serving as an extensible bucket for future custom read permissions
-data "aws_iam_policy_document" "blocks_custom_read" {
-  statement {
-    sid    = "InvoicingTaxRead"
-    effect = "Allow"
-    actions = [
-      "invoicing:BatchGetInvoiceProfile",
-      "tax:GetTaxRegistration",
-      "taxsettings:Get*",
-      "taxsettings:List*",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "CommitmentReads"
-    effect = "Allow"
-    actions = [
-      "redshift:GetReservedNodeExchangeOfferings",
-      "redshift:GetReservedNodeExchangeConfigurationOptions",
-      "cloudfront:ListSavingsPlans",
-      "cloudfront:GetSavingsPlan",
-      "cloudfront:ListRateCards",
-      "cloudfront:ListUsages",
-      "ce:GetCommitmentPurchaseAnalysis",
-      "ce:ListCommitmentPurchaseAnalyses",
-      "sagemaker:SearchTrainingPlanOfferings",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "SavingsPlansRecommendationGeneration"
-    effect = "Allow"
-    actions = [
-      "ce:StartSavingsPlansPurchaseRecommendationGeneration",
-      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
-      "ce:GetSavingsPlansPurchaseRecommendation",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "S3BucketDiscovery"
-    effect = "Allow"
-    actions = [
-      "s3:GetBucketLocation",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetIntelligentTieringConfiguration",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_policy" "blocks_custom_read" {
-  name        = "BlocksCustomReadPolicy-${var.customer_resource_id}"
-  description = "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
-  policy      = data.aws_iam_policy_document.blocks_custom_read.json
-  tags        = local.common_tags
-}
+# ==== END GENERATED IAM POLICIES ====
 
 ############################
 # IAM Roles

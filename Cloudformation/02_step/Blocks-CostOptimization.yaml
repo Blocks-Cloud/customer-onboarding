@@ -14,7 +14,7 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.17"
+  TemplateVersion: "0.1.18"
   LastUpdated: "2026-02-16"
 
 Rules:
@@ -862,20 +862,234 @@ Resources:
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
       Tags:
         - Key: TemplateVersion
-          Value: "0.1.17"
+          Value: "0.1.18"
       CallAs: SELF
 
 
-  # IAM Policy: Data Protection Deny Policy
-  # Explicit deny overlay to block access to sensitive data while using broad managed read policies
-  # This works with ViewOnlyAccess to provide read-only infrastructure access while protecting data
+  # ==== BEGIN GENERATED IAM POLICIES ====
+  # Source: iam-policies/policies/
+  # DO NOT EDIT MANUALLY 
+
+  # IAM Policy: Cost Optimization Write Permissions
+  # Grants Blocks execution permissions for purchasing RIs/Savings Plans,
+  # managing budgets, alarms, Cost Optimization Hub enrollment, and AWS Organizations management
+  BlocksCostOptimizationWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: "BlocksCostOptimizationWritePolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Reserved Instance Purchases - Allows purchasing, modifying, and exchanging RIs
+          # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB, DynamoDB, CloudFront, MediaConvert, MediaConnect, SageMaker
+          - Sid: SavingsPlansAndRIsWrite
+            Effect: Allow
+            Action:
+              - ec2:PurchaseReservedInstancesOffering
+              - ec2:ModifyReservedInstances
+              - ec2:AcceptReservedInstancesExchangeQuote
+              - ec2:DeleteQueuedReservedInstances
+              - ec2:PurchaseHostReservation
+              - rds:PurchaseReservedDBInstancesOffering
+              - elasticache:PurchaseReservedCacheNodesOffering
+              - redshift:PurchaseReservedNodeOffering
+              - redshift:AcceptReservedNodeExchange
+              - es:PurchaseReservedInstanceOffering
+              - memorydb:PurchaseReservedNodesOffering
+              - dynamodb:PurchaseReservedCapacityOfferings
+              - cloudfront:CreateSavingsPlan
+              - ec2:PurchaseCapacityBlock
+              - mediaconvert:CreateQueue
+              - mediaconvert:UpdateQueue
+              - mediaconnect:PurchaseOffering
+              - sagemaker:CreateTrainingPlan
+            Resource: "*"
+          # Organization Management - Manage organization structure and service integrations
+          # Services: Organizations
+          - Sid: OrgManagementWrite
+            Effect: Allow
+            Action:
+              - organizations:MoveAccount
+              - organizations:TagResource
+              - organizations:UntagResource
+              - organizations:AcceptHandshake
+              - organizations:EnableAWSServiceAccess
+              - organizations:CreateOrganizationalUnit
+              - organizations:ListRoots
+              - organizations:ListOrganizationalUnitsForParent
+              - organizations:ListParents
+            Resource: "*"
+          # Account Transfer - Required for commitment service to move accounts between organizations
+          # Services: Organizations
+          - Sid: AccountTransferOperations
+            Effect: Allow
+            Action:
+              - organizations:InviteAccountToOrganization
+              - organizations:DescribeHandshake
+              - organizations:ListHandshakesForOrganization
+              - organizations:CancelHandshake
+              - organizations:DescribeOrganization
+            Resource: "*"
+          # Governance & Monitoring - Budgets, cost tags, anomaly detection, and service quotas
+          # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
+          - Sid: GovernanceWrite
+            Effect: Allow
+            Action:
+              - budgets:*
+              - ce:UpdateCostAllocationTagsStatus
+              - ce:CreateAnomalyMonitor
+              - ce:CreateAnomalySubscription
+              - ce:UpdateAnomalyMonitor
+              - ce:UpdateAnomalySubscription
+              - ce:StartCommitmentPurchaseAnalysis
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - servicequotas:RequestServiceQuotaIncrease
+              - servicequotas:GetServiceQuota
+              - servicequotas:ListServiceQuotas
+              - servicequotas:GetRequestedServiceQuotaChange
+              - servicequotas:ListRequestedServiceQuotaChangeHistory
+              - servicequotas:GetAWSDefaultServiceQuota
+              - servicequotas:ListAWSDefaultServiceQuotas
+              - iam:SimulatePrincipalPolicy
+            Resource: "*"
+          # Service Quotas - Create service-linked role for Service Quotas functionality
+          # Services: IAM
+          - Sid: ServiceQuotasServiceLinkedRole
+            Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource: "arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*"
+            Condition:
+              StringEquals:
+                "iam:AWSServiceName": "servicequotas.amazonaws.com"
+          # SNS - Write access for Blocks-prefixed topics (anomaly detection subscriptions)
+          # Services: SNS
+          - Sid: SNSAnomalyDetectionSubscriptionsWrite
+            Effect: Allow
+            Action:
+              - sns:*
+            Resource: !Sub "arn:${AWS::Partition}:sns:*:${AWS::AccountId}:Blocks*"
+          # CloudWatch Alarms - Create and manage Blocks-prefixed alarms only
+          # Services: CloudWatch
+          - Sid: CloudWatchWrite
+            Effect: Allow
+            Action:
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:EnableAlarmActions
+              - cloudwatch:DisableAlarmActions
+            Resource: !Sub "arn:${AWS::Partition}:cloudwatch:*:${AWS::AccountId}:alarm:Blocks-*"
+          # EventBridge - Write access for Blocks-prefixed rules and event buses
+          # Services: EventBridge
+          - Sid: EventBridgeWrite
+            Effect: Allow
+            Action:
+              - events:PutRule
+              - events:PutTargets
+              - events:DeleteRule
+              - events:RemoveTargets
+              - events:CreateEventBus
+              - events:DeleteEventBus
+              - events:PutEvents
+            Resource:
+              - !Sub "arn:${AWS::Partition}:events:*:*:rule/Blocks*"
+              - !Sub "arn:${AWS::Partition}:events:*:*:event-bus/Blocks*"
+          # Compute Optimizer - Full write access for optimization recommendations
+          # Services: Compute Optimizer
+          - Sid: ComputeOptimizerWrite
+            Effect: Allow
+            Action:
+              - compute-optimizer:*
+            Resource: "*"
+          # Cost Optimization Hub - Create service-linked role for opt-in
+          # Services: IAM, Cost Optimization Hub
+          - Sid: CostOptimizationHubOptIn
+            Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
+            Condition:
+              StringLike:
+                "iam:AWSServiceName": "cost-optimization-hub.bcm.amazonaws.com"
+          # Cost Optimization Hub - Update service-linked role policy
+          # Services: IAM
+          - Sid: CostOptimizationHubPolicy
+            Effect: Allow
+            Action:
+              - iam:PutRolePolicy
+            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
+          # Cost Optimization Hub - Update enrollment status
+          # Services: Cost Optimization Hub
+          - Sid: CostOptimizationHubUpdateStatus
+            Effect: Allow
+            Action:
+              - cost-optimization-hub:UpdateEnrollmentStatus
+            Resource: "*"
+
+  # IAM Policy: Custom Read Permissions
+  # Custom read permissions for Blocks cost optimization not covered by AWS managed policies
+  # Note: Most read permissions come from AWS managed policies (ReadOnlyAccess, etc.)
+  BlocksCustomReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: "BlocksCustomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Invoicing & Tax - Combined read access for BlocksCustomReadPolicy
+          # Services: AWS Invoicing, AWS Tax Settings
+          - Sid: InvoicingTaxRead
+            Effect: Allow
+            Action:
+              - invoicing:BatchGetInvoiceProfile
+              - tax:GetTaxRegistration
+              - taxsettings:Get*
+              - taxsettings:List*
+            Resource: "*"
+          # Commitment purchases - Read access for RI and Savings Plans analysis
+          # Services: Cost Explorer, Redshift, CloudFront, SageMaker
+          - Sid: CommitmentReads
+            Effect: Allow
+            Action:
+              - redshift:GetReservedNodeExchangeOfferings
+              - redshift:GetReservedNodeExchangeConfigurationOptions
+              - cloudfront:ListSavingsPlans
+              - cloudfront:GetSavingsPlan
+              - cloudfront:ListRateCards
+              - cloudfront:ListUsages
+              - ce:GetCommitmentPurchaseAnalysis
+              - ce:ListCommitmentPurchaseAnalyses
+              - sagemaker:SearchTrainingPlanOfferings
+            Resource: "*"
+          # Savings Plans - Trigger and retrieve purchase recommendations
+          # Services: Cost Explorer
+          - Sid: SavingsPlansRecommendationGeneration
+            Effect: Allow
+            Action:
+              - ce:StartSavingsPlansPurchaseRecommendationGeneration
+              - ce:ListSavingsPlansPurchaseRecommendationGeneration
+              - ce:GetSavingsPlansPurchaseRecommendation
+            Resource: "*"
+          # S3 - Bucket configuration discovery for cost optimization
+          # Services: S3
+          - Sid: S3BucketDiscovery
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetLifecycleConfiguration
+              - s3:GetIntelligentTieringConfiguration
+            Resource: "*"
+
   # ============================================================================
-  # COMPREHENSIVE 11-TIER DATA PROTECTION POLICY
+  # IAM Managed Policy: Data Protection Policy (Step 2 - Cost Optimization)
+  # 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
   # ============================================================================
-  # Provides cryptographic assurance that Blocks cannot access customer sensitive data
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
   # Coverage: 100+ actions across 11 tiers protecting secrets, communications,
   # documents, databases, storage, analytics, logs, identity, code, ML, and instance access
+  # Note: Step 2 allows CUR bucket access (blocks-cur-data-*/cur2/*)
   # ============================================================================
   BlocksDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -903,7 +1117,6 @@ Resources:
               - kms:GenerateDataKey
               - kms:ReEncrypt*
             Resource: "*"
-
           # TIER 2: Communications (Emails, Messages, SMS)
           - Sid: DenyCommunicationsData
             Effect: Deny
@@ -921,7 +1134,6 @@ Resources:
               - pinpoint:GetSmsTemplate
               - sns:GetSMSAttributes
             Resource: "*"
-
           # TIER 3: Documents & Collaboration
           - Sid: DenyDocumentsAccess
             Effect: Deny
@@ -932,7 +1144,6 @@ Resources:
               - workspaces:DescribeWorkspacesConnectionStatus
               - workspaces:DescribeWorkspaceSnapshots
             Resource: "*"
-
           # TIER 4: Database Content
           - Sid: DenyDatabaseContentAccess
             Effect: Deny
@@ -957,10 +1168,7 @@ Resources:
               - redshift-data:ExecuteStatement
               - redshift-data:GetStatementResult
             Resource: "*"
-
           # TIER 5: Storage Content - S3 with CUR exception
-          # Deny S3 object reads EXCEPT for Blocks CUR bucket
-          # ArnNotLike means "deny UNLESS it matches" - this ALLOWS blocks-cur-data-* and DENIES everything else
           - Sid: DenyS3DataAccessExceptCURBucket
             Effect: Deny
             Action:
@@ -971,7 +1179,6 @@ Resources:
             Condition:
               ArnNotLike:
                 "aws:ResourceArn": "arn:aws:s3:::blocks-cur-data-*/cur2/*"
-
           # Deny all S3 write/delete operations
           - Sid: DenyS3WriteDelete
             Effect: Deny
@@ -979,7 +1186,6 @@ Resources:
               - s3:PutObject
               - s3:DeleteObject
             Resource: "*"
-
           # TIER 5: File systems and backups
           - Sid: DenyFileSystemAndBackupAccess
             Effect: Deny
@@ -991,7 +1197,6 @@ Resources:
               - backup:GetRecoveryPointRestoreMetadata
               - backup:StartRestoreJob
             Resource: "*"
-
           # TIER 6: Analytics Query Results
           - Sid: DenyAnalyticsQueryResults
             Effect: Deny
@@ -1004,9 +1209,7 @@ Resources:
               - glue:GetPartition
               - glue:GetPartitions
             Resource: "*"
-
-          # TIER 7: Logs with Container Insights exception
-          # Deny CloudWatch Logs queries EXCEPT Container Insights performance logs
+          # TIER 7: Logs (with Container Insights exception)
           - Sid: DenyLogsQueryExceptContainerInsights
             Effect: Deny
             Action:
@@ -1016,7 +1219,6 @@ Resources:
             Condition:
               StringNotLike:
                 "logs:LogGroupName": "/aws/containerinsights/*/performance"
-
           # Deny direct log access
           - Sid: DenyLogEventsAccess
             Effect: Deny
@@ -1027,7 +1229,6 @@ Resources:
               - cloudtrail:LookupEvents
               - cloudtrail:GetQueryResults
             Resource: "*"
-
           # TIER 8: User Directories & Identity
           - Sid: DenyUserDirectoryAccess
             Effect: Deny
@@ -1040,7 +1241,6 @@ Resources:
               - iam:GetServiceSpecificCredential
               - iam:GetLoginProfile
             Resource: "*"
-
           # TIER 9: Code & Artifacts
           - Sid: DenyCodeAccess
             Effect: Deny
@@ -1054,7 +1254,6 @@ Resources:
               - ecr:BatchGetImage
               - ecr:GetDownloadUrlForLayer
             Resource: "*"
-
           # TIER 10: Machine Learning Data
           - Sid: DenyMachineLearningData
             Effect: Deny
@@ -1065,7 +1264,6 @@ Resources:
               - rekognition:SearchFaces*
               - comprehend:DetectPiiEntities
             Resource: "*"
-
           # TIER 11: Instance Access
           - Sid: DenyInstanceAccess
             Effect: Deny
@@ -1075,7 +1273,6 @@ Resources:
               - ec2:GetPasswordData
               - ssm:StartSession
             Resource: "*"
-
           # Additional sensitive operations
           - Sid: DenyOtherSensitiveOperations
             Effect: Deny
@@ -1085,222 +1282,7 @@ Resources:
               - kinesis:GetRecords
             Resource: "*"
 
-  # IAM Policy: Custom Read Permissions
-  # Permissions not covered by AWS managed policies, serving as an extensible bucket for future custom read permissions
-  BlocksCustomReadPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: "BlocksCustomReadPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: InvoicingTaxRead
-            Effect: Allow
-            Action:
-              - invoicing:BatchGetInvoiceProfile
-              - tax:GetTaxRegistration
-              - taxsettings:Get*
-              - taxsettings:List*
-            Resource: "*"
-          - Sid: CommitmentReads
-            Effect: Allow
-            Action:
-              - redshift:GetReservedNodeExchangeOfferings
-              - redshift:GetReservedNodeExchangeConfigurationOptions
-              - cloudfront:ListSavingsPlans
-              - cloudfront:GetSavingsPlan
-              - cloudfront:ListRateCards
-              - cloudfront:ListUsages
-              - ce:GetCommitmentPurchaseAnalysis
-              - ce:ListCommitmentPurchaseAnalyses
-              - sagemaker:SearchTrainingPlanOfferings
-            Resource: "*"
-          - Sid: SavingsPlansRecommendationGeneration
-            Effect: Allow
-            Action:
-              - ce:StartSavingsPlansPurchaseRecommendationGeneration
-              - ce:ListSavingsPlansPurchaseRecommendationGeneration
-              - ce:GetSavingsPlansPurchaseRecommendation
-            Resource: "*"
-          - Sid: S3BucketDiscovery
-            Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetLifecycleConfiguration
-              - s3:GetIntelligentTieringConfiguration
-            Resource: "*"
-
-  # IAM Policy: Cost Optimization Write Permissions
-  # Grants Blocks execution permissions for purchasing RIs/Savings Plans,
-  # managing budgets, alarms, Cost Optimization Hub enrollment, and AWS Organizations management
-  BlocksCostOptimizationWritePolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: "BlocksCostOptimizationWritePolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          # Reserved Instance & Savings Plan Purchases
-          # Allows Blocks to purchase, modify, and exchange Reserved Instances and Savings Plans
-          # across AWS services to optimize costs based on your usage patterns
-          # Services: EC2, RDS, ElastiCache, Redshift, OpenSearch, MemoryDB, DynamoDB, CloudFront, MediaConvert, MediaConnect, SageMaker
-          - Sid: SavingsPlansAndRIsWrite
-            Effect: Allow
-            Action:
-              - ec2:PurchaseReservedInstancesOffering
-              - ec2:ModifyReservedInstances
-              - ec2:AcceptReservedInstancesExchangeQuote
-              - ec2:DeleteQueuedReservedInstances
-              - ec2:PurchaseHostReservation
-              - rds:PurchaseReservedDBInstancesOffering
-              - elasticache:PurchaseReservedCacheNodesOffering
-              - redshift:PurchaseReservedNodeOffering
-              - redshift:AcceptReservedNodeExchange
-              - es:PurchaseReservedInstanceOffering
-              - memorydb:PurchaseReservedNodesOffering
-              - dynamodb:PurchaseReservedCapacityOfferings
-              - cloudfront:CreateSavingsPlan
-              - ec2:PurchaseCapacityBlock
-              - mediaconvert:CreateQueue
-              - mediaconvert:UpdateQueue
-              - mediaconnect:PurchaseOffering
-              - sagemaker:CreateTrainingPlan
-            Resource: "*"
-
-          # Organization Management
-          # Allows Blocks to manage organization structure, create accounts, create OUs,
-          # and enable AWS service integrations for cost optimization workflows
-          # Services: Organizations
-          - Sid: OrgManagementWrite
-            Effect: Allow
-            Action:
-              - organizations:MoveAccount
-              - organizations:ListRoots
-              - organizations:ListOrganizationalUnitsForParent
-              - organizations:ListParents
-              - organizations:TagResource
-              - organizations:UntagResource
-              - organizations:AcceptHandshake
-              - organizations:EnableAWSServiceAccess
-            Resource: "*"
-
-          # Account Transfer Operations
-          # Required for commitment service to move accounts between organizations
-          # Services: Organizations
-          - Sid: AccountTransferOperations
-            Effect: Allow
-            Action:
-              - organizations:InviteAccountToOrganization
-              - organizations:DescribeHandshake
-              - organizations:ListHandshakesForOrganization
-              - organizations:CancelHandshake
-              - organizations:DescribeOrganization
-            Resource: "*"
-
-          # Governance & Monitoring
-          # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
-          - Sid: GovernanceWrite
-            Effect: Allow
-            Action:
-              - budgets:*
-              - ce:UpdateCostAllocationTagsStatus
-              - ce:CreateAnomalyMonitor
-              - ce:CreateAnomalySubscription
-              - ce:UpdateAnomalyMonitor
-              - ce:UpdateAnomalySubscription
-              - ce:StartCommitmentPurchaseAnalysis
-              - ce:StartSavingsPlansPurchaseRecommendationGeneration
-              - billing:GetBillingData
-              - billing:GetBillingDetails
-              - billing:GetCredits
-              - account:GetContactInformation
-              - servicequotas:RequestServiceQuotaIncrease
-              - servicequotas:GetServiceQuota
-              - servicequotas:ListServiceQuotas
-              - servicequotas:GetRequestedServiceQuotaChange
-              - servicequotas:ListRequestedServiceQuotaChangeHistory
-              - servicequotas:GetAWSDefaultServiceQuota
-              - servicequotas:ListAWSDefaultServiceQuotas
-              - iam:SimulatePrincipalPolicy
-            Resource: "*"
-
-          # Service Quotas Service-Linked Role
-          # Required for Service Quotas to function
-          # Services: IAM
-          - Sid: ServiceQuotasServiceLinkedRole
-            Effect: Allow
-            Action:
-              - iam:CreateServiceLinkedRole
-            Resource: "arn:aws:iam::*:role/aws-service-role/servicequotas.amazonaws.com/*"
-            Condition:
-              StringEquals:
-                "iam:AWSServiceName": "servicequotas.amazonaws.com"
-
-          # SNS Write for Anomaly Detection Subscriptions
-          # Services: SNS
-          - Sid: SNSAnomalyDetectionSubscriptionsWrite
-            Effect: Allow
-            Action:
-              - sns:*
-            Resource: !Sub "arn:${AWS::Partition}:sns:*:${AWS::AccountId}:Blocks*"
-
-          # CloudWatch Write for Alarms
-          # Services: CloudWatch
-          - Sid: CloudWatchWrite
-            Effect: Allow
-            Action:
-              - cloudwatch:PutMetricAlarm
-              - cloudwatch:DeleteAlarms
-              - cloudwatch:EnableAlarmActions
-              - cloudwatch:DisableAlarmActions
-            Resource: !Sub "arn:${AWS::Partition}:cloudwatch:*:${AWS::AccountId}:alarm:Blocks-*"
-
-          # EventBridge Management
-          # Services: EventBridge
-          - Sid: EventBridgeWrite
-            Effect: Allow
-            Action:
-              - events:PutRule
-              - events:PutTargets
-              - events:DeleteRule
-              - events:RemoveTargets
-              - events:CreateEventBus
-              - events:DeleteEventBus
-              - events:PutEvents
-            Resource:
-              - !Sub "arn:${AWS::Partition}:events:*:*:rule/Blocks*"
-              - !Sub "arn:${AWS::Partition}:events:*:*:event-bus/Blocks*"
-
-          # Compute Optimizer
-          # Services: Compute Optimizer
-          - Sid: ComputeOptimizerWrite
-            Effect: Allow
-            Action:
-              - compute-optimizer:*
-            Resource: "*"
-
-          # Cost Optimization Hub Opt-In
-          # Services: IAM, Cost Optimization Hub
-          - Sid: CostOptimizationHubOptIn
-            Effect: Allow
-            Action:
-              - iam:CreateServiceLinkedRole
-            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
-            Condition:
-              StringLike:
-                "iam:AWSServiceName": "cost-optimization-hub.bcm.amazonaws.com"
-          - Sid: CostOptimizationHubPolicy
-            Effect: Allow
-            Action:
-              - iam:PutRolePolicy
-            Resource: "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
-          - Sid: CostOptimizationHubUpdateStatus
-            Effect: Allow
-            Action:
-              - cost-optimization-hub:UpdateEnrollmentStatus
-            Resource: "*"
+  # ==== END GENERATED IAM POLICIES ====
 
   # IAM Role: Blocks Execution Role (Management Account)
   # Cross-account role assumed by Blocks to execute cost optimization actions
@@ -1336,11 +1318,10 @@ Resources:
         # Write permissions for cost optimization actions
         - !Ref BlocksCostOptimizationWritePolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansFullAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         # Read permissions - using AWS managed policies for broad coverage
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         # Additional AWS managed policies not covered by ReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
@@ -1495,7 +1476,7 @@ Resources:
                   "time": <time>,
                   "stackId": <stackId>,
                   "statusDetails": <statusDetails>,
-                  "templateVersion": "0.1.17",
+                  "templateVersion": "0.1.18",
                   "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
                   "executionRoleArn": "${BlocksExecutionRole.Arn}",
                   "readRoleArn": "${BlocksReadRole.Arn}",
