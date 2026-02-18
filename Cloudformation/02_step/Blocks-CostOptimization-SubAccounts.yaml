@@ -5,8 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.23"
-  LastUpdated: "2026-01-08"
+  TemplateVersion: "0.1.24" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -66,13 +65,12 @@ Resources:
               - mediaconnect:PurchaseOffering
               - sagemaker:CreateTrainingPlan
             Resource: "*"
-          # Governance & Monitoring - Budgets, cost tags, anomaly detection, and service quotas
+          # Governance & Monitoring - Budgets, anomaly detection, and service quotas
           # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
           - Sid: GovernanceWrite
             Effect: Allow
             Action:
               - budgets:*
-              - ce:UpdateCostAllocationTagsStatus
               - ce:CreateAnomalyMonitor
               - ce:CreateAnomalySubscription
               - ce:UpdateAnomalyMonitor

@@ -88,7 +88,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "v0.1.23"
+  default     = "0.1.24" # x-release-please-version
 
   validation {
     condition     = length(var.template_version) > 0

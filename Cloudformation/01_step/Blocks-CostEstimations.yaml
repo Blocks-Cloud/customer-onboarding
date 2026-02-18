@@ -7,8 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.23"
-  LastUpdated: "2026-01-08"
+  TemplateVersion: "0.1.24" # x-release-please-version
+
+Mappings:
+  TemplateConfig:
+    Constants:
+      Version: "0.1.24" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -644,24 +648,26 @@ Resources:
               time: "$.time"
               stackId: "$.detail.stack-id"
               statusDetails: "$.detail.status-details"
-            InputTemplate: !Sub |
-              {
-                "source": "aws.cloudformation",
-                "account": <account>,
-                "region": <region>,
-                "time": <time>,
-                "stackId": <stackId>,
-                "statusDetails": <statusDetails>,
-                "templateVersion": "0.1.23",
-                "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
-                "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
-                "externalId": "{{EXTERNAL_ID}}",
-                "step": "1",
-                "accountType": "${EnableStackSets.AccountType}",
-                "stackSetDeployed": "${EnableStackSets.StackSetDeployed}",
-                "organizationRootId": "${EnableStackSets.OrganizationRootId}",
-                "managementAccountId": "${EnableStackSets.ManagementAccountId}"
-              }
+            InputTemplate: !Sub
+              - |
+                {
+                  "source": "aws.cloudformation",
+                  "account": <account>,
+                  "region": <region>,
+                  "time": <time>,
+                  "stackId": <stackId>,
+                  "statusDetails": <statusDetails>,
+                  "templateVersion": "${TemplateVersion}",
+                  "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
+                  "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
+                  "externalId": "{{EXTERNAL_ID}}",
+                  "step": "1",
+                  "accountType": "${EnableStackSets.AccountType}",
+                  "stackSetDeployed": "${EnableStackSets.StackSetDeployed}",
+                  "organizationRootId": "${EnableStackSets.OrganizationRootId}",
+                  "managementAccountId": "${EnableStackSets.ManagementAccountId}"
+                }
+              - TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
 
 Outputs:
   BlocksEstimationsReadRoleArn:

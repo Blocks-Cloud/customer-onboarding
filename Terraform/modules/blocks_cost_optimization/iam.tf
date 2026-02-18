@@ -114,14 +114,13 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
-  # Governance & Monitoring - Budgets, cost tags, anomaly detection, and service quotas
+  # Governance & Monitoring - Budgets, anomaly detection, and service quotas
   # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
   statement {
     sid    = "GovernanceWrite"
     effect = "Allow"
     actions = [
       "budgets:*",
-      "ce:UpdateCostAllocationTagsStatus",
       "ce:CreateAnomalyMonitor",
       "ce:CreateAnomalySubscription",
       "ce:UpdateAnomalyMonitor",
@@ -158,6 +157,39 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       variable = "iam:AWSServiceName"
       values   = ["servicequotas.amazonaws.com"]
     }
+  }
+
+  # Cost Allocation Tags - Activate tags and trigger backfill (management account only)
+  # Services: Cost Explorer
+  statement {
+    sid    = "CostAllocationTagsWrite"
+    effect = "Allow"
+    actions = [
+      "ce:UpdateCostAllocationTagsStatus",
+      "ce:ListCostAllocationTags",
+      "ce:StartCostAllocationTagBackfill",
+      "ce:ListCostAllocationTagBackfillHistory",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Data Exports - Create and manage BCM Data Exports (CUR 2.0)
+  # Services: BCM Data Exports
+  statement {
+    sid    = "DataExportsWrite"
+    effect = "Allow"
+    actions = [
+      "bcm-data-exports:CreateExport",
+      "bcm-data-exports:UpdateExport",
+      "bcm-data-exports:DeleteExport",
+      "bcm-data-exports:TagResource",
+      "bcm-data-exports:UntagResource",
+    ]
+    resources = [
+      "*",
+    ]
   }
 
   # SNS - Write access for Blocks-prefixed topics (anomaly detection subscriptions)
@@ -344,6 +376,25 @@ data "aws_iam_policy_document" "blocks_custom_read" {
       "s3:GetBucketLocation",
       "s3:GetLifecycleConfiguration",
       "s3:GetIntelligentTieringConfiguration",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # BCM Data Exports - Read access for CUR 2.0 export configurations
+  # Services: BCM Data Exports
+  statement {
+    sid    = "DataExportsRead"
+    effect = "Allow"
+    actions = [
+      "bcm-data-exports:GetExport",
+      "bcm-data-exports:GetExecution",
+      "bcm-data-exports:GetTable",
+      "bcm-data-exports:ListExports",
+      "bcm-data-exports:ListExecutions",
+      "bcm-data-exports:ListTables",
+      "bcm-data-exports:ListTagsForResource",
     ]
     resources = [
       "*",
