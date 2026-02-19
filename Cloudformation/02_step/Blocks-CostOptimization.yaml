@@ -14,12 +14,12 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.24" # x-release-please-version
+  TemplateVersion: "0.1.25" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.24" # x-release-please-version
+      Version: "0.1.25" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -454,7 +454,7 @@ Resources:
 
   # Service Control Policy: Blocks Governance - Complete Lockdown
   # Denies ALL resource creation and IAM management for accounts in BlocksOptimization OU
-  # Only BlocksExecutionRole exempted - AWS services and users completely blocked
+  # BlocksExecutionRole, AWS service-linked roles, and BlocksPoolAccountTransferRole exempted
   # Creates frozen sandbox environment for Blocks-only operations
   BlocksGovernanceDenyPolicy:
     Type: AWS::Organizations::Policy
@@ -481,6 +481,7 @@ Resources:
                 aws:PrincipalArn:
                   - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
                   - !Sub "arn:${AWS::Partition}:iam::*:role/aws-service-role/*"
+                  - !Sub "arn:${AWS::Partition}:iam::*:role/BlocksPoolAccountTransferRole"
 
           - Sid: DenyResourceCreation
             Effect: Deny

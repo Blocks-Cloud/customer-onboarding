@@ -114,7 +114,7 @@ resource "aws_organizations_policy_attachment" "savings_plans_deny_root" {
 ############################
 
 # Complete lockdown policy - denies resource creation and org actions
-# Only BlocksExecutionRole exempted (service-linked roles blocked for resource creation)
+# BlocksExecutionRole, AWS service-linked roles, and BlocksPoolAccountTransferRole exempted
 # Service-linked roles retain IAM operation access only
 data "aws_iam_policy_document" "blocks_governance_deny" {
   # Critical governance controls
@@ -136,7 +136,8 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
       variable = "aws:PrincipalArn"
       values = [
         "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}",
-        "arn:${local.partition}:iam::*:role/aws-service-role/*"
+        "arn:${local.partition}:iam::*:role/aws-service-role/*",
+        "arn:${local.partition}:iam::*:role/BlocksPoolAccountTransferRole"
       ]
     }
   }
