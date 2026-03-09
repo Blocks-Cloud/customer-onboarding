@@ -86,6 +86,19 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
+  # ELB - Listener rule discovery for load balancer analysis
+  # Services: Elastic Load Balancing
+  statement {
+    sid    = "LoadBalancerRulesDiscovery"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:DescribeRules",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # CloudWatch Logs Insights - Container Insights performance log queries only (restricted by data protection policy)
   # Services: CloudWatch Logs
   statement {
@@ -128,7 +141,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     sid    = "DenySecretsAndCredentials"
     effect = "Deny"
     actions = [
-      "secretsmanager:GetSecretValue",
       "secretsmanager:GetResourcePolicy",
       "secretsmanager:DescribeSecret",
       "ssm:GetParameter",
@@ -160,9 +172,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "chime:GetConversation*",
       "chime:ListMessages",
       "connect:GetContactAttributes",
-      "connect:GetContactRecording",
-      "pinpoint:GetEmailTemplate",
-      "pinpoint:GetSmsTemplate",
       "sns:GetSMSAttributes",
     ]
     resources = [
@@ -177,7 +186,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     actions = [
       "workdocs:GetDocument",
       "workdocs:GetDocumentVersion",
-      "workdocs:DownloadDocumentVersion",
       "workspaces:DescribeWorkspacesConnectionStatus",
       "workspaces:DescribeWorkspaceSnapshots",
     ]
@@ -197,19 +205,8 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "dynamodb:Scan",
       "dynamodb:GetRecords",
       "dynamodb:GetShardIterator",
-      "rds-data:ExecuteStatement",
-      "rds-data:BatchExecuteStatement",
       "rds:DownloadDBLogFilePortion",
       "rds:DownloadCompleteDBLogFile",
-      "neptune-db:*",
-      "timestream:Select",
-      "timestream:SelectValues",
-      "qldb:SendCommand",
-      "qldb:ExecuteStatement",
-      "redshift:GetClusterCredentials",
-      "redshift:ExecuteQuery",
-      "redshift-data:ExecuteStatement",
-      "redshift-data:GetStatementResult",
     ]
     resources = [
       "*",
@@ -230,30 +227,13 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # Deny all S3 write/delete operations
-  statement {
-    sid    = "DenyS3WriteDelete"
-    effect = "Deny"
-    actions = [
-      "s3:PutObject",
-      "s3:DeleteObject",
-    ]
-    resources = [
-      "*",
-    ]
-  }
-
   # TIER 5: File systems and backups
   statement {
     sid    = "DenyFileSystemAndBackupAccess"
     effect = "Deny"
     actions = [
-      "elasticfilesystem:ClientMount",
-      "elasticfilesystem:ClientWrite",
-      "elasticfilesystem:ClientRootAccess",
       "fsx:*",
       "backup:GetRecoveryPointRestoreMetadata",
-      "backup:StartRestoreJob",
     ]
     resources = [
       "*",
@@ -267,8 +247,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     actions = [
       "athena:GetQueryResults",
       "athena:GetQueryResultsStream",
-      "quicksight:GetDashboard",
-      "quicksight:GetDataSet",
       "glue:GetTable",
       "glue:GetPartition",
       "glue:GetPartitions",
@@ -304,8 +282,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "logs:GetLogEvents",
       "logs:FilterLogEvents",
       "logs:GetLogRecord",
-      "cloudtrail:LookupEvents",
-      "cloudtrail:GetQueryResults",
     ]
     resources = [
       "*",
@@ -373,7 +349,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetConsoleOutput",
       "ec2:GetConsoleScreenshot",
       "ec2:GetPasswordData",
-      "ssm:StartSession",
     ]
     resources = [
       "*",
@@ -385,7 +360,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     sid    = "DenyOtherSensitiveOperations"
     effect = "Deny"
     actions = [
-      "lambda:InvokeFunction",
       "sqs:ReceiveMessage",
       "kinesis:GetRecords",
     ]

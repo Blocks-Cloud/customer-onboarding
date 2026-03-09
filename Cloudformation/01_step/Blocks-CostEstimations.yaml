@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.26" # x-release-please-version
+  TemplateVersion: "0.1.28" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.26" # x-release-please-version
+      Version: "0.1.28" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -346,6 +346,13 @@ Resources:
               - eks:ListClusters
               - eks:DescribeCluster
             Resource: "*"
+          # ELB - Listener rule discovery for load balancer analysis
+          # Services: Elastic Load Balancing
+          - Sid: LoadBalancerRulesDiscovery
+            Effect: Allow
+            Action:
+              - elasticloadbalancing:DescribeRules
+            Resource: "*"
           # CloudWatch Logs Insights - Container Insights performance log queries only (restricted by data protection policy)
           # Services: CloudWatch Logs
           - Sid: ContainerInsightsAnalysis
@@ -376,7 +383,6 @@ Resources:
           - Sid: DenySecretsAndCredentials
             Effect: Deny
             Action:
-              - secretsmanager:GetSecretValue
               - secretsmanager:GetResourcePolicy
               - secretsmanager:DescribeSecret
               - ssm:GetParameter
@@ -402,9 +408,6 @@ Resources:
               - chime:GetConversation*
               - chime:ListMessages
               - connect:GetContactAttributes
-              - connect:GetContactRecording
-              - pinpoint:GetEmailTemplate
-              - pinpoint:GetSmsTemplate
               - sns:GetSMSAttributes
             Resource: "*"
           # TIER 3: Documents & Collaboration
@@ -413,7 +416,6 @@ Resources:
             Action:
               - workdocs:GetDocument
               - workdocs:GetDocumentVersion
-              - workdocs:DownloadDocumentVersion
               - workspaces:DescribeWorkspacesConnectionStatus
               - workspaces:DescribeWorkspaceSnapshots
             Resource: "*"
@@ -427,19 +429,8 @@ Resources:
               - dynamodb:Scan
               - dynamodb:GetRecords
               - dynamodb:GetShardIterator
-              - rds-data:ExecuteStatement
-              - rds-data:BatchExecuteStatement
               - rds:DownloadDBLogFilePortion
               - rds:DownloadCompleteDBLogFile
-              - neptune-db:*
-              - timestream:Select
-              - timestream:SelectValues
-              - qldb:SendCommand
-              - qldb:ExecuteStatement
-              - redshift:GetClusterCredentials
-              - redshift:ExecuteQuery
-              - redshift-data:ExecuteStatement
-              - redshift-data:GetStatementResult
             Resource: "*"
           # TIER 5: Storage Content (Complete S3 deny - no CUR exception in Step 1)
           - Sid: DenyS3DataAccess
@@ -449,23 +440,12 @@ Resources:
               - s3:GetObjectVersion
               - s3:GetObjectTorrent
             Resource: "*"
-          # Deny all S3 write/delete operations
-          - Sid: DenyS3WriteDelete
-            Effect: Deny
-            Action:
-              - s3:PutObject
-              - s3:DeleteObject
-            Resource: "*"
           # TIER 5: File systems and backups
           - Sid: DenyFileSystemAndBackupAccess
             Effect: Deny
             Action:
-              - elasticfilesystem:ClientMount
-              - elasticfilesystem:ClientWrite
-              - elasticfilesystem:ClientRootAccess
               - fsx:*
               - backup:GetRecoveryPointRestoreMetadata
-              - backup:StartRestoreJob
             Resource: "*"
           # TIER 6: Analytics Query Results
           - Sid: DenyAnalyticsQueryResults
@@ -473,8 +453,6 @@ Resources:
             Action:
               - athena:GetQueryResults
               - athena:GetQueryResultsStream
-              - quicksight:GetDashboard
-              - quicksight:GetDataSet
               - glue:GetTable
               - glue:GetPartition
               - glue:GetPartitions
@@ -496,8 +474,6 @@ Resources:
               - logs:GetLogEvents
               - logs:FilterLogEvents
               - logs:GetLogRecord
-              - cloudtrail:LookupEvents
-              - cloudtrail:GetQueryResults
             Resource: "*"
           # TIER 8: User Directories & Identity
           - Sid: DenyUserDirectoryAccess
@@ -541,13 +517,11 @@ Resources:
               - ec2:GetConsoleOutput
               - ec2:GetConsoleScreenshot
               - ec2:GetPasswordData
-              - ssm:StartSession
             Resource: "*"
           # Additional sensitive operations
           - Sid: DenyOtherSensitiveOperations
             Effect: Deny
             Action:
-              - lambda:InvokeFunction
               - sqs:ReceiveMessage
               - kinesis:GetRecords
             Resource: "*"
