@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.28" # x-release-please-version
+  TemplateVersion: "0.1.29" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -186,14 +186,7 @@ Resources:
           - Sid: CommitmentReads
             Effect: Allow
             Action:
-              - redshift:GetReservedNodeExchangeOfferings
               - redshift:GetReservedNodeExchangeConfigurationOptions
-              - cloudfront:ListSavingsPlans
-              - cloudfront:GetSavingsPlan
-              - cloudfront:ListRateCards
-              - cloudfront:ListUsages
-              - ce:GetCommitmentPurchaseAnalysis
-              - ce:ListCommitmentPurchaseAnalyses
               - sagemaker:SearchTrainingPlanOfferings
             Resource: "*"
           # Savings Plans - Trigger and retrieve purchase recommendations
@@ -202,17 +195,6 @@ Resources:
             Effect: Allow
             Action:
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
-              - ce:ListSavingsPlansPurchaseRecommendationGeneration
-              - ce:GetSavingsPlansPurchaseRecommendation
-            Resource: "*"
-          # S3 - Bucket configuration discovery for cost optimization
-          # Services: S3
-          - Sid: S3BucketDiscovery
-            Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetLifecycleConfiguration
-              - s3:GetIntelligentTieringConfiguration
             Resource: "*"
 
   # ============================================================================

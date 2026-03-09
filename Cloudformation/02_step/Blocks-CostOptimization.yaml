@@ -14,12 +14,12 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.28" # x-release-please-version
+  TemplateVersion: "0.1.29" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.28" # x-release-please-version
+      Version: "0.1.29" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -1094,14 +1094,7 @@ Resources:
           - Sid: CommitmentReads
             Effect: Allow
             Action:
-              - redshift:GetReservedNodeExchangeOfferings
               - redshift:GetReservedNodeExchangeConfigurationOptions
-              - cloudfront:ListSavingsPlans
-              - cloudfront:GetSavingsPlan
-              - cloudfront:ListRateCards
-              - cloudfront:ListUsages
-              - ce:GetCommitmentPurchaseAnalysis
-              - ce:ListCommitmentPurchaseAnalyses
               - sagemaker:SearchTrainingPlanOfferings
             Resource: "*"
           # Savings Plans - Trigger and retrieve purchase recommendations
@@ -1110,17 +1103,6 @@ Resources:
             Effect: Allow
             Action:
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
-              - ce:ListSavingsPlansPurchaseRecommendationGeneration
-              - ce:GetSavingsPlansPurchaseRecommendation
-            Resource: "*"
-          # S3 - Bucket configuration discovery for cost optimization
-          # Services: S3
-          - Sid: S3BucketDiscovery
-            Effect: Allow
-            Action:
-              - s3:GetBucketLocation
-              - s3:GetLifecycleConfiguration
-              - s3:GetIntelligentTieringConfiguration
             Resource: "*"
           # BCM Data Exports - Read access for CUR 2.0 export configurations
           # Services: BCM Data Exports

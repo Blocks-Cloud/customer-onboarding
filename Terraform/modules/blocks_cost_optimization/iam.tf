@@ -337,14 +337,7 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     sid    = "CommitmentReads"
     effect = "Allow"
     actions = [
-      "redshift:GetReservedNodeExchangeOfferings",
       "redshift:GetReservedNodeExchangeConfigurationOptions",
-      "cloudfront:ListSavingsPlans",
-      "cloudfront:GetSavingsPlan",
-      "cloudfront:ListRateCards",
-      "cloudfront:ListUsages",
-      "ce:GetCommitmentPurchaseAnalysis",
-      "ce:ListCommitmentPurchaseAnalyses",
       "sagemaker:SearchTrainingPlanOfferings",
     ]
     resources = [
@@ -359,23 +352,6 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     effect = "Allow"
     actions = [
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
-      "ce:ListSavingsPlansPurchaseRecommendationGeneration",
-      "ce:GetSavingsPlansPurchaseRecommendation",
-    ]
-    resources = [
-      "*",
-    ]
-  }
-
-  # S3 - Bucket configuration discovery for cost optimization
-  # Services: S3
-  statement {
-    sid    = "S3BucketDiscovery"
-    effect = "Allow"
-    actions = [
-      "s3:GetBucketLocation",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetIntelligentTieringConfiguration",
     ]
     resources = [
       "*",
