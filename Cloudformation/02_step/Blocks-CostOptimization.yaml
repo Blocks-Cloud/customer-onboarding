@@ -1619,7 +1619,7 @@ Resources:
         RetainStacksOnAccountRemoval: false
       Capabilities:
         - CAPABILITY_NAMED_IAM
-      TemplateURL: "{{EVENT_FORWARDING_TEMPLATE_URL}}"
+      TemplateURL: "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/shared/Blocks-EventForwarding.yaml"
       Parameters:
         - ParameterKey: BlocksCustomerId
           ParameterValue: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
