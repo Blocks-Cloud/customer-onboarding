@@ -75,6 +75,25 @@ output "stackset_name" {
 }
 
 ############################
+# EventBridge Forwarding Outputs
+############################
+
+output "event_forwarding_role_arn" {
+  description = "ARN of the BlocksEventBridgeCrossAccountRole for event forwarding"
+  value       = aws_iam_role.blocks_event_bridge_cross_account_role.arn
+}
+
+output "cloudtrail_forwarding_rule_arn" {
+  description = "ARN of the blocks-cloudtrail-forwarding EventBridge rule (management account, us-east-1)"
+  value       = aws_cloudwatch_event_rule.blocks_cloudtrail_forwarding.arn
+}
+
+output "event_forwarding_stackset_id" {
+  description = "ID of the EventForwarding StackSet for multi-region deployment"
+  value       = local.is_management_account ? aws_cloudformation_stack_set.event_forwarding[0].id : null
+}
+
+############################
 # BCM Export Outputs
 ############################
 

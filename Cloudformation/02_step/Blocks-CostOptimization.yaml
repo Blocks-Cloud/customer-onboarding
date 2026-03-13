@@ -14,12 +14,12 @@ Description: >
   7. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.29" # x-release-please-version
+  TemplateVersion: "0.1.31" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.29" # x-release-please-version
+      Version: "0.1.31" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -870,6 +870,8 @@ Resources:
           ParameterValue: "{{BLOCKS_ACCOUNT_ID}}"
         - ParameterKey: ExternalId
           ParameterValue: "{{EXTERNAL_ID}}"
+        - ParameterKey: BlocksEventBusArn
+          ParameterValue: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
       StackInstancesGroup:
         - DeploymentTargets:
             OrganizationalUnitIds:
@@ -1494,6 +1496,166 @@ Resources:
                   - EnableCostAllocationBackfill
                   - !Sub "arn:${AWS::Partition}:s3:::${CURBucket}"
                   - ""
+
+  ############################
+  # EventBridge Cross-Account Event Forwarding
+  ############################
+
+  # IAM Role: Allows EventBridge to forward events to the Blocks customer-events bus
+  BlocksEventBridgeCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksEventBridgeCrossAccountRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by Blocks.cloud to forward CloudTrail events to Blocks for change detection. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: EventForwarding
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PutEventsToBlocksBus
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
+
+  # EventBridge Rule: Forward CloudTrail management write events to Blocks (management account, us-east-1)
+  # Captures organization-level events (Organizations, Cost Explorer, Billing) that only emit in management account
+  BlocksCloudTrailForwardingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "blocks-cloudtrail-forwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
+      EventPattern:
+        source:
+          - aws.ec2
+          - aws.rds
+          - aws.s3
+          - aws.lambda
+          - aws.ecs
+          - aws.eks
+          - aws.elasticloadbalancing
+          - aws.autoscaling
+          - aws.dynamodb
+          - aws.elasticache
+          - aws.redshift
+          - aws.es
+          - aws.opensearch
+          - aws.kinesis
+          - aws.firehose
+          - aws.sqs
+          - aws.sns
+          - aws.cloudfront
+          - aws.route53
+          - aws.apigateway
+          - aws.iam
+          - aws.kms
+          - aws.secretsmanager
+          - aws.acm
+          - aws.cloudformation
+          - aws.cloudwatch
+          - aws.logs
+          - aws.events
+          - aws.ssm
+          - aws.config
+          - aws.organizations
+          - aws.ce
+          - aws.savingsplans
+          - aws.sagemaker
+          - aws.emr
+          - aws.glue
+          - aws.athena
+          - aws.msk
+          - aws.mediaconvert
+          - aws.mediaconnect
+          - aws.memorydb
+          - aws.fsx
+          - aws.efs
+          - aws.backup
+          - aws.transfer
+          - aws.dms
+          - aws.neptune
+          - aws.docdb
+          - aws.workspaces
+          - aws.lightsail
+          - aws.budgets
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          managementEvent:
+            - true
+          readOnly:
+            - false
+          errorCode:
+            - exists: false
+      # Note: InputTransformer is not supported when the target is an EventBridge event bus.
+      # The event pattern filter already limits forwarded events to management write calls
+      # with no errors, so only matching CloudTrail metadata crosses the account boundary.
+      Targets:
+        - Arn: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
+          Id: "BlocksCustomerEventBus"
+          RoleArn: !GetAtt BlocksEventBridgeCrossAccountRole.Arn
+
+  # StackSet: Deploy EventBridge forwarding rule to all member accounts across all default regions
+  EventForwardingStackSet:
+    Type: AWS::CloudFormation::StackSet
+    DependsOn: SubAccountStackSet
+    Properties:
+      StackSetName: "Blocks-EventForwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Deploys EventBridge rules to forward CloudTrail management write events to Blocks across all regions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment:
+        Enabled: true
+        RetainStacksOnAccountRemoval: false
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      TemplateURL: "{{EVENT_FORWARDING_TEMPLATE_URL}}"
+      Parameters:
+        - ParameterKey: BlocksCustomerId
+          ParameterValue: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+        - ParameterKey: BlocksEventBusArn
+          ParameterValue: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
+      StackInstancesGroup:
+        - DeploymentTargets:
+            OrganizationalUnitIds:
+              - !GetAtt EnableOrgServices.OrganizationRootId
+          Regions:
+            - us-east-1
+            - us-east-2
+            - us-west-1
+            - us-west-2
+            - ca-central-1
+            - eu-central-1
+            - eu-north-1
+            - eu-west-1
+            - eu-west-2
+            - eu-west-3
+            - ap-northeast-1
+            - ap-northeast-2
+            - ap-northeast-3
+            - ap-south-1
+            - ap-southeast-1
+            - ap-southeast-2
+            - sa-east-1
+      OperationPreferences:
+        FailureTolerancePercentage: 100
+        MaxConcurrentPercentage: 100
+        RegionConcurrencyType: PARALLEL
+        ConcurrencyMode: SOFT_FAILURE_TOLERANCE
+      Tags:
+        - Key: TemplateVersion
+          Value: !FindInMap [TemplateConfig, Constants, Version]
+      CallAs: SELF
 
 Outputs:
   CURBucketName:

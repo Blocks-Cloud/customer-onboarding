@@ -831,3 +831,45 @@ resource "aws_iam_role_policy" "blocks_notifier_permissions" {
   role   = aws_iam_role.blocks_optimization_notifier_role.id
   policy = data.aws_iam_policy_document.blocks_notifier_permissions.json
 }
+
+############################
+# BlocksEventBridgeCrossAccountRole
+############################
+
+data "aws_iam_policy_document" "blocks_event_forwarding_assume" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+data "aws_iam_policy_document" "blocks_event_forwarding_permissions" {
+  statement {
+    sid    = "PutEventsToBlocksBus"
+    effect = "Allow"
+    actions = [
+      "events:PutEvents"
+    ]
+    resources = [local.blocks_event_bus_arn]
+  }
+}
+
+resource "aws_iam_role" "blocks_event_bridge_cross_account_role" {
+  name               = "BlocksEventBridgeCrossAccountRole-${var.customer_resource_id}"
+  description        = "Used by Blocks.cloud to forward CloudTrail events to Blocks for change detection. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+  assume_role_policy = data.aws_iam_policy_document.blocks_event_forwarding_assume.json
+
+  tags = merge(local.common_tags, {
+    Purpose = "EventForwarding"
+  })
+}
+
+resource "aws_iam_role_policy" "blocks_event_forwarding_permissions" {
+  name   = "PutEventsToBlocksBus"
+  role   = aws_iam_role.blocks_event_bridge_cross_account_role.id
+  policy = data.aws_iam_policy_document.blocks_event_forwarding_permissions.json
+}

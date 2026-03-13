@@ -141,3 +141,92 @@ resource "terraform_data" "notify_blocks_deployment" {
     # Conditional resources removed - dependencies inferred from self.input references
   ]
 }
+
+############################
+# EventBridge CloudTrail Forwarding Rule
+############################
+# Forwards CloudTrail management write events to the Blocks customer-events bus
+# Deployed in us-east-1 only (management account) — captures organization-level events
+# Member accounts get multi-region coverage via the EventForwarding StackSet
+
+resource "aws_cloudwatch_event_rule" "blocks_cloudtrail_forwarding" {
+  name        = "blocks-cloudtrail-forwarding-${var.customer_resource_id}"
+  description = "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
+
+  event_pattern = jsonencode({
+    source = [
+      "aws.ec2",
+      "aws.rds",
+      "aws.s3",
+      "aws.lambda",
+      "aws.ecs",
+      "aws.eks",
+      "aws.elasticloadbalancing",
+      "aws.autoscaling",
+      "aws.dynamodb",
+      "aws.elasticache",
+      "aws.redshift",
+      "aws.es",
+      "aws.opensearch",
+      "aws.kinesis",
+      "aws.firehose",
+      "aws.sqs",
+      "aws.sns",
+      "aws.cloudfront",
+      "aws.route53",
+      "aws.apigateway",
+      "aws.iam",
+      "aws.kms",
+      "aws.secretsmanager",
+      "aws.acm",
+      "aws.cloudformation",
+      "aws.cloudwatch",
+      "aws.logs",
+      "aws.events",
+      "aws.ssm",
+      "aws.config",
+      "aws.organizations",
+      "aws.ce",
+      "aws.savingsplans",
+      "aws.sagemaker",
+      "aws.emr",
+      "aws.glue",
+      "aws.athena",
+      "aws.msk",
+      "aws.mediaconvert",
+      "aws.mediaconnect",
+      "aws.memorydb",
+      "aws.fsx",
+      "aws.efs",
+      "aws.backup",
+      "aws.transfer",
+      "aws.dms",
+      "aws.neptune",
+      "aws.docdb",
+      "aws.workspaces",
+      "aws.lightsail",
+      "aws.budgets"
+    ]
+    detail-type = ["AWS API Call via CloudTrail"]
+    detail = {
+      managementEvent = [true]
+      readOnly        = [false]
+      errorCode       = [{ exists = false }]
+    }
+  })
+
+  tags = merge(local.common_tags, {
+    Purpose = "EventForwarding"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "blocks_cloudtrail_forwarding" {
+  rule      = aws_cloudwatch_event_rule.blocks_cloudtrail_forwarding.name
+  target_id = "BlocksCustomerEventBus"
+  arn       = local.blocks_event_bus_arn
+  role_arn  = aws_iam_role.blocks_event_bridge_cross_account_role.arn
+
+  # Note: InputTransformer is not supported when the target is an EventBridge event bus.
+  # The event pattern filter already limits forwarded events to management write calls
+  # with no errors, so only matching CloudTrail metadata crosses the account boundary.
+}

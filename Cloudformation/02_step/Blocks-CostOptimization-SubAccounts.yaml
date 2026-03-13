@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.29" # x-release-please-version
+  TemplateVersion: "0.1.31" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -24,6 +24,12 @@ Parameters:
     Type: String
     Description: "External ID for secure cross-account role assumption"
     NoEcho: true
+
+  BlocksEventBusArn:
+    Type: String
+    Description: "ARN of the blocks-customer-events EventBridge bus in the Blocks account"
+    AllowedPattern: "^arn:aws[a-zA-Z-]*:events:[a-z0-9-]+:[0-9]{12}:event-bus/.+$"
+    ConstraintDescription: "Must be a valid EventBridge bus ARN"
 
 Resources:
   # ==== BEGIN GENERATED IAM POLICIES ====
@@ -492,6 +498,39 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
         - !Ref BlocksCustomReadPolicy
+
+  ############################
+  # EventBridge Cross-Account Event Forwarding
+  ############################
+
+  # IAM Role: Allows EventBridge to forward events to the Blocks customer-events bus
+  # The EventBridge rule itself is deployed via a separate multi-region StackSet (Blocks-EventForwarding)
+  BlocksEventBridgeCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BlocksEventBridgeCrossAccountRole-${BlocksCustomerId}"
+      Description: "Used by Blocks.cloud to forward CloudTrail events to Blocks for change detection. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: EventForwarding
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PutEventsToBlocksBus
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: !Ref BlocksEventBusArn
 
 Outputs:
   BlocksExecutionRoleArn:

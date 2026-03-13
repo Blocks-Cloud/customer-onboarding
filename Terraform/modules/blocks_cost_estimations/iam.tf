@@ -113,6 +113,20 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
+  # CloudFormation - Stack event and resource discovery for deployment debugging
+  # Services: CloudFormation
+  statement {
+    sid    = "CloudFormationDeploymentDiscovery"
+    effect = "Allow"
+    actions = [
+      "cloudformation:DescribeStackEvents",
+      "cloudformation:DescribeStackResources",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_estimations_custom_read" {

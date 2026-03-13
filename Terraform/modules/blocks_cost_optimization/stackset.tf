@@ -19,9 +19,10 @@ resource "aws_cloudformation_stack_set" "cost_optimization" {
   template_url = var.stackset_template_url
 
   parameters = {
-    BlocksCustomerId = var.customer_resource_id
-    BlocksAccountId  = var.blocks_account_id
-    ExternalId       = var.external_id
+    BlocksCustomerId  = var.customer_resource_id
+    BlocksAccountId   = var.blocks_account_id
+    ExternalId        = var.external_id
+    BlocksEventBusArn = local.blocks_event_bus_arn
   }
 
   auto_deployment {
@@ -66,6 +67,103 @@ resource "aws_cloudformation_stack_set_instance" "cost_optimization" {
 
   operation_preferences {
     failure_tolerance_percentage = 0
+    max_concurrent_percentage    = 100
+    region_concurrency_type      = "PARALLEL"
+    concurrency_mode             = "SOFT_FAILURE_TOLERANCE"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(var.target_ou_ids) > 0 || local.organization_root_id != null
+      error_message = "Either target_ou_ids must be provided or organization root ID must be available (management account)."
+    }
+  }
+}
+
+############################
+# StackSet for EventBridge Forwarding (Multi-Region)
+############################
+# Deploys EventBridge rules to forward CloudTrail management write events
+# across all default AWS regions in member accounts.
+
+locals {
+  # All default (non-opt-in) AWS commercial regions
+  all_default_regions = [
+    "us-east-1",
+    "us-east-2",
+    "us-west-1",
+    "us-west-2",
+    "ca-central-1",
+    "eu-central-1",
+    "eu-north-1",
+    "eu-west-1",
+    "eu-west-2",
+    "eu-west-3",
+    "ap-northeast-1",
+    "ap-northeast-2",
+    "ap-northeast-3",
+    "ap-south-1",
+    "ap-southeast-1",
+    "ap-southeast-2",
+    "sa-east-1",
+  ]
+}
+
+resource "aws_cloudformation_stack_set" "event_forwarding" {
+  count = local.is_management_account ? 1 : 0
+
+  name             = "Blocks-EventForwarding-${var.customer_resource_id}"
+  description      = "Deploys EventBridge rules to forward CloudTrail management write events to Blocks across all regions. Must remain in place for Blocks to function correctly."
+  permission_model = "SERVICE_MANAGED"
+
+  capabilities = ["CAPABILITY_NAMED_IAM"]
+
+  template_url = var.event_forwarding_template_url
+
+  parameters = {
+    BlocksCustomerId  = var.customer_resource_id
+    BlocksEventBusArn = local.blocks_event_bus_arn
+  }
+
+  auto_deployment {
+    enabled                          = true
+    retain_stacks_on_account_removal = false
+  }
+
+  operation_preferences {
+    failure_tolerance_percentage = 100
+    max_concurrent_percentage    = 100
+    region_concurrency_type      = "PARALLEL"
+  }
+
+  call_as = "SELF"
+
+  tags = merge(local.common_tags, {
+    TemplateVersion = var.template_version
+  })
+
+  lifecycle {
+    ignore_changes = [
+      administration_role_arn,
+    ]
+  }
+}
+
+resource "aws_cloudformation_stack_instances" "event_forwarding" {
+  count = local.is_management_account ? 1 : 0
+
+  stack_set_name = aws_cloudformation_stack_set.event_forwarding[0].name
+  regions        = local.all_default_regions
+
+  # Ensure IAM role exists in member accounts before deploying EventBridge rules
+  depends_on = [aws_cloudformation_stack_set_instance.cost_optimization]
+
+  deployment_targets {
+    organizational_unit_ids = length(var.target_ou_ids) > 0 ? var.target_ou_ids : [local.organization_root_id]
+  }
+
+  operation_preferences {
+    failure_tolerance_percentage = 100
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
     concurrency_mode             = "SOFT_FAILURE_TOLERANCE"

@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.29" # x-release-please-version
+  TemplateVersion: "0.1.31" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -101,6 +101,14 @@ Resources:
             Action:
               - logs:StartQuery
               - logs:GetQueryResults
+            Resource: "*"
+          # CloudFormation - Stack event and resource discovery for deployment debugging
+          # Services: CloudFormation
+          - Sid: CloudFormationDeploymentDiscovery
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResources
             Resource: "*"
 
   # ============================================================================

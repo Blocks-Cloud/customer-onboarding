@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Deploys an EventBridge rule that forwards CloudTrail management write events
+  to the Blocks customer-events bus. This template is deployed via a multi-region
+  StackSet to capture events across all AWS regions in member accounts.
+
+  The event pattern filter limits forwarded events to management write calls
+  with no errors. InputTransformer is not used because EventBridge does not
+  support input transformation when the target is an event bus.
+
+Metadata:
+  TemplateVersion: "0.1.29" # x-release-please-version
+
+Parameters:
+  BlocksCustomerId:
+    Type: String
+    Description: "Unique customer identifier provided by Blocks"
+    AllowedPattern: "^[a-zA-Z0-9-_]+$"
+    ConstraintDescription: "Must contain only alphanumeric characters, hyphens, and underscores"
+
+  BlocksEventBusArn:
+    Type: String
+    Description: "ARN of the blocks-customer-events EventBridge bus in the Blocks account"
+    AllowedPattern: "^arn:aws[a-zA-Z-]*:events:[a-z0-9-]+:[0-9]{12}:event-bus/.+$"
+    ConstraintDescription: "Must be a valid EventBridge bus ARN"
+
+Resources:
+  # EventBridge Rule: Forward CloudTrail management write events to Blocks
+  # Matches 51 AWS sources, filters for management + write + successful calls only
+  BlocksCloudTrailForwardingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "blocks-cloudtrail-forwarding-${BlocksCustomerId}"
+      Description: "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
+      EventPattern:
+        source:
+          - aws.ec2
+          - aws.rds
+          - aws.s3
+          - aws.lambda
+          - aws.ecs
+          - aws.eks
+          - aws.elasticloadbalancing
+          - aws.autoscaling
+          - aws.dynamodb
+          - aws.elasticache
+          - aws.redshift
+          - aws.es
+          - aws.opensearch
+          - aws.kinesis
+          - aws.firehose
+          - aws.sqs
+          - aws.sns
+          - aws.cloudfront
+          - aws.route53
+          - aws.apigateway
+          - aws.iam
+          - aws.kms
+          - aws.secretsmanager
+          - aws.acm
+          - aws.cloudformation
+          - aws.cloudwatch
+          - aws.logs
+          - aws.events
+          - aws.ssm
+          - aws.config
+          - aws.organizations
+          - aws.ce
+          - aws.savingsplans
+          - aws.sagemaker
+          - aws.emr
+          - aws.glue
+          - aws.athena
+          - aws.msk
+          - aws.mediaconvert
+          - aws.mediaconnect
+          - aws.memorydb
+          - aws.fsx
+          - aws.efs
+          - aws.backup
+          - aws.transfer
+          - aws.dms
+          - aws.neptune
+          - aws.docdb
+          - aws.workspaces
+          - aws.lightsail
+          - aws.budgets
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          managementEvent:
+            - true
+          readOnly:
+            - false
+          errorCode:
+            - exists: false
+      # Note: InputTransformer is not supported when the target is an EventBridge event bus.
+      # The event pattern filter already limits forwarded events to management write calls
+      # with no errors, so only matching CloudTrail metadata crosses the account boundary.
+      Targets:
+        - Arn: !Ref BlocksEventBusArn
+          Id: "BlocksCustomerEventBus"
+          RoleArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEventBridgeCrossAccountRole-${BlocksCustomerId}"
+
+Outputs:
+  BlocksCloudTrailForwardingRuleName:
+    Description: "Name of the EventBridge rule forwarding CloudTrail events to Blocks"
+    Value: !Ref BlocksCloudTrailForwardingRule
+  BlocksCloudTrailForwardingRuleArn:
+    Description: "ARN of the EventBridge rule"
+    Value: !GetAtt BlocksCloudTrailForwardingRule.Arn
