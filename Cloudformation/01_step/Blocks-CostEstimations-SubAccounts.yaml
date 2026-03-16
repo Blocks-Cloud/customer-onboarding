@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.32" # x-release-please-version
+  TemplateVersion: "0.1.33" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -109,6 +109,26 @@ Resources:
             Action:
               - cloudformation:DescribeStackEvents
               - cloudformation:DescribeStackResources
+            Resource: "*"
+          # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Services: Trusted Advisor
+          - Sid: TrustedAdvisorRead
+            Effect: Allow
+            Action:
+              - trustedadvisor:Describe*
+              - trustedadvisor:List*
+              - trustedadvisor:Get*
+              - trustedadvisor:RefreshCheck
+              - trustedadvisor:SetOrganizationAccess
+            Resource: "*"
+          # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
+          # Services: Support
+          - Sid: TrustedAdvisorLegacyRead
+            Effect: Allow
+            Action:
+              - support:DescribeTrustedAdvisorChecks
+              - support:DescribeTrustedAdvisorCheckResult
+              - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
 
   # ============================================================================

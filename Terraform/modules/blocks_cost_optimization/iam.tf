@@ -398,6 +398,38 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
   }
 
+  # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+  # Services: Trusted Advisor
+  statement {
+    sid    = "TrustedAdvisorRead"
+    effect = "Allow"
+    actions = [
+      "trustedadvisor:Describe*",
+      "trustedadvisor:List*",
+      "trustedadvisor:Get*",
+      "trustedadvisor:RefreshCheck",
+      "trustedadvisor:SetOrganizationAccess",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
+  # Services: Support
+  statement {
+    sid    = "TrustedAdvisorLegacyRead"
+    effect = "Allow"
+    actions = [
+      "support:DescribeTrustedAdvisorChecks",
+      "support:DescribeTrustedAdvisorCheckResult",
+      "support:DescribeTrustedAdvisorCheckSummaries",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_custom_read" {
