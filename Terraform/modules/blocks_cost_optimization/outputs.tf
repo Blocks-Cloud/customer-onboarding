@@ -1,18 +1,4 @@
 ############################
-# S3 Bucket Outputs
-############################
-
-output "cur_bucket_name" {
-  description = "Name of the S3 bucket storing CUR 2.0 data"
-  value       = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].id : null
-}
-
-output "cur_bucket_arn" {
-  description = "ARN of the S3 bucket storing CUR 2.0 data"
-  value       = var.enable_cost_allocation_backfill ? aws_s3_bucket.cur_bucket[0].arn : null
-}
-
-############################
 # IAM Role Outputs
 ############################
 
@@ -91,15 +77,6 @@ output "cloudtrail_forwarding_rule_arn" {
 output "event_forwarding_stackset_id" {
   description = "ID of the EventForwarding StackSet for multi-region deployment"
   value       = local.is_management_account ? aws_cloudformation_stack_set.event_forwarding[0].id : null
-}
-
-############################
-# BCM Export Outputs
-############################
-
-output "bcm_export_arn" {
-  description = "ARN of the BCM Data Export (CUR 2.0)"
-  value       = var.enable_cost_allocation_backfill ? aws_bcmdataexports_export.cur2[0].arn : null
 }
 
 ############################

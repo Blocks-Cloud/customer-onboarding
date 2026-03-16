@@ -176,7 +176,62 @@ while [[ $RETRY_COUNT -lt $MAX_RETRIES ]]; do
     fi
 done
 
+# Enable StackSets Trusted Access
+echo ""
+echo "Enabling StackSets Trusted Access..."
+
+# 1. Enable AWS Organizations service access for CloudFormation StackSets
+if aws organizations enable-aws-service-access \
+    --service-principal member.org.stacksets.cloudformation.amazonaws.com 2>/dev/null; then
+    echo "✓ Enabled AWS Organizations Service Access for CloudFormation StackSets"
+else
+    echo "✓ StackSets Organizations service access already enabled (or skipped)"
+fi
+
+sleep 10
+
+# 2. Check current activation status
+STACKSETS_STATUS=$(aws cloudformation describe-organizations-access \
+    --query 'Status' --output text 2>/dev/null || echo "DISABLED")
+
+if [[ "$STACKSETS_STATUS" == "ENABLED" ]]; then
+    echo "✓ StackSets trusted access already ENABLED"
+else
+    # 3. Activate trusted access (with retry)
+    echo "Activating CloudFormation StackSets trusted access..."
+    MAX_STACKSETS_RETRIES=3
+    for attempt in $(seq 1 $MAX_STACKSETS_RETRIES); do
+        if aws cloudformation activate-organizations-access 2>/dev/null; then
+            echo "✓ Activated CloudFormation StackSets trusted access"
+            break
+        else
+            echo "  Attempt $attempt/$MAX_STACKSETS_RETRIES failed"
+            if [[ $attempt -lt $MAX_STACKSETS_RETRIES ]]; then
+                sleep $((2 ** attempt))
+            else
+                echo "⚠ Warning: Could not activate StackSets trusted access after $MAX_STACKSETS_RETRIES attempts"
+            fi
+        fi
+    done
+
+    # 4. Poll until ENABLED (max 12 × 30s = 6 min, matching Step 1 proven timing)
+    for i in $(seq 1 12); do
+        STACKSETS_STATUS=$(aws cloudformation describe-organizations-access \
+            --query 'Status' --output text 2>/dev/null || echo "UNKNOWN")
+        if [[ "$STACKSETS_STATUS" == "ENABLED" ]]; then
+            echo "✓ StackSets trusted access is now ENABLED"
+            break
+        fi
+        echo "  Attempt $i/12: Status is $STACKSETS_STATUS, waiting 30 seconds..."
+        sleep 30
+        if [[ $i -eq 12 ]]; then
+            echo "✗ Error: StackSets activation did not complete within 6 minutes"
+            exit 1
+        fi
+    done
+fi
+
 echo ""
 echo "============================================================"
-echo "✓ Successfully enabled Cost Optimization Hub, Compute Optimizer, and SCPs"
+echo "✓ Successfully enabled Cost Optimization Hub, Compute Optimizer, SCPs, and StackSets Trusted Access"
 echo "============================================================"

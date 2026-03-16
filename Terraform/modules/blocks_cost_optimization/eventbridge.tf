@@ -9,11 +9,6 @@ locals {
     aws_iam_role.blocks_read_role.arn,
   ]
 
-  # Optional triggers for CUR bucket and export (only when backfill enabled)
-  optional_notification_triggers = var.enable_cost_allocation_backfill ? [
-    try(aws_s3_bucket.cur_bucket[0].arn, null),
-    try(aws_bcmdataexports_export.cur2[0].arn, null),
-  ] : []
 }
 
 resource "terraform_data" "notify_blocks_deployment" {
@@ -29,14 +24,10 @@ resource "terraform_data" "notify_blocks_deployment" {
     execution_role_arn        = aws_iam_role.blocks_execution_role.arn
     read_role_arn             = aws_iam_role.blocks_read_role.arn
     majortom_read_role_arn    = aws_iam_role.majortom_read_role.arn
-    bucket_arn                = var.enable_cost_allocation_backfill ? try(aws_s3_bucket.cur_bucket[0].arn, "") : ""
     blocks_optimization_ou_id = try(aws_organizations_organizational_unit.blocks_optimization[0].id, "")
   }
 
-  triggers_replace = compact(concat(
-    local.base_notification_triggers,
-    local.optional_notification_triggers,
-  ))
+  triggers_replace = local.base_notification_triggers
 
   # Notify on create/update
   provisioner "local-exec" {
@@ -76,7 +67,6 @@ resource "terraform_data" "notify_blocks_deployment" {
           "executionRoleArn": "${aws_iam_role.blocks_execution_role.arn}",
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
-          "bucketArn": "${self.input.bucket_arn}",
           "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
           "status": "CREATE_COMPLETE"
@@ -121,7 +111,6 @@ resource "terraform_data" "notify_blocks_deployment" {
           "executionRoleArn": "${self.input.execution_role_arn}",
           "readRoleArn": "${self.input.read_role_arn}",
           "majorTomReadRoleArn": "${self.input.majortom_read_role_arn}",
-          "bucketArn": "${self.input.bucket_arn}",
           "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
           "status": "DELETE_COMPLETE"

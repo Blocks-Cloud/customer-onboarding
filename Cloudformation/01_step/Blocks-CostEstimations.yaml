@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.31" # x-release-please-version
+  TemplateVersion: "0.1.32" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.31" # x-release-please-version
+      Version: "0.1.32" # x-release-please-version
 
 Rules:
   EnforceUsEast1:

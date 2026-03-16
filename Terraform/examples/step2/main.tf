@@ -54,14 +54,12 @@ module "blocks_cost_optimization" {
   # source = "github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_cost_optimization?ref=v1.0.0"
 
   # Required variables - provided by Blocks
-  customer_resource_id          = "example-customer"                                              # provided by blocks
-  external_id                   = "example-external-id"                                           # provided by blocks
-  blocks_account_id             = "123456789012"                                                  # provided by blocks
-  stackset_template_url         = "https://s3.amazonaws.com/example-bucket/template.yaml"         # provided by blocks
-  event_forwarding_template_url = "https://s3.amazonaws.com/example-bucket/event-forwarding.yaml" # provided by blocks
+  customer_resource_id  = "example-customer"                                      # provided by blocks
+  external_id           = "example-external-id"                                   # provided by blocks
+  blocks_account_id     = "123456789012"                                          # provided by blocks
+  stackset_template_url = "https://s3.amazonaws.com/example-bucket/template.yaml" # provided by blocks
+  # event_forwarding_template_url uses shared default — override only if needed
 
-  # Optional variables
-  enable_cost_allocation_backfill = false
 }
 
 output "deployment_summary" {
@@ -70,8 +68,6 @@ output "deployment_summary" {
     execution_role_arn     = module.blocks_cost_optimization.execution_role_arn
     read_role_arn          = module.blocks_cost_optimization.read_role_arn
     majortom_read_role_arn = module.blocks_cost_optimization.majortom_read_role_arn
-    cur_bucket_arn         = module.blocks_cost_optimization.cur_bucket_arn
-    bcm_export_arn         = module.blocks_cost_optimization.bcm_export_arn
     organization_root_id   = module.blocks_cost_optimization.organization_root_id
     management_account_id  = module.blocks_cost_optimization.management_account_id
     status                 = "Step 2 Complete - Blocks now has full access for cost optimization"

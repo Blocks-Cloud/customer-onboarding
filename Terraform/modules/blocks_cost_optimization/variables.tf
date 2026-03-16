@@ -54,27 +54,11 @@ variable "stackset_template_url" {
 variable "event_forwarding_template_url" {
   type        = string
   description = "S3 URL for the EventForwarding CloudFormation template deployed via multi-region StackSet to member accounts"
+  default     = "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/shared/Blocks-EventForwarding.yaml"
 
   validation {
     condition     = can(regex("^https://", var.event_forwarding_template_url))
     error_message = "event_forwarding_template_url must be a valid HTTPS URL (e.g., https://bucket.s3.us-east-1.amazonaws.com/Blocks-EventForwarding.yaml)."
-  }
-}
-
-variable "enable_cost_allocation_backfill" {
-  type        = bool
-  description = "Enable 12-month cost allocation tag backfill. Only runs once per day per AWS account."
-  default     = true
-}
-
-variable "cur_data_retention_days" {
-  type        = number
-  description = "Days to retain CUR data in S3 before expiration"
-  default     = 365
-
-  validation {
-    condition     = var.cur_data_retention_days >= 30
-    error_message = "cur_data_retention_days must be at least 30 days for meaningful cost analysis."
   }
 }
 
@@ -98,7 +82,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.31" # x-release-please-version
+  default     = "0.1.32" # x-release-please-version
 
   validation {
     condition     = length(var.template_version) > 0

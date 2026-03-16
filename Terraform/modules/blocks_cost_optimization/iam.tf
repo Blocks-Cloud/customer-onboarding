@@ -298,6 +298,27 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
+  # CUR Bucket Management - Create and configure CUR S3 bucket (management account only)
+  # Services: S3
+  statement {
+    sid    = "CURBucketManagement"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:PutBucketVersioning",
+      "s3:PutBucketPolicy",
+      "s3:DeleteBucketPolicy",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutEncryptionConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:PutBucketOwnershipControls",
+    ]
+    resources = [
+      "arn:aws:s3:::blocks-cur-data-*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_write" {

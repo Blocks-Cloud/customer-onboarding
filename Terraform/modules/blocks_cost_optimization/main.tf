@@ -77,9 +77,6 @@ locals {
   # Resource Naming
   ############################
 
-  # S3 bucket for CUR data
-  cur_bucket_name = "blocks-cur-data-${var.customer_resource_id}"
-
   # Blocks SQS queue ARN
   blocks_sqs_arn = "arn:${local.partition}:sqs:us-east-1:${var.blocks_account_id}:Blocks-Onboarding-Queue"
 

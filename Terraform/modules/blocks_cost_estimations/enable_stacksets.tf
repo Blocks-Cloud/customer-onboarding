@@ -48,9 +48,22 @@ resource "terraform_data" "enable_stacksets_trusted_access" {
         exit 0
       fi
 
-      # Step 3: Activate trusted access
+      # Step 3: Activate trusted access (with retry)
       echo "Activating CloudFormation StackSets trusted access..."
-      aws cloudformation activate-organizations-access 2>/dev/null || true
+      MAX_STACKSETS_RETRIES=3
+      for attempt in $(seq 1 $MAX_STACKSETS_RETRIES); do
+        if aws cloudformation activate-organizations-access 2>/dev/null; then
+          echo "Activated CloudFormation StackSets trusted access"
+          break
+        else
+          echo "  Attempt $attempt/$MAX_STACKSETS_RETRIES failed"
+          if [[ $attempt -lt $MAX_STACKSETS_RETRIES ]]; then
+            sleep $((2 ** attempt))
+          else
+            echo "WARNING: Could not activate StackSets trusted access after $MAX_STACKSETS_RETRIES attempts"
+          fi
+        fi
+      done
 
       # Step 4: Wait for activation to complete (max 12 attempts, 30 seconds each = 6 minutes)
       echo "Waiting for activation to complete..."

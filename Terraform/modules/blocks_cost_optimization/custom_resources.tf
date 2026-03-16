@@ -17,24 +17,3 @@ resource "terraform_data" "enable_org_services" {
   }
 }
 
-############################
-# Cost Allocation Tag Backfill (Conditional)
-# Triggers 12-month backfill of cost allocation tags
-############################
-
-resource "terraform_data" "enable_cost_allocation_backfill" {
-  count = var.enable_cost_allocation_backfill ? 1 : 0
-
-  # Depends on CUR export being created first
-  depends_on = [aws_bcmdataexports_export.cur2]
-
-  # Force re-run when script content changes
-  triggers_replace = {
-    script_hash = filemd5("${path.module}/scripts/enable_cost_allocation_backfill.sh")
-  }
-
-  provisioner "local-exec" {
-    command     = "bash scripts/enable_cost_allocation_backfill.sh"
-    working_dir = path.module
-  }
-}

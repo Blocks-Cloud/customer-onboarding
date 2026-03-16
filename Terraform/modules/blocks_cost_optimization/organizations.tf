@@ -153,7 +153,6 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
       "ec2:CreateVolume",
       "ec2:CreateSecurityGroup",
       "lambda:CreateFunction",
-      "s3:CreateBucket",
       "rds:CreateDBInstance",
       "rds:CreateDBCluster",
       "dynamodb:CreateTable",
@@ -169,6 +168,30 @@ data "aws_iam_policy_document" "blocks_governance_deny" {
       variable = "aws:PrincipalArn"
       values = [
         "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"
+      ]
+    }
+  }
+
+  # S3 bucket creation with CUR bucket exception
+  statement {
+    sid    = "DenyS3BucketCreationExceptCUR"
+    effect = "Deny"
+    actions = [
+      "s3:CreateBucket"
+    ]
+    resources = ["*"]
+    condition {
+      test     = "ArnNotLike"
+      variable = "aws:PrincipalArn"
+      values = [
+        "arn:${local.partition}:iam::*:role/BlocksExecutionRole-${var.customer_resource_id}"
+      ]
+    }
+    condition {
+      test     = "ArnNotLike"
+      variable = "aws:ResourceArn"
+      values = [
+        "arn:aws:s3:::blocks-cur-data-*"
       ]
     }
   }
