@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.34" # x-release-please-version
+  TemplateVersion: "0.1.35" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.34" # x-release-please-version
+      Version: "0.1.35" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -374,11 +374,7 @@ Resources:
           - Sid: TrustedAdvisorRead
             Effect: Allow
             Action:
-              - trustedadvisor:Describe*
-              - trustedadvisor:List*
-              - trustedadvisor:Get*
-              - trustedadvisor:RefreshCheck
-              - trustedadvisor:SetOrganizationAccess
+              - trustedadvisor:*
             Resource: "*"
           # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
           # Services: Support
@@ -388,6 +384,20 @@ Resources:
               - support:DescribeTrustedAdvisorChecks
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
+            Resource: "*"
+            # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+            # Services: Compute Optimizer
+          - Sid: ComputeOptimizerRead
+            Effect: Allow
+            Action:
+              - compute-optimizer:*
+            Resource: "*"
+          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Services: Cost Optimization Hub
+          - Sid: CostOptimizationHubRead
+            Effect: Allow
+            Action:
+              - cost-optimization-hub:*
             Resource: "*"
 
   # ============================================================================

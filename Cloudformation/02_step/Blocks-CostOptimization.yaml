@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.34" # x-release-please-version
+  TemplateVersion: "0.1.35" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.34" # x-release-please-version
+      Version: "0.1.35" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -70,18 +70,26 @@ Resources:
                   - cost-optimization-hub:ListEnrollmentStatuses
                   - compute-optimizer:UpdateEnrollmentStatus
                 Resource: "*"
-              # Service-Linked Role creation for Cost Optimization Hub and Compute Optimizer
+              # Service-Linked Role creation for Cost Optimization Hub, Compute Optimizer, and CloudFormation StackSets
               - Effect: Allow
                 Action:
                   - iam:CreateServiceLinkedRole
                 Resource:
                   - "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
                   - "arn:aws:iam::*:role/aws-service-role/compute-optimizer.amazonaws.com/AWSServiceRoleForComputeOptimizer"
+                  - "arn:aws:iam::*:role/aws-service-role/stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
                 Condition:
                   StringLike:
                     "iam:AWSServiceName":
                       - "cost-optimization-hub.bcm.amazonaws.com"
                       - "compute-optimizer.amazonaws.com"
+                      - "member.org.stacksets.cloudformation.amazonaws.com"
+              # iam:GetRole on StackSets service-linked role (required by ActivateOrganizationsAccess)
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                Resource:
+                  - "arn:aws:iam::*:role/aws-service-role/stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
               - Effect: Allow
                 Action:
                   - organizations:DescribeOrganization
@@ -859,11 +867,7 @@ Resources:
           - Sid: TrustedAdvisorRead
             Effect: Allow
             Action:
-              - trustedadvisor:Describe*
-              - trustedadvisor:List*
-              - trustedadvisor:Get*
-              - trustedadvisor:RefreshCheck
-              - trustedadvisor:SetOrganizationAccess
+              - trustedadvisor:*
             Resource: "*"
           # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
           # Services: Support
@@ -873,6 +877,20 @@ Resources:
               - support:DescribeTrustedAdvisorChecks
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
+            Resource: "*"
+          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Services: Compute Optimizer
+          - Sid: ComputeOptimizerRead
+            Effect: Allow
+            Action:
+              - compute-optimizer:*
+            Resource: "*"
+          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Services: Cost Optimization Hub
+          - Sid: CostOptimizationHubRead
+            Effect: Allow
+            Action:
+              - cost-optimization-hub:*
             Resource: "*"
 
   # ============================================================================
