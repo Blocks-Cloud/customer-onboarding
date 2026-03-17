@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.33" # x-release-please-version
+  TemplateVersion: "0.1.34" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.33" # x-release-please-version
+      Version: "0.1.34" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -723,11 +723,8 @@ Resources:
           - Sid: DataExportsWrite
             Effect: Allow
             Action:
-              - bcm-data-exports:CreateExport
-              - bcm-data-exports:UpdateExport
-              - bcm-data-exports:DeleteExport
-              - bcm-data-exports:TagResource
-              - bcm-data-exports:UntagResource
+              - bcm-data-exports:*
+              - cur:*
             Resource: "*"
           # SNS - Write access for Blocks-prefixed topics (anomaly detection subscriptions)
           # Services: SNS
