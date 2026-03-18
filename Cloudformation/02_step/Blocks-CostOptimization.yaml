@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.37" # x-release-please-version
+  TemplateVersion: "0.1.38" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.37" # x-release-please-version
+      Version: "0.1.38" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -73,24 +73,9 @@ Resources:
               # Service-Linked Role creation for Cost Optimization Hub, Compute Optimizer, and CloudFormation StackSets
               - Effect: Allow
                 Action:
-                  - iam:CreateServiceLinkedRole
-                Resource:
-                  - "arn:aws:iam::*:role/aws-service-role/cost-optimization-hub.bcm.amazonaws.com/AWSServiceRoleForCostOptimizationHub"
-                  - "arn:aws:iam::*:role/aws-service-role/compute-optimizer.amazonaws.com/AWSServiceRoleForComputeOptimizer"
-                  - "arn:aws:iam::*:role/aws-service-role/stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
-                Condition:
-                  StringLike:
-                    "iam:AWSServiceName":
-                      - "cost-optimization-hub.bcm.amazonaws.com"
-                      - "compute-optimizer.amazonaws.com"
-                      - "stacksets.cloudformation.amazonaws.com"
-                      - "member.org.stacksets.cloudformation.amazonaws.com"
-              # iam:GetRole on StackSets service-linked role (required by ActivateOrganizationsAccess)
-              - Effect: Allow
-                Action:
                   - iam:GetRole
-                Resource:
-                  - "arn:aws:iam::*:role/aws-service-role/stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - organizations:DescribeOrganization
