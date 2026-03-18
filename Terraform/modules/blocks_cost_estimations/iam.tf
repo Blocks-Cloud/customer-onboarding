@@ -51,6 +51,24 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
       "s3:GetBucketLocation",
       "s3:GetLifecycleConfiguration",
       "s3:GetIntelligentTieringConfiguration",
+      "s3:GetBucketLogging",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # OpenSearch/Elasticsearch - Domain discovery for cost analysis (es: prefix covers all managed domains)
+  # Services: Amazon OpenSearch Service
+  statement {
+    sid    = "OpenSearchDomainDiscovery"
+    effect = "Allow"
+    actions = [
+      "es:DescribeDomain",
+      "es:DescribeDomains",
+      "es:DescribeDomainConfig",
+      "es:ListDomainNames",
+      "es:ListTags",
     ]
     resources = [
       "*",
@@ -127,17 +145,13 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+  # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
   # Services: Trusted Advisor
   statement {
     sid    = "TrustedAdvisorRead"
     effect = "Allow"
     actions = [
-      "trustedadvisor:Describe*",
-      "trustedadvisor:List*",
-      "trustedadvisor:Get*",
-      "trustedadvisor:RefreshCheck",
-      "trustedadvisor:SetOrganizationAccess",
+      "trustedadvisor:*",
     ]
     resources = [
       "*",
@@ -153,6 +167,45 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
       "support:DescribeTrustedAdvisorChecks",
       "support:DescribeTrustedAdvisorCheckResult",
       "support:DescribeTrustedAdvisorCheckSummaries",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+  # Services: Compute Optimizer
+  statement {
+    sid    = "ComputeOptimizerRead"
+    effect = "Allow"
+    actions = [
+      "compute-optimizer:*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+  # Services: Cost Optimization Hub
+  statement {
+    sid    = "CostOptimizationHubRead"
+    effect = "Allow"
+    actions = [
+      "cost-optimization-hub:*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # ACO Automation - Update enrollment configuration for Compute Optimizer
+  # Services: ACO Automation
+  statement {
+    sid    = "AcoAutomationUpdateEnrollmentConfiguration"
+    effect = "Allow"
+    actions = [
+      "aco-automation:UpdateEnrollmentConfiguration",
     ]
     resources = [
       "*",

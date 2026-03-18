@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.35" # x-release-please-version
+  TemplateVersion: "0.1.37" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -69,6 +69,18 @@ Resources:
               - s3:GetBucketLocation
               - s3:GetLifecycleConfiguration
               - s3:GetIntelligentTieringConfiguration
+              - s3:GetBucketLogging
+            Resource: "*"
+          # OpenSearch/Elasticsearch - Domain discovery for cost analysis (es: prefix covers all managed domains)
+          # Services: Amazon OpenSearch Service
+          - Sid: OpenSearchDomainDiscovery
+            Effect: Allow
+            Action:
+              - es:DescribeDomain
+              - es:DescribeDomains
+              - es:DescribeDomainConfig
+              - es:ListDomainNames
+              - es:ListTags
             Resource: "*"
           # Pricing API - Full read access for cost calculations
           # Services: Pricing
@@ -110,7 +122,7 @@ Resources:
               - cloudformation:DescribeStackEvents
               - cloudformation:DescribeStackResources
             Resource: "*"
-          # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
           # Services: Trusted Advisor
           - Sid: TrustedAdvisorRead
             Effect: Allow
@@ -139,6 +151,13 @@ Resources:
             Effect: Allow
             Action:
               - cost-optimization-hub:*
+            Resource: "*"
+          # ACO Automation - Update enrollment configuration for Compute Optimizer
+          # Services: ACO Automation
+          - Sid: AcoAutomationUpdateEnrollmentConfiguration
+            Effect: Allow
+            Action:
+              - aco-automation:UpdateEnrollmentConfiguration
             Resource: "*"
 
   # ============================================================================

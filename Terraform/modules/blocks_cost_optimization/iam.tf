@@ -181,11 +181,8 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     sid    = "DataExportsWrite"
     effect = "Allow"
     actions = [
-      "bcm-data-exports:CreateExport",
-      "bcm-data-exports:UpdateExport",
-      "bcm-data-exports:DeleteExport",
-      "bcm-data-exports:TagResource",
-      "bcm-data-exports:UntagResource",
+      "bcm-data-exports:*",
+      "cur:*",
     ]
     resources = [
       "*",
@@ -398,17 +395,13 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
   }
 
-  # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+  # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
   # Services: Trusted Advisor
   statement {
     sid    = "TrustedAdvisorRead"
     effect = "Allow"
     actions = [
-      "trustedadvisor:Describe*",
-      "trustedadvisor:List*",
-      "trustedadvisor:Get*",
-      "trustedadvisor:RefreshCheck",
-      "trustedadvisor:SetOrganizationAccess",
+      "trustedadvisor:*",
     ]
     resources = [
       "*",
@@ -424,6 +417,45 @@ data "aws_iam_policy_document" "blocks_custom_read" {
       "support:DescribeTrustedAdvisorChecks",
       "support:DescribeTrustedAdvisorCheckResult",
       "support:DescribeTrustedAdvisorCheckSummaries",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+  # Services: Compute Optimizer
+  statement {
+    sid    = "ComputeOptimizerRead"
+    effect = "Allow"
+    actions = [
+      "compute-optimizer:*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+  # Services: Cost Optimization Hub
+  statement {
+    sid    = "CostOptimizationHubRead"
+    effect = "Allow"
+    actions = [
+      "cost-optimization-hub:*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # ACO Automation - Update enrollment configuration for Compute Optimizer
+  # Services: ACO Automation
+  statement {
+    sid    = "AcoAutomationUpdateEnrollmentConfiguration"
+    effect = "Allow"
+    actions = [
+      "aco-automation:UpdateEnrollmentConfiguration",
     ]
     resources = [
       "*",

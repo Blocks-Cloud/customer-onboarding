@@ -102,6 +102,29 @@ Resources:
           Id: "BlocksCustomerEventBus"
           RoleArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEventBridgeCrossAccountRole-${BlocksCustomerId}"
 
+  # EventBridge Rule: Forward Blocks CloudWatch alarm state changes to Blocks (all accounts, all regions)
+  BlocksAlarmStateChangeForwardingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "blocks-alarm-forwarding-${BlocksCustomerId}"
+      Description: "Forwards Blocks CloudWatch alarm state changes to Blocks for incident detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - "CloudWatch Alarm State Change"
+        detail:
+          alarmName:
+            - prefix: "Blocks-"
+          state:
+            value:
+              - ALARM
+              - INSUFFICIENT_DATA
+      Targets:
+        - Arn: !Ref BlocksEventBusArn
+          Id: "BlocksCustomerEventBusAlarms"
+          RoleArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEventBridgeCrossAccountRole-${BlocksCustomerId}"
+
 Outputs:
   BlocksCloudTrailForwardingRuleName:
     Description: "Name of the EventBridge rule forwarding CloudTrail events to Blocks"
@@ -109,3 +132,9 @@ Outputs:
   BlocksCloudTrailForwardingRuleArn:
     Description: "ARN of the EventBridge rule"
     Value: !GetAtt BlocksCloudTrailForwardingRule.Arn
+  BlocksAlarmStateChangeForwardingRuleName:
+    Description: "Name of the EventBridge rule forwarding CloudWatch alarm state changes to Blocks"
+    Value: !Ref BlocksAlarmStateChangeForwardingRule
+  BlocksAlarmStateChangeForwardingRuleArn:
+    Description: "ARN of the alarm state change forwarding rule"
+    Value: !GetAtt BlocksAlarmStateChangeForwardingRule.Arn

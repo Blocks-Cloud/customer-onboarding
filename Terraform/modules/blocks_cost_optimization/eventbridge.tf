@@ -219,3 +219,34 @@ resource "aws_cloudwatch_event_target" "blocks_cloudtrail_forwarding" {
   # The event pattern filter already limits forwarded events to management write calls
   # with no errors, so only matching CloudTrail metadata crosses the account boundary.
 }
+
+############################
+# EventBridge Alarm State Change Forwarding Rule
+############################
+
+resource "aws_cloudwatch_event_rule" "blocks_alarm_state_forwarding" {
+  name        = "blocks-alarm-forwarding-${var.customer_resource_id}"
+  description = "Forwards Blocks CloudWatch alarm state changes to Blocks for incident detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
+
+  event_pattern = jsonencode({
+    source      = ["aws.cloudwatch"]
+    detail-type = ["CloudWatch Alarm State Change"]
+    detail = {
+      alarmName = [{ prefix = "Blocks-" }]
+      state = {
+        value = ["ALARM", "INSUFFICIENT_DATA"]
+      }
+    }
+  })
+
+  tags = merge(local.common_tags, {
+    Purpose = "EventForwarding"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "blocks_alarm_state_forwarding" {
+  rule      = aws_cloudwatch_event_rule.blocks_alarm_state_forwarding.name
+  target_id = "BlocksCustomerEventBusAlarms"
+  arn       = local.blocks_event_bus_arn
+  role_arn  = aws_iam_role.blocks_event_bridge_cross_account_role.arn
+}

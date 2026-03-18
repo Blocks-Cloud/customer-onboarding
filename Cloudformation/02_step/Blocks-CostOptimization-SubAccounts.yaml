@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.35" # x-release-please-version
+  TemplateVersion: "0.1.37" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -202,7 +202,7 @@ Resources:
             Action:
               - ce:StartSavingsPlansPurchaseRecommendationGeneration
             Resource: "*"
-          # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
           # Services: Trusted Advisor
           - Sid: TrustedAdvisorRead
             Effect: Allow
@@ -218,8 +218,8 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-            # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
-            # Services: Compute Optimizer
+          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Services: Compute Optimizer
           - Sid: ComputeOptimizerRead
             Effect: Allow
             Action:
@@ -231,6 +231,13 @@ Resources:
             Effect: Allow
             Action:
               - cost-optimization-hub:*
+            Resource: "*"
+          # ACO Automation - Update enrollment configuration for Compute Optimizer
+          # Services: ACO Automation
+          - Sid: AcoAutomationUpdateEnrollmentConfiguration
+            Effect: Allow
+            Action:
+              - aco-automation:UpdateEnrollmentConfiguration
             Resource: "*"
 
   # ============================================================================

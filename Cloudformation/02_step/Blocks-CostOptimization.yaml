@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.35" # x-release-please-version
+  TemplateVersion: "0.1.37" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.35" # x-release-please-version
+      Version: "0.1.37" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -83,6 +83,7 @@ Resources:
                     "iam:AWSServiceName":
                       - "cost-optimization-hub.bcm.amazonaws.com"
                       - "compute-optimizer.amazonaws.com"
+                      - "stacksets.cloudformation.amazonaws.com"
                       - "member.org.stacksets.cloudformation.amazonaws.com"
               # iam:GetRole on StackSets service-linked role (required by ActivateOrganizationsAccess)
               - Effect: Allow
@@ -287,7 +288,7 @@ Resources:
 
           def enable_stacksets(orgs, cfn, max_retries=12):
               """Enable StackSets trusted access with AWS Organizations."""
-              # Step 1: Enable Organizations service access (idempotent — catches ClientError)
+              # Step 1: Enable Organizations service access (idempotent, catches ClientError)
               try:
                   orgs.enable_aws_service_access(ServicePrincipal='member.org.stacksets.cloudformation.amazonaws.com')
                   print("Enabled AWS Organizations Service Access for CloudFormation StackSets")
@@ -862,7 +863,7 @@ Resources:
               - bcm-data-exports:ListTables
               - bcm-data-exports:ListTagsForResource
             Resource: "*"
-          # Trusted Advisor - New API read access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
           # Services: Trusted Advisor
           - Sid: TrustedAdvisorRead
             Effect: Allow
@@ -891,6 +892,13 @@ Resources:
             Effect: Allow
             Action:
               - cost-optimization-hub:*
+            Resource: "*"
+          # ACO Automation - Update enrollment configuration for Compute Optimizer
+          # Services: ACO Automation
+          - Sid: AcoAutomationUpdateEnrollmentConfiguration
+            Effect: Allow
+            Action:
+              - aco-automation:UpdateEnrollmentConfiguration
             Resource: "*"
 
   # ============================================================================
@@ -1372,6 +1380,31 @@ Resources:
       Targets:
         - Arn: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
           Id: "BlocksCustomerEventBus"
+          RoleArn: !GetAtt BlocksEventBridgeCrossAccountRole.Arn
+
+  BlocksAlarmStateChangeForwardingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "blocks-alarm-forwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: >-
+        Forwards Blocks CloudWatch alarm state changes to Blocks for incident
+        detection. Used by Blocks.cloud - must remain in place for Blocks to
+        function correctly. Email support@blocks.cloud for assistance.
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - "CloudWatch Alarm State Change"
+        detail:
+          alarmName:
+            - prefix: "Blocks-"
+          state:
+            value:
+              - ALARM
+              - INSUFFICIENT_DATA
+      Targets:
+        - Arn: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
+          Id: "BlocksCustomerEventBusAlarms"
           RoleArn: !GetAtt BlocksEventBridgeCrossAccountRole.Arn
 
   # StackSet: Deploy EventBridge forwarding rule to all member accounts across all default regions
