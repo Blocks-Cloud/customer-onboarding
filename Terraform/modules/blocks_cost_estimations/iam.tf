@@ -30,6 +30,7 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     effect = "Allow"
     actions = [
       "ce:StartCommitmentPurchaseAnalysis",
+      "ce:ListCommitmentPurchaseAnalyses",
       "ce:StartSavingsPlansPurchaseRecommendationGeneration",
       "ce:ListSavingsPlansPurchaseRecommendationGeneration",
       "ce:GetSavingsPlansPurchaseRecommendation",
