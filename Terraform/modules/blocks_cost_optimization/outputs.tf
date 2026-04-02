@@ -70,7 +70,7 @@ output "event_forwarding_role_arn" {
 }
 
 output "cloudtrail_forwarding_rule_arn" {
-  description = "ARN of the blocks-cloudtrail-forwarding EventBridge rule (management account, us-east-1)"
+  description = "ARN of the BlocksCloudTrailForwarding EventBridge rule (management account, us-east-1)"
   value       = aws_cloudwatch_event_rule.blocks_cloudtrail_forwarding.arn
 }
 

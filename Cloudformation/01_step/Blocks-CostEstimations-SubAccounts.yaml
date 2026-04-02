@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.39" # x-release-please-version
+  TemplateVersion: "0.1.50" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -23,7 +23,6 @@ Parameters:
   ExternalId:
     Type: String
     Description: "External ID for secure cross-account role assumption"
-    NoEcho: true
 
 Resources:
   # ==== BEGIN GENERATED IAM POLICIES ====
@@ -100,6 +99,13 @@ Resources:
               - eks:ListClusters
               - eks:DescribeCluster
             Resource: "*"
+          # ECR - Lifecycle policy discovery for container cost analysis
+          # Services: ECR
+          - Sid: ECRLifecyclePolicyDiscovery
+            Effect: Allow
+            Action:
+              - ecr:GetLifecyclePolicy
+            Resource: "*"
           # ELB - Listener rule discovery for load balancer analysis
           # Services: Elastic Load Balancing
           - Sid: LoadBalancerRulesDiscovery
@@ -123,12 +129,13 @@ Resources:
               - cloudformation:DescribeStackEvents
               - cloudformation:DescribeStackResources
             Resource: "*"
-          # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Trusted Advisor - Read-only access (Get/List) for cost optimization recommendations
           # Services: Trusted Advisor
-          - Sid: TrustedAdvisorRead
+          - Sid: TrustedAdvisorReadOnly
             Effect: Allow
             Action:
-              - trustedadvisor:*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
             Resource: "*"
           # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
           # Services: Support
@@ -139,26 +146,28 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Compute Optimizer - Get-only read access for rightsizing and resource optimization recommendations
           # Services: Compute Optimizer
-          - Sid: ComputeOptimizerRead
+          - Sid: ComputeOptimizerGetRead
             Effect: Allow
             Action:
-              - compute-optimizer:*
+              - compute-optimizer:Get*
             Resource: "*"
-          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Cost Optimization Hub - Read-only access (Get/List) for centralized cost optimization recommendations
           # Services: Cost Optimization Hub
-          - Sid: CostOptimizationHubRead
+          - Sid: CostOptimizationHubReadOnly
             Effect: Allow
             Action:
-              - cost-optimization-hub:*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
             Resource: "*"
-          # ACO Automation - Update enrollment configuration for Compute Optimizer
-          # Services: ACO Automation
-          - Sid: AcoAutomationUpdateEnrollmentConfiguration
+          # Application Auto Scaling - Scalable targets and scaling policy discovery for rightsizing analysis
+          # Services: Application Auto Scaling
+          - Sid: ApplicationAutoScalingDiscovery
             Effect: Allow
             Action:
-              - aco-automation:UpdateEnrollmentConfiguration
+              - application-autoscaling:DescribeScalableTargets
+              - application-autoscaling:DescribeScalingPolicies
             Resource: "*"
 
   # ============================================================================
@@ -359,7 +368,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Ref BlocksEstimationsDataProtectionPolicy
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Ref BlocksEstimationsCustomReadPolicy
 

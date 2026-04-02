@@ -25,6 +25,7 @@ resource "terraform_data" "notify_blocks_deployment" {
     read_role_arn             = aws_iam_role.blocks_read_role.arn
     majortom_read_role_arn    = aws_iam_role.majortom_read_role.arn
     blocks_optimization_ou_id = try(aws_organizations_organizational_unit.blocks_optimization[0].id, "")
+    internal                  = var.internal
   }
 
   triggers_replace = local.base_notification_triggers
@@ -69,7 +70,8 @@ resource "terraform_data" "notify_blocks_deployment" {
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
           "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
-          "status": "CREATE_COMPLETE"
+          "status": "CREATE_COMPLETE",
+          "internal": ${var.internal}
         }' \
         --region us-east-1
 
@@ -113,7 +115,8 @@ resource "terraform_data" "notify_blocks_deployment" {
           "majorTomReadRoleArn": "${self.input.majortom_read_role_arn}",
           "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
           "step": "2",
-          "status": "DELETE_COMPLETE"
+          "status": "DELETE_COMPLETE",
+          "internal": ${self.input.internal}
         }' \
         --region us-east-1 || true
 
@@ -139,7 +142,7 @@ resource "terraform_data" "notify_blocks_deployment" {
 # Member accounts get multi-region coverage via the EventForwarding StackSet
 
 resource "aws_cloudwatch_event_rule" "blocks_cloudtrail_forwarding" {
-  name        = "blocks-cloudtrail-forwarding-${var.customer_resource_id}"
+  name        = "BlocksCloudTrailForwarding-${var.customer_resource_id}"
   description = "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
 
   event_pattern = jsonencode({
@@ -225,7 +228,7 @@ resource "aws_cloudwatch_event_target" "blocks_cloudtrail_forwarding" {
 ############################
 
 resource "aws_cloudwatch_event_rule" "blocks_alarm_state_forwarding" {
-  name        = "blocks-alarm-forwarding-${var.customer_resource_id}"
+  name        = "BlocksAlarmForwarding-${var.customer_resource_id}"
   description = "Forwards Blocks CloudWatch alarm state changes to Blocks for incident detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
 
   event_pattern = jsonencode({
@@ -234,7 +237,7 @@ resource "aws_cloudwatch_event_rule" "blocks_alarm_state_forwarding" {
     detail = {
       alarmName = [{ prefix = "Blocks-" }]
       state = {
-        value = ["ALARM", "INSUFFICIENT_DATA"]
+        value = ["ALARM", "INSUFFICIENT_DATA", "OK"]
       }
     }
   })

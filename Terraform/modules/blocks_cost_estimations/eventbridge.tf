@@ -17,6 +17,7 @@ resource "terraform_data" "notify_blocks" {
     customer_resource_id  = var.customer_resource_id
     external_id           = var.external_id
     read_role_arn         = aws_iam_role.blocks_estimations_read_role.arn
+    internal              = var.internal
     account_type          = local.is_management_account ? "management" : "non_management"
     stackset_deployed     = local.is_management_account && local.deploy_stackset ? "true" : "false"
     organization_root_id  = local.organization_root_id != null ? local.organization_root_id : ""
@@ -64,6 +65,7 @@ resource "terraform_data" "notify_blocks" {
           "organizationRootId": "${local.organization_root_id != null ? local.organization_root_id : ""}",
           "managementAccountId": "${local.management_account_id != null ? local.management_account_id : ""}",
           "step": "1",
+          "internal": ${var.internal},
           "status": "CREATE_COMPLETE"
         }' \
         --region us-east-1
@@ -109,6 +111,7 @@ resource "terraform_data" "notify_blocks" {
           "organizationRootId": "${self.input.organization_root_id}",
           "managementAccountId": "${self.input.management_account_id}",
           "step": "1",
+          "internal": ${self.input.internal},
           "status": "DELETE_COMPLETE"
         }' \
         --region us-east-1 || true

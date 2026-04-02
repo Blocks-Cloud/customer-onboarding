@@ -105,6 +105,19 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
+  # ECR - Lifecycle policy discovery for container cost analysis
+  # Services: ECR
+  statement {
+    sid    = "ECRLifecyclePolicyDiscovery"
+    effect = "Allow"
+    actions = [
+      "ecr:GetLifecyclePolicy",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # ELB - Listener rule discovery for load balancer analysis
   # Services: Elastic Load Balancing
   statement {
@@ -146,13 +159,14 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
+  # Trusted Advisor - Read-only access (Get/List) for cost optimization recommendations
   # Services: Trusted Advisor
   statement {
-    sid    = "TrustedAdvisorRead"
+    sid    = "TrustedAdvisorReadOnly"
     effect = "Allow"
     actions = [
-      "trustedadvisor:*",
+      "trustedadvisor:Get*",
+      "trustedadvisor:List*",
     ]
     resources = [
       "*",
@@ -174,39 +188,41 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+  # Compute Optimizer - Get-only read access for rightsizing and resource optimization recommendations
   # Services: Compute Optimizer
   statement {
-    sid    = "ComputeOptimizerRead"
+    sid    = "ComputeOptimizerGetRead"
     effect = "Allow"
     actions = [
-      "compute-optimizer:*",
+      "compute-optimizer:Get*",
     ]
     resources = [
       "*",
     ]
   }
 
-  # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+  # Cost Optimization Hub - Read-only access (Get/List) for centralized cost optimization recommendations
   # Services: Cost Optimization Hub
   statement {
-    sid    = "CostOptimizationHubRead"
+    sid    = "CostOptimizationHubReadOnly"
     effect = "Allow"
     actions = [
-      "cost-optimization-hub:*",
+      "cost-optimization-hub:Get*",
+      "cost-optimization-hub:List*",
     ]
     resources = [
       "*",
     ]
   }
 
-  # ACO Automation - Update enrollment configuration for Compute Optimizer
-  # Services: ACO Automation
+  # Application Auto Scaling - Scalable targets and scaling policy discovery for rightsizing analysis
+  # Services: Application Auto Scaling
   statement {
-    sid    = "AcoAutomationUpdateEnrollmentConfiguration"
+    sid    = "ApplicationAutoScalingDiscovery"
     effect = "Allow"
     actions = [
-      "aco-automation:UpdateEnrollmentConfiguration",
+      "application-autoscaling:DescribeScalableTargets",
+      "application-autoscaling:DescribeScalingPolicies",
     ]
     resources = [
       "*",
@@ -533,7 +549,6 @@ resource "aws_iam_role_policy_attachment" "blocks_estimations_read_role_managed"
   for_each = toset([
     "arn:${local.partition}:iam::aws:policy/job-function/ViewOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
-    "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",

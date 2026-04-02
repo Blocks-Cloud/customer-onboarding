@@ -14,7 +14,7 @@ resource "aws_cloudformation_stack_set" "cost_estimations" {
   permission_model = "SERVICE_MANAGED"
 
   auto_deployment {
-    enabled                          = true
+    enabled                          = false
     retain_stacks_on_account_removal = false
   }
 

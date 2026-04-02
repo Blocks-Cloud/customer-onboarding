@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.39" # x-release-please-version
+  TemplateVersion: "0.1.50" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.39" # x-release-please-version
+      Version: "0.1.50" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -28,7 +28,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: "EnableStackSetsLambdaRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Used by Blocks.cloud to enable StackSets trusted access. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      Description: "Execution role for the Lambda that deploys read-only cost analysis roles across your organization accounts. Grants permissions for AWS CloudFormation StackSets and AWS Organizations service integration."
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -59,7 +59,6 @@ Resources:
                   - cloudformation:DescribeStackSet
                   - cloudformation:DescribeStackSetOperation
                   - cloudformation:ListStackInstances
-                  - cloudformation:UpdateStackSet
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -70,10 +69,6 @@ Resources:
                   - organizations:ListDelegatedAdministrators
                   - organizations:RegisterDelegatedAdministrator
                   - organizations:DescribeOrganizationalUnit
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -90,7 +85,7 @@ Resources:
   EnableStackSetsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      Description: "Lambda function to enable StackSets trusted access and manage StackSet deployment"
+      Description: "Used by Blocks.cloud to deploy read-only cost analysis roles across your organization accounts via the AWS CloudFormation StackSets feature. This function runs only during stack creation, update, or deletion."
       FunctionName: EnableStackSets-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
       Runtime: python3.11
       Handler: index.handler
@@ -209,8 +204,8 @@ Resources:
                       return ('standalone', None, None, None)
                   raise
 
-          def create_or_update_stackset(cfn, org_root_id):
-              """Create or update StackSet via boto3."""
+          def create_stackset(cfn, org_root_id):
+              """Create StackSet via boto3."""
               stackset_name = os.environ['STACKSET_NAME']
               template_url = os.environ['TEMPLATE_URL']
 
@@ -220,54 +215,43 @@ Resources:
                   {'ParameterKey': 'ExternalId', 'ParameterValue': os.environ['EXTERNAL_ID']},
               ]
 
-              try:
-                  cfn.describe_stack_set(StackSetName=stackset_name, CallAs='SELF')
-                  print(f"StackSet {stackset_name} exists, updating...")
-                  cfn.update_stack_set(
+              print(f"Creating StackSet {stackset_name}...")
+              cfn.create_stack_set(
+                  StackSetName=stackset_name,
+                  Description="Blocks read-only IAM role for organization-wide cost analysis. Must remain in place for Blocks to function correctly.",
+                  TemplateURL=template_url,
+                  Parameters=params,
+                  PermissionModel='SERVICE_MANAGED',
+                  AutoDeployment={'Enabled': False},
+                  Capabilities=['CAPABILITY_NAMED_IAM'],
+                  CallAs='SELF',
+              )
+              operation = cfn.create_stack_instances(
+                  StackSetName=stackset_name,
+                  DeploymentTargets={'OrganizationalUnitIds': [org_root_id]},
+                  Regions=['us-east-1'],
+                  OperationPreferences={
+                      'FailureTolerancePercentage': 0,
+                      'MaxConcurrentPercentage': 100,
+                      'RegionConcurrencyType': 'PARALLEL',
+                      'ConcurrencyMode': 'SOFT_FAILURE_TOLERANCE'
+                  },
+                  CallAs='SELF',
+              )
+              # Wait for stack instances deployment to complete
+              operation_id = operation['OperationId']
+              print(f"Waiting for StackSet operation {operation_id} to complete...")
+              for _ in range(60):  # Max 30 minutes (60 * 30s)
+                  status = cfn.describe_stack_set_operation(
                       StackSetName=stackset_name,
-                      TemplateURL=template_url,
-                      Parameters=params,
-                      Capabilities=['CAPABILITY_NAMED_IAM'],
-                      CallAs='SELF',
-                  )
-              except cfn.exceptions.StackSetNotFoundException:
-                  print(f"Creating StackSet {stackset_name}...")
-                  cfn.create_stack_set(
-                      StackSetName=stackset_name,
-                      Description="Blocks read-only IAM role for organization-wide cost analysis. Must remain in place for Blocks to function correctly.",
-                      TemplateURL=template_url,
-                      Parameters=params,
-                      PermissionModel='SERVICE_MANAGED',
-                      AutoDeployment={'Enabled': True, 'RetainStacksOnAccountRemoval': False},
-                      Capabilities=['CAPABILITY_NAMED_IAM'],
-                      CallAs='SELF',
-                  )
-                  operation = cfn.create_stack_instances(
-                      StackSetName=stackset_name,
-                      DeploymentTargets={'OrganizationalUnitIds': [org_root_id]},
-                      Regions=['us-east-1'],
-                      OperationPreferences={
-                          'FailureTolerancePercentage': 0,
-                          'MaxConcurrentPercentage': 100,
-                          'RegionConcurrencyType': 'PARALLEL',
-                          'ConcurrencyMode': 'SOFT_FAILURE_TOLERANCE'
-                      },
-                      CallAs='SELF',
-                  )
-                  # Wait for stack instances deployment to complete
-                  operation_id = operation['OperationId']
-                  print(f"Waiting for StackSet operation {operation_id} to complete...")
-                  for _ in range(60):  # Max 30 minutes (60 * 30s)
-                      status = cfn.describe_stack_set_operation(
-                          StackSetName=stackset_name,
-                          OperationId=operation_id,
-                          CallAs='SELF'
-                      )['StackSetOperation']['Status']
-                      if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
-                          break
-                      time.sleep(30)
-                  if status != 'SUCCEEDED':
-                      raise Exception(f"StackSet operation {operation_id} ended with status: {status}")
+                      OperationId=operation_id,
+                      CallAs='SELF'
+                  )['StackSetOperation']['Status']
+                  if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
+                      break
+                  time.sleep(30)
+              if status != 'SUCCEEDED':
+                  raise Exception(f"StackSet operation {operation_id} ended with status: {status}")
               print(f"StackSet {stackset_name} deployed to org root {org_root_id}")
 
           def delete_stackset(cfn):
@@ -313,7 +297,7 @@ Resources:
                           enable_coh(orgs)
                           enable_compute_optimizer(orgs)
                           enable_stacksets(orgs, cfn)
-                          create_or_update_stackset(cfn, org_root_id)
+                          create_stackset(cfn, org_root_id)
                           response_data['OrganizationRootId'] = org_root_id
                           response_data['StackSetDeployed'] = 'true'
                       else:
@@ -344,6 +328,7 @@ Resources:
     Type: Custom::EnableStackSets
     Properties:
       ServiceToken: !GetAtt EnableStackSetsLambda.Arn
+      ServiceTimeout: 900
 
   # ==== BEGIN GENERATED IAM POLICIES ====
   # Source: iam-policies/policies/
@@ -419,6 +404,13 @@ Resources:
               - eks:ListClusters
               - eks:DescribeCluster
             Resource: "*"
+          # ECR - Lifecycle policy discovery for container cost analysis
+          # Services: ECR
+          - Sid: ECRLifecyclePolicyDiscovery
+            Effect: Allow
+            Action:
+              - ecr:GetLifecyclePolicy
+            Resource: "*"
           # ELB - Listener rule discovery for load balancer analysis
           # Services: Elastic Load Balancing
           - Sid: LoadBalancerRulesDiscovery
@@ -442,12 +434,13 @@ Resources:
               - cloudformation:DescribeStackEvents
               - cloudformation:DescribeStackResources
             Resource: "*"
-          # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
+          # Trusted Advisor - Read-only access (Get/List) for cost optimization recommendations
           # Services: Trusted Advisor
-          - Sid: TrustedAdvisorRead
+          - Sid: TrustedAdvisorReadOnly
             Effect: Allow
             Action:
-              - trustedadvisor:*
+              - trustedadvisor:Get*
+              - trustedadvisor:List*
             Resource: "*"
           # Trusted Advisor - Legacy API read access (requires Business/Enterprise support plan, fails gracefully on Basic/Developer plans)
           # Services: Support
@@ -458,26 +451,28 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Compute Optimizer - Get-only read access for rightsizing and resource optimization recommendations
           # Services: Compute Optimizer
-          - Sid: ComputeOptimizerRead
+          - Sid: ComputeOptimizerGetRead
             Effect: Allow
             Action:
-              - compute-optimizer:*
+              - compute-optimizer:Get*
             Resource: "*"
-          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Cost Optimization Hub - Read-only access (Get/List) for centralized cost optimization recommendations
           # Services: Cost Optimization Hub
-          - Sid: CostOptimizationHubRead
+          - Sid: CostOptimizationHubReadOnly
             Effect: Allow
             Action:
-              - cost-optimization-hub:*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
             Resource: "*"
-          # ACO Automation - Update enrollment configuration for Compute Optimizer
-          # Services: ACO Automation
-          - Sid: AcoAutomationUpdateEnrollmentConfiguration
+          # Application Auto Scaling - Scalable targets and scaling policy discovery for rightsizing analysis
+          # Services: Application Auto Scaling
+          - Sid: ApplicationAutoScalingDiscovery
             Effect: Allow
             Action:
-              - aco-automation:UpdateEnrollmentConfiguration
+              - application-autoscaling:DescribeScalableTargets
+              - application-autoscaling:DescribeScalingPolicies
             Resource: "*"
 
   # ============================================================================
@@ -681,7 +676,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Ref BlocksEstimationsDataProtectionPolicy
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
@@ -754,6 +748,7 @@ Resources:
                   "readRoleArn": "${BlocksEstimationsReadRole.Arn}",
                   "externalId": "{{EXTERNAL_ID}}",
                   "step": "1",
+                  "internal": {{INTERNAL}},
                   "accountType": "${EnableStackSets.AccountType}",
                   "stackSetDeployed": "${EnableStackSets.StackSetDeployed}",
                   "organizationRootId": "${EnableStackSets.OrganizationRootId}",

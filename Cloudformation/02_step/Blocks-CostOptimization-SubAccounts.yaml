@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.39" # x-release-please-version
+  TemplateVersion: "0.1.50" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -23,7 +23,6 @@ Parameters:
   ExternalId:
     Type: String
     Description: "External ID for secure cross-account role assumption"
-    NoEcho: true
 
   BlocksEventBusArn:
     Type: String
@@ -204,7 +203,7 @@ Resources:
             Resource: "*"
           # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
           # Services: Trusted Advisor
-          - Sid: TrustedAdvisorRead
+          - Sid: TrustedAdvisorFullRead
             Effect: Allow
             Action:
               - trustedadvisor:*
@@ -218,16 +217,16 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Compute Optimizer - Full access for rightsizing and resource optimization recommendations
           # Services: Compute Optimizer
-          - Sid: ComputeOptimizerRead
+          - Sid: ComputeOptimizerFullAccess
             Effect: Allow
             Action:
               - compute-optimizer:*
             Resource: "*"
-          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Cost Optimization Hub - Full access for centralized cost optimization recommendations across accounts
           # Services: Cost Optimization Hub
-          - Sid: CostOptimizationHubRead
+          - Sid: CostOptimizationHubFullAccess
             Effect: Allow
             Action:
               - cost-optimization-hub:*
@@ -444,7 +443,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
@@ -485,9 +483,8 @@ Resources:
         # Read permissions - using AWS managed policies for broad coverage
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        # Additional AWS managed policies not covered by ViewOnlyAccess
+        # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
@@ -528,9 +525,8 @@ Resources:
         # Read permissions - using AWS managed policies for broad coverage
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        # Additional AWS managed policies not covered by ViewOnlyAccess
+        # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy

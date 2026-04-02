@@ -316,6 +316,21 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
+  # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery
+  # Services: CloudTrail
+  statement {
+    sid    = "CloudTrailOrgTrailManagement"
+    effect = "Allow"
+    actions = [
+      "cloudtrail:CreateTrail",
+      "cloudtrail:StartLogging",
+      "cloudtrail:UpdateTrail",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_write" {
@@ -398,7 +413,7 @@ data "aws_iam_policy_document" "blocks_custom_read" {
   # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
   # Services: Trusted Advisor
   statement {
-    sid    = "TrustedAdvisorRead"
+    sid    = "TrustedAdvisorFullRead"
     effect = "Allow"
     actions = [
       "trustedadvisor:*",
@@ -423,10 +438,10 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
   }
 
-  # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+  # Compute Optimizer - Full access for rightsizing and resource optimization recommendations
   # Services: Compute Optimizer
   statement {
-    sid    = "ComputeOptimizerRead"
+    sid    = "ComputeOptimizerFullAccess"
     effect = "Allow"
     actions = [
       "compute-optimizer:*",
@@ -436,10 +451,10 @@ data "aws_iam_policy_document" "blocks_custom_read" {
     ]
   }
 
-  # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+  # Cost Optimization Hub - Full access for centralized cost optimization recommendations across accounts
   # Services: Cost Optimization Hub
   statement {
-    sid    = "CostOptimizationHubRead"
+    sid    = "CostOptimizationHubFullAccess"
     effect = "Allow"
     actions = [
       "cost-optimization-hub:*",
@@ -770,7 +785,6 @@ resource "aws_iam_role_policy_attachment" "blocks_execution_managed" {
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansFullAccess",
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
     # Additional AWS managed policies not covered by ReadOnlyAccess
-    "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/SecurityAudit"
   ])
@@ -811,7 +825,6 @@ resource "aws_iam_role_policy_attachment" "blocks_read_managed" {
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
     # Additional AWS managed policies not covered by ReadOnlyAccess
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
-    "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/SecurityAudit"
   ])
@@ -851,7 +864,6 @@ resource "aws_iam_role_policy_attachment" "majortom_read_managed" {
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
     # Additional AWS managed policies not covered by ReadOnlyAccess
     "arn:${local.partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess",
-    "arn:${local.partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/SecurityAudit"
   ])

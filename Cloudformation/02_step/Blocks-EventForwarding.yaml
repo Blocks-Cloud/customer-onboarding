@@ -30,7 +30,7 @@ Resources:
   BlocksCloudTrailForwardingRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "blocks-cloudtrail-forwarding-${BlocksCustomerId}"
+      Name: !Sub "BlocksCloudTrailForwarding-${BlocksCustomerId}"
       Description: "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
       EventPattern:
         source:
@@ -106,7 +106,7 @@ Resources:
   BlocksAlarmStateChangeForwardingRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "blocks-alarm-forwarding-${BlocksCustomerId}"
+      Name: !Sub "BlocksAlarmForwarding-${BlocksCustomerId}"
       Description: "Forwards Blocks CloudWatch alarm state changes to Blocks for incident detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
       EventPattern:
         source:
@@ -120,6 +120,7 @@ Resources:
             value:
               - ALARM
               - INSUFFICIENT_DATA
+              - OK
       Targets:
         - Arn: !Ref BlocksEventBusArn
           Id: "BlocksCustomerEventBusAlarms"

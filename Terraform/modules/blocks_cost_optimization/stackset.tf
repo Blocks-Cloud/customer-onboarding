@@ -131,7 +131,7 @@ resource "aws_cloudformation_stack_set" "event_forwarding" {
   }
 
   operation_preferences {
-    failure_tolerance_percentage = 100
+    failure_tolerance_percentage = 10
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
   }
@@ -163,7 +163,7 @@ resource "aws_cloudformation_stack_instances" "event_forwarding" {
   }
 
   operation_preferences {
-    failure_tolerance_percentage = 100
+    failure_tolerance_percentage = 10
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
     concurrency_mode             = "SOFT_FAILURE_TOLERANCE"

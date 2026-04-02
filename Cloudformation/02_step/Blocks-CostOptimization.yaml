@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.39" # x-release-please-version
+  TemplateVersion: "0.1.50" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.39" # x-release-please-version
+      Version: "0.1.50" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -87,10 +87,6 @@ Resources:
                 Action:
                   - cloudformation:DescribeOrganizationsAccess
                   - cloudformation:ActivateOrganizationsAccess
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
                 Resource: "*"
               # Permissions for deleting Step 1 stack
               - Effect: Allow
@@ -553,6 +549,7 @@ Resources:
               - config:StopConfigurationRecorder
               - cloudtrail:DeleteTrail
               - cloudtrail:StopLogging
+              - cloudtrail:UpdateTrail
               - securityhub:DisableSecurityHub
             Resource: "*"
             Condition:
@@ -798,6 +795,15 @@ Resources:
               - s3:PutLifecycleConfiguration
               - s3:PutBucketOwnershipControls
             Resource: "arn:aws:s3:::blocks-cur-data-*"
+          # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery
+          # Services: CloudTrail
+          - Sid: CloudTrailOrgTrailManagement
+            Effect: Allow
+            Action:
+              - cloudtrail:CreateTrail
+              - cloudtrail:StartLogging
+              - cloudtrail:UpdateTrail
+            Resource: "*"
 
   # IAM Policy: Custom Read Permissions
   # Custom read permissions for Blocks cost optimization not covered by AWS managed policies
@@ -850,7 +856,7 @@ Resources:
             Resource: "*"
           # Trusted Advisor - Full access for cost optimization, security, and performance recommendations (available to all accounts)
           # Services: Trusted Advisor
-          - Sid: TrustedAdvisorRead
+          - Sid: TrustedAdvisorFullRead
             Effect: Allow
             Action:
               - trustedadvisor:*
@@ -864,16 +870,16 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-          # Compute Optimizer - Full read access for rightsizing and resource optimization recommendations
+          # Compute Optimizer - Full access for rightsizing and resource optimization recommendations
           # Services: Compute Optimizer
-          - Sid: ComputeOptimizerRead
+          - Sid: ComputeOptimizerFullAccess
             Effect: Allow
             Action:
               - compute-optimizer:*
             Resource: "*"
-          # Cost Optimization Hub - Full read access for centralized cost optimization recommendations across accounts
+          # Cost Optimization Hub - Full access for centralized cost optimization recommendations across accounts
           # Services: Cost Optimization Hub
-          - Sid: CostOptimizationHubRead
+          - Sid: CostOptimizationHubFullAccess
             Effect: Allow
             Action:
               - cost-optimization-hub:*
@@ -1093,7 +1099,6 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
@@ -1134,9 +1139,8 @@ Resources:
         # Read permissions - using AWS managed policies for broad coverage
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        # Additional AWS managed policies not covered by ViewOnlyAccess
+        # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
@@ -1177,9 +1181,8 @@ Resources:
         # Read permissions - using AWS managed policies for broad coverage
         - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
-        # Additional AWS managed policies not covered by ViewOnlyAccess
+        # Additional AWS managed policies not covered by ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ComputeOptimizerReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Ref BlocksDataProtectionPolicy
@@ -1254,7 +1257,8 @@ Resources:
                   "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
                   "blocksOptimizationOUId": "${BlocksOptimizationOU}",
                   "externalId": "{{EXTERNAL_ID}}",
-                  "step": "2"
+                  "step": "2",
+                  "internal": {{INTERNAL}}
                 }
               - TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
 
@@ -1290,109 +1294,9 @@ Resources:
                   - events:PutEvents
                 Resource: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
 
-  # EventBridge Rule: Forward CloudTrail management write events to Blocks (management account, us-east-1)
-  # Captures organization-level events (Organizations, Cost Explorer, Billing) that only emit in management account
-  BlocksCloudTrailForwardingRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "blocks-cloudtrail-forwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Forwards CloudTrail management write events to Blocks for change detection. Used by Blocks.cloud - must remain in place for Blocks to function correctly."
-      EventPattern:
-        source:
-          - aws.ec2
-          - aws.rds
-          - aws.s3
-          - aws.lambda
-          - aws.ecs
-          - aws.eks
-          - aws.elasticloadbalancing
-          - aws.autoscaling
-          - aws.dynamodb
-          - aws.elasticache
-          - aws.redshift
-          - aws.es
-          - aws.opensearch
-          - aws.kinesis
-          - aws.firehose
-          - aws.sqs
-          - aws.sns
-          - aws.cloudfront
-          - aws.route53
-          - aws.apigateway
-          - aws.iam
-          - aws.kms
-          - aws.secretsmanager
-          - aws.acm
-          - aws.cloudformation
-          - aws.cloudwatch
-          - aws.logs
-          - aws.events
-          - aws.ssm
-          - aws.config
-          - aws.organizations
-          - aws.ce
-          - aws.savingsplans
-          - aws.sagemaker
-          - aws.emr
-          - aws.glue
-          - aws.athena
-          - aws.msk
-          - aws.mediaconvert
-          - aws.mediaconnect
-          - aws.memorydb
-          - aws.fsx
-          - aws.efs
-          - aws.backup
-          - aws.transfer
-          - aws.dms
-          - aws.neptune
-          - aws.docdb
-          - aws.workspaces
-          - aws.lightsail
-          - aws.budgets
-        detail-type:
-          - "AWS API Call via CloudTrail"
-        detail:
-          managementEvent:
-            - true
-          readOnly:
-            - false
-          errorCode:
-            - exists: false
-      # Note: InputTransformer is not supported when the target is an EventBridge event bus.
-      # The event pattern filter already limits forwarded events to management write calls
-      # with no errors, so only matching CloudTrail metadata crosses the account boundary.
-      Targets:
-        - Arn: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
-          Id: "BlocksCustomerEventBus"
-          RoleArn: !GetAtt BlocksEventBridgeCrossAccountRole.Arn
-
-  BlocksAlarmStateChangeForwardingRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "blocks-alarm-forwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: >-
-        Forwards Blocks CloudWatch alarm state changes to Blocks for incident
-        detection. Used by Blocks.cloud - must remain in place for Blocks to
-        function correctly. Email support@blocks.cloud for assistance.
-      EventPattern:
-        source:
-          - aws.cloudwatch
-        detail-type:
-          - "CloudWatch Alarm State Change"
-        detail:
-          alarmName:
-            - prefix: "Blocks-"
-          state:
-            value:
-              - ALARM
-              - INSUFFICIENT_DATA
-      Targets:
-        - Arn: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
-          Id: "BlocksCustomerEventBusAlarms"
-          RoleArn: !GetAtt BlocksEventBridgeCrossAccountRole.Arn
-
-  # StackSet: Deploy EventBridge forwarding rule to all member accounts across all default regions
+  # StackSet: Deploy EventBridge forwarding rules to all member accounts across all default regions
+  # Note: SERVICE_MANAGED StackSets only deploy to member accounts, not the management account.
+  # Management account event forwarding is handled by MgmtEventForwardingStackSet (self-managed).
   EventForwardingStackSet:
     Type: AWS::CloudFormation::StackSet
     DependsOn: SubAccountStackSet
@@ -1434,7 +1338,7 @@ Resources:
             - ap-southeast-2
             - sa-east-1
       OperationPreferences:
-        FailureTolerancePercentage: 100
+        FailureTolerancePercentage: 10
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
@@ -1442,6 +1346,151 @@ Resources:
         - Key: TemplateVersion
           Value: !FindInMap [TemplateConfig, Constants, Version]
       CallAs: SELF
+
+  ############################
+  # Management Account Event Forwarding (Self-Managed StackSet)
+  ############################
+  # SERVICE_MANAGED StackSets exclude the management account, so we use a self-managed
+  # StackSet to deploy EventBridge forwarding rules to the management account across all regions.
+
+  # IAM Role: Allows CloudFormation StackSets to assume the execution role
+  BlocksStackSetAdministrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksStackSetAdministrationRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Administration role for self-managed StackSet deploying EventBridge forwarding rules to management account. Managed by Blocks.cloud."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: StackSetAdministration
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AssumeExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksStackSetExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+
+  # IAM Role: Execution role for self-managed StackSet operations in management account
+  BlocksStackSetExecutionRole:
+    Type: AWS::IAM::Role
+    DependsOn: BlocksStackSetAdministrationRole
+    Properties:
+      RoleName: "BlocksStackSetExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Execution role for self-managed StackSet deploying EventBridge forwarding rules. Scoped to EventBridge rule management. Managed by Blocks.cloud."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: StackSetExecution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksStackSetAdministrationRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeManagement
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # EventBridge rule management for blocks-* rules
+              - Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:EnableRule
+                  - events:DisableRule
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:events:*:${AWS::AccountId}:rule/Blocks*"
+              # CloudFormation stack management for StackSet operations
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/StackSet-Blocks-MgmtEventForwarding-*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:type/resource/*"
+              # iam:PassRole for EventBridge to use the cross-account role on rule targets
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/BlocksEventBridgeCrossAccountRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: events.amazonaws.com
+              # SNS for StackSet notifications (if configured)
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+
+  # Self-Managed StackSet: Deploy EventBridge forwarding rules to management account across all regions
+  MgmtEventForwardingStackSet:
+    Type: AWS::CloudFormation::StackSet
+    DependsOn:
+      - BlocksEventBridgeCrossAccountRole
+      - EventForwardingStackSet
+    Properties:
+      StackSetName: "Blocks-MgmtEventForwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Deploys EventBridge forwarding rules to the management account across all regions. Required because SERVICE_MANAGED StackSets exclude the management account. Managed by Blocks.cloud."
+      PermissionModel: SELF_MANAGED
+      AdministrationRoleARN: !GetAtt BlocksStackSetAdministrationRole.Arn
+      ExecutionRoleName: !Ref BlocksStackSetExecutionRole
+      TemplateURL: "{{EVENT_FORWARDING_TEMPLATE_URL}}"
+      Parameters:
+        - ParameterKey: BlocksCustomerId
+          ParameterValue: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+        - ParameterKey: BlocksEventBusArn
+          ParameterValue: "arn:aws:events:eu-central-1:{{BLOCKS_ACCOUNT_ID}}:event-bus/blocks-customer-events"
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref AWS::AccountId
+          Regions:
+            - us-east-1
+            - us-east-2
+            - us-west-1
+            - us-west-2
+            - ca-central-1
+            - eu-central-1
+            - eu-north-1
+            - eu-west-1
+            - eu-west-2
+            - eu-west-3
+            - ap-northeast-1
+            - ap-northeast-2
+            - ap-northeast-3
+            - ap-south-1
+            - ap-southeast-1
+            - ap-southeast-2
+            - sa-east-1
+      OperationPreferences:
+        FailureTolerancePercentage: 0
+        MaxConcurrentPercentage: 100
+        RegionConcurrencyType: PARALLEL
+        ConcurrencyMode: SOFT_FAILURE_TOLERANCE
+      Tags:
+        - Key: TemplateVersion
+          Value: !FindInMap [TemplateConfig, Constants, Version]
 
 Outputs:
   BlocksExecutionRoleArn:
