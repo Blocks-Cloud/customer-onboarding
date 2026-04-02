@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.50" # x-release-please-version
+  TemplateVersion: "0.1.51" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.50" # x-release-please-version
+      Version: "0.1.51" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -80,6 +80,10 @@ Resources:
                   - cost-optimization-hub:UpdateEnrollmentStatus
                   - cost-optimization-hub:ListEnrollmentStatuses
                   - compute-optimizer:UpdateEnrollmentStatus
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
                 Resource: "*"
 
   EnableStackSetsLambda:
