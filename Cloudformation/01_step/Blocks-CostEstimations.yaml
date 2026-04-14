@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.52" # x-release-please-version
+  TemplateVersion: "0.1.53" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.52" # x-release-please-version
+      Version: "0.1.53" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -66,20 +66,12 @@ Resources:
                   - organizations:EnableAWSServiceAccess
                   - organizations:ListAWSServiceAccessForOrganization
                   - organizations:ListRoots
-                  - organizations:ListDelegatedAdministrators
-                  - organizations:RegisterDelegatedAdministrator
                   - organizations:DescribeOrganizationalUnit
                 Resource: "*"
               - Effect: Allow
                 Action:
                   - iam:GetRole
                   - iam:CreateServiceLinkedRole
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - cost-optimization-hub:UpdateEnrollmentStatus
-                  - cost-optimization-hub:ListEnrollmentStatuses
-                  - compute-optimizer:UpdateEnrollmentStatus
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -134,58 +126,6 @@ Resources:
                   if status == 'ENABLED': return
                   time.sleep(60)
               raise Exception(f"Failed to verify StackSets activation. Status: {status}")
-
-          def enable_coh(orgs, max_retries=3):
-              """Enable Cost Optimization Hub enrollment org-wide. Best-effort: never blocks StackSet deployment."""
-              try:
-                  orgs.enable_aws_service_access(ServicePrincipal='cost-optimization-hub.bcm.amazonaws.com')
-                  print("Enabled AWS Organizations Service Access for Cost Optimization Hub")
-                  time.sleep(5)
-              except ClientError as e:
-                  print(f"Skipped enabling AWS Organizations Service Access for Cost Optimization Hub: {e}")
-
-              cost_hub = boto3.client('cost-optimization-hub', region_name='us-east-1')
-              last_error = None
-              for attempt in range(max_retries):
-                  try:
-                      cost_hub.update_enrollment_status(status='Active', includeMemberAccounts=True)
-                      print("Enabled Cost Optimization Hub Enrollment (Opt-In)")
-                      return
-                  except Exception as e:
-                      last_error = e
-                      print(f"Attempt {attempt + 1}/{max_retries} failed to enable Cost Optimization Hub: {e}")
-                      if attempt < max_retries - 1:
-                          sleep_time = 5 * (attempt + 1)
-                          print(f"Retrying in {sleep_time} seconds...")
-                          time.sleep(sleep_time)
-              print(f"WARNING: Could not enable Cost Optimization Hub after {max_retries} attempts. "
-                    f"StackSet deployment will proceed. Last error: {last_error}")
-
-          def enable_compute_optimizer(orgs, max_retries=3):
-              """Enable Compute Optimizer enrollment org-wide. Best-effort: never blocks StackSet deployment."""
-              try:
-                  orgs.enable_aws_service_access(ServicePrincipal='compute-optimizer.amazonaws.com')
-                  print("Enabled AWS Organizations Service Access for Compute Optimizer")
-                  time.sleep(5)
-              except ClientError as e:
-                  print(f"Skipped enabling AWS Organizations Service Access for Compute Optimizer: {e}")
-
-              compute_optimizer = boto3.client('compute-optimizer', region_name='us-east-1')
-              last_error = None
-              for attempt in range(max_retries):
-                  try:
-                      compute_optimizer.update_enrollment_status(status='Active', includeMemberAccounts=True)
-                      print("Enabled Compute Optimizer Enrollment (Opt-In)")
-                      return
-                  except Exception as e:
-                      last_error = e
-                      print(f"Attempt {attempt + 1}/{max_retries} failed to enable Compute Optimizer: {e}")
-                      if attempt < max_retries - 1:
-                          sleep_time = 5 * (attempt + 1)
-                          print(f"Retrying in {sleep_time} seconds...")
-                          time.sleep(sleep_time)
-              print(f"WARNING: Could not enable Compute Optimizer after {max_retries} attempts. "
-                    f"StackSet deployment will proceed. Last error: {last_error}")
 
           def detect_account_type(orgs):
               """Detect if account is management, member, or standalone."""
@@ -298,8 +238,6 @@ Resources:
                           if orgs.describe_organization()['Organization']['FeatureSet'] != 'ALL':
                               raise Exception("Organization must have 'All Features' enabled.")
 
-                          enable_coh(orgs)
-                          enable_compute_optimizer(orgs)
                           enable_stacksets(orgs, cfn)
                           create_stackset(cfn, org_root_id)
                           response_data['OrganizationRootId'] = org_root_id
