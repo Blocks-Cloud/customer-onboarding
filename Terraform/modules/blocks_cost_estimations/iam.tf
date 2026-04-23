@@ -229,6 +229,21 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
+  # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis. Not covered by ViewOnlyAccess managed policy which only grants List*/Describe* on backup.
+  # Services: AWS Backup
+  statement {
+    sid    = "BackupPlanAndVaultDiscovery"
+    effect = "Allow"
+    actions = [
+      "backup:GetBackupPlan",
+      "backup:GetBackupSelection",
+      "backup:GetBackupVaultAccessPolicy",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_estimations_custom_read" {

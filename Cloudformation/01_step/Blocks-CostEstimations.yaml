@@ -7,12 +7,12 @@ Description: >
   Deploys read-only roles to all linked accounts via the StackSet CloudFormation template to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.53" # x-release-please-version
+  TemplateVersion: "0.1.54" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.53" # x-release-please-version
+      Version: "0.1.54" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -48,18 +48,27 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: StackSetsOrganizationsAccess
+                Effect: Allow
                 Action:
                   - cloudformation:ActivateOrganizationsAccess
                   - cloudformation:DescribeOrganizationsAccess
                   - cloudformation:CreateStackSet
+                Resource: "*"
+              - Sid: StackSetManagement
+                Effect: Allow
+                Action:
                   - cloudformation:CreateStackInstances
                   - cloudformation:DeleteStackSet
                   - cloudformation:DeleteStackInstances
                   - cloudformation:DescribeStackSet
                   - cloudformation:DescribeStackSetOperation
                   - cloudformation:ListStackInstances
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation::${AWS::AccountId}:stackset-target/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}::type/resource/AWS-IAM-ManagedPolicy"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}::type/resource/AWS-IAM-Role"
               - Effect: Allow
                 Action:
                   - organizations:DescribeOrganization
@@ -185,7 +194,8 @@ Resources:
               # Wait for stack instances deployment to complete
               operation_id = operation['OperationId']
               print(f"Waiting for StackSet operation {operation_id} to complete...")
-              for _ in range(60):  # Max 30 minutes (60 * 30s)
+              status = 'UNKNOWN'
+              for _ in range(28):  # Max ~14 min (28 * 30s), within 900s Lambda timeout
                   status = cfn.describe_stack_set_operation(
                       StackSetName=stackset_name,
                       OperationId=operation_id,
@@ -207,14 +217,27 @@ Resources:
                       regions = list(set(i['Region'] for i in instances['Summaries']))
                       ou_ids = list(set(i.get('OrganizationalUnitId') for i in instances['Summaries'] if i.get('OrganizationalUnitId')))
                       if ou_ids:
-                          cfn.delete_stack_instances(
+                          operation = cfn.delete_stack_instances(
                               StackSetName=stackset_name,
                               DeploymentTargets={'OrganizationalUnitIds': ou_ids},
                               Regions=regions,
                               RetainStacks=False,
                               CallAs='SELF',
                           )
-                          time.sleep(30)
+                          operation_id = operation['OperationId']
+                          print(f"Waiting for delete operation {operation_id} to complete...")
+                          status = 'UNKNOWN'
+                          for _ in range(28):  # Max ~14 min (28 * 30s), within 900s Lambda timeout
+                              status = cfn.describe_stack_set_operation(
+                                  StackSetName=stackset_name,
+                                  OperationId=operation_id,
+                                  CallAs='SELF'
+                              )['StackSetOperation']['Status']
+                              if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
+                                  break
+                              time.sleep(30)
+                          if status != 'SUCCEEDED':
+                              print(f"Warning: delete instances operation ended with status: {status}")
                   cfn.delete_stack_set(StackSetName=stackset_name, CallAs='SELF')
                   print(f"StackSet {stackset_name} deleted")
               except cfn.exceptions.StackSetNotFoundException:
@@ -415,6 +438,15 @@ Resources:
             Action:
               - application-autoscaling:DescribeScalableTargets
               - application-autoscaling:DescribeScalingPolicies
+            Resource: "*"
+          # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis. Not covered by ViewOnlyAccess managed policy which only grants List*/Describe* on backup.
+          # Services: AWS Backup
+          - Sid: BackupPlanAndVaultDiscovery
+            Effect: Allow
+            Action:
+              - backup:GetBackupPlan
+              - backup:GetBackupSelection
+              - backup:GetBackupVaultAccessPolicy
             Resource: "*"
 
   # ============================================================================

@@ -66,7 +66,7 @@ variable "internal" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.53" # x-release-please-version
+  default     = "0.1.54" # x-release-please-version
 
   validation {
     condition     = length(var.template_version) > 0

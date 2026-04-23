@@ -5,7 +5,7 @@ Description: >
   and optimization services across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.53" # x-release-please-version
+  TemplateVersion: "0.1.54" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -168,6 +168,15 @@ Resources:
             Action:
               - application-autoscaling:DescribeScalableTargets
               - application-autoscaling:DescribeScalingPolicies
+            Resource: "*"
+          # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis. Not covered by ViewOnlyAccess managed policy which only grants List*/Describe* on backup.
+          # Services: AWS Backup
+          - Sid: BackupPlanAndVaultDiscovery
+            Effect: Allow
+            Action:
+              - backup:GetBackupPlan
+              - backup:GetBackupSelection
+              - backup:GetBackupVaultAccessPolicy
             Resource: "*"
 
   # ============================================================================
