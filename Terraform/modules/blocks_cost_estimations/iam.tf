@@ -8,7 +8,7 @@
 
 # IAM Policy: Custom Read Permissions for Cost Estimations
 # Custom read permissions for Blocks cost estimations not covered by AWS managed policies
-# Note: Most read permissions come from AWS managed policies (ViewOnlyAccess, etc.)
+# Note: Most read permissions come from AWS managed policies attached to the role; the statements below add read actions not covered by those managed policies.
 data "aws_iam_policy_document" "blocks_estimations_custom_read" {
   # IAM - Policy simulation for access analysis
   # Services: IAM
@@ -229,7 +229,7 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis. Not covered by ViewOnlyAccess managed policy which only grants List*/Describe* on backup.
+  # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis.
   # Services: AWS Backup
   statement {
     sid    = "BackupPlanAndVaultDiscovery"
@@ -259,12 +259,12 @@ resource "aws_iam_policy" "blocks_estimations_custom_read" {
 
 # ============================================================================
 # IAM Managed Policy: Data Protection Policy (Step 1 - Cost Estimations)
-# 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
+# Explicit Deny Policy - Cryptographic Assurance of Data Protection
 # ============================================================================
 # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
-# Coverage: 100+ actions across 11 tiers protecting secrets, communications,
-# documents, databases, storage, analytics, logs, identity, code, ML, and instance access
-# Note: Step 1 has no exceptions (no CUR access needed)
+# Coverage: secrets, communications, documents, databases, storage, analytics,
+# logs, identity, code, ML, instance access, and additional sensitive operations.
+# Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
   # TIER 1: Secrets & Credentials
@@ -296,14 +296,29 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     effect = "Deny"
     actions = [
       "workmail:*",
-      "ses:GetMessage",
-      "ses:GetEmailIdentity",
-      "ses:GetEmailTemplate",
+      "ses:List*",
+      "ses:Get*",
+      "ses:Describe*",
+      "sesv2:List*",
+      "sesv2:Get*",
+      "pinpoint:Get*",
+      "pinpoint:List*",
+      "pinpoint-email:*",
+      "pinpoint-sms-voice:*",
       "chime:GetMessage*",
       "chime:GetConversation*",
       "chime:ListMessages",
       "connect:GetContactAttributes",
       "sns:GetSMSAttributes",
+      "sns:ListPlatformApplications",
+      "sns:GetPlatformApplicationAttributes",
+      "sns:ListEndpointsByPlatformApplication",
+      "sns:GetEndpointAttributes",
+      "sns:ListPhoneNumbersOptedOut",
+      "sns:ListOriginationNumbers",
+      "sns:ListSMSSandboxPhoneNumbers",
+      "sns:GetSMSSandboxAccountStatus",
+      "sns:CheckIfPhoneNumberIsOptedOut",
     ]
     resources = [
       "*",
@@ -562,7 +577,7 @@ resource "aws_iam_role_policy_attachment" "blocks_estimations_read_role_custom_r
 
 resource "aws_iam_role_policy_attachment" "blocks_estimations_read_role_managed" {
   for_each = toset([
-    "arn:${local.partition}:iam::aws:policy/job-function/ViewOnlyAccess",
+    "arn:${local.partition}:iam::aws:policy/ReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSBillingReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess",
     "arn:${local.partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess",

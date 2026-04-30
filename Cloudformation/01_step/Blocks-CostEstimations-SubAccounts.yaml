@@ -1,11 +1,14 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   This template creates a cross-account read-only role for Blocks to analyze cost savings
-  within a sub-account. It provides read access to billing, cost management, resource configuration,
-  and optimization services across compute, storage, database, and monitoring services.
+  within a sub-account. It attaches AWS-managed read policies (billing, Savings Plans,
+  and a base read policy) together with a custom data-protection deny policy that blocks
+  every AWS read action known to return customer sensitive data, providing read access to
+  billing, cost management, resource configuration, and optimization services across
+  compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.54" # x-release-please-version
+  TemplateVersion: "0.1.57" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -31,7 +34,7 @@ Resources:
 
   # IAM Policy: Custom Read Permissions for Cost Estimations
   # Custom read permissions for Blocks cost estimations not covered by AWS managed policies
-  # Note: Most read permissions come from AWS managed policies (ViewOnlyAccess, etc.)
+  # Note: Most read permissions come from AWS managed policies attached to the role; the statements below add read actions not covered by those managed policies.
   BlocksEstimationsCustomReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -169,7 +172,7 @@ Resources:
               - application-autoscaling:DescribeScalableTargets
               - application-autoscaling:DescribeScalingPolicies
             Resource: "*"
-          # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis. Not covered by ViewOnlyAccess managed policy which only grants List*/Describe* on backup.
+          # AWS Backup - Read backup plan rules (retention, cold-storage transitions), backup selections, and vault access policies for cost optimization analysis.
           # Services: AWS Backup
           - Sid: BackupPlanAndVaultDiscovery
             Effect: Allow
@@ -181,12 +184,12 @@ Resources:
 
   # ============================================================================
   # IAM Managed Policy: Data Protection Policy (Step 1 - Cost Estimations)
-  # 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
+  # Explicit Deny Policy - Cryptographic Assurance of Data Protection
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
-  # Coverage: 100+ actions across 11 tiers protecting secrets, communications,
-  # documents, databases, storage, analytics, logs, identity, code, ML, and instance access
-  # Note: Step 1 has no exceptions (no CUR access needed)
+  # Coverage: secrets, communications, documents, databases, storage, analytics,
+  # logs, identity, code, ML, instance access, and additional sensitive operations.
+  # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
   # ============================================================================
   BlocksEstimationsDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -218,14 +221,29 @@ Resources:
             Effect: Deny
             Action:
               - workmail:*
-              - ses:GetMessage
-              - ses:GetEmailIdentity
-              - ses:GetEmailTemplate
+              - ses:List*
+              - ses:Get*
+              - ses:Describe*
+              - sesv2:List*
+              - sesv2:Get*
+              - pinpoint:Get*
+              - pinpoint:List*
+              - pinpoint-email:*
+              - pinpoint-sms-voice:*
               - chime:GetMessage*
               - chime:GetConversation*
               - chime:ListMessages
               - connect:GetContactAttributes
               - sns:GetSMSAttributes
+              - sns:ListPlatformApplications
+              - sns:GetPlatformApplicationAttributes
+              - sns:ListEndpointsByPlatformApplication
+              - sns:GetEndpointAttributes
+              - sns:ListPhoneNumbersOptedOut
+              - sns:ListOriginationNumbers
+              - sns:ListSMSSandboxPhoneNumbers
+              - sns:GetSMSSandboxAccountStatus
+              - sns:CheckIfPhoneNumberIsOptedOut
             Resource: "*"
           # TIER 3: Documents & Collaboration
           - Sid: DenyDocumentsAccess
@@ -374,7 +392,7 @@ Resources:
               - sts:TagSession
 
       ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Ref BlocksEstimationsDataProtectionPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess

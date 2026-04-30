@@ -492,12 +492,12 @@ resource "aws_iam_policy" "blocks_custom_read" {
 
 # ============================================================================
 # IAM Managed Policy: Data Protection Policy (Step 2 - Cost Optimization)
-# 11-Tier Explicit Deny Policy - Cryptographic Assurance of Data Protection
+# Explicit Deny Policy - Cryptographic Assurance of Data Protection
 # ============================================================================
 # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
-# Coverage: 100+ actions across 11 tiers protecting secrets, communications,
-# documents, databases, storage, analytics, logs, identity, code, ML, and instance access
-# Note: Step 2 allows CUR bucket access (blocks-cur-data-*/cur2/*)
+# Coverage: secrets, communications, documents, databases, storage, analytics,
+# logs, identity, code, ML, instance access, and additional sensitive operations.
+# Note: Step 2 allows CUR bucket access (blocks-cur-data-*/cur2/*).
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
   # TIER 1: Secrets & Credentials
@@ -529,14 +529,29 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     effect = "Deny"
     actions = [
       "workmail:*",
-      "ses:GetMessage",
-      "ses:GetEmailIdentity",
-      "ses:GetEmailTemplate",
+      "ses:List*",
+      "ses:Get*",
+      "ses:Describe*",
+      "sesv2:List*",
+      "sesv2:Get*",
+      "pinpoint:Get*",
+      "pinpoint:List*",
+      "pinpoint-email:*",
+      "pinpoint-sms-voice:*",
       "chime:GetMessage*",
       "chime:GetConversation*",
       "chime:ListMessages",
       "connect:GetContactAttributes",
       "sns:GetSMSAttributes",
+      "sns:ListPlatformApplications",
+      "sns:GetPlatformApplicationAttributes",
+      "sns:ListEndpointsByPlatformApplication",
+      "sns:GetEndpointAttributes",
+      "sns:ListPhoneNumbersOptedOut",
+      "sns:ListOriginationNumbers",
+      "sns:ListSMSSandboxPhoneNumbers",
+      "sns:GetSMSSandboxAccountStatus",
+      "sns:CheckIfPhoneNumberIsOptedOut",
     ]
     resources = [
       "*",
