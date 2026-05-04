@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.57" # x-release-please-version
+  TemplateVersion: "0.1.58" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -301,6 +301,9 @@ Resources:
               - sns:ListSMSSandboxPhoneNumbers
               - sns:GetSMSSandboxAccountStatus
               - sns:CheckIfPhoneNumberIsOptedOut
+              - sns:ListSubscriptions
+              - sns:ListSubscriptionsByTopic
+              - sns:GetSubscriptionAttributes
             Resource: "*"
           # TIER 3: Documents & Collaboration
           - Sid: DenyDocumentsAccess
@@ -369,6 +372,7 @@ Resources:
               - logs:GetLogEvents
               - logs:FilterLogEvents
               - logs:GetLogRecord
+              - logs:StartLiveTail
             Resource: "*"
           # TIER 8: User Directories & Identity
           - Sid: DenyUserDirectoryAccess

@@ -552,6 +552,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "sns:ListSMSSandboxPhoneNumbers",
       "sns:GetSMSSandboxAccountStatus",
       "sns:CheckIfPhoneNumberIsOptedOut",
+      "sns:ListSubscriptions",
+      "sns:ListSubscriptionsByTopic",
+      "sns:GetSubscriptionAttributes",
     ]
     resources = [
       "*",
@@ -666,6 +669,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "logs:GetLogEvents",
       "logs:FilterLogEvents",
       "logs:GetLogRecord",
+      "logs:StartLiveTail",
     ]
     resources = [
       "*",
