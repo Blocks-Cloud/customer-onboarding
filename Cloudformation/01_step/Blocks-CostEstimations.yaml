@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.58" # x-release-please-version
+  TemplateVersion: "0.1.59" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.58" # x-release-please-version
+      Version: "0.1.59" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -64,6 +64,7 @@ Resources:
                   - cloudformation:DescribeStackSet
                   - cloudformation:DescribeStackSetOperation
                   - cloudformation:ListStackInstances
+                  - cloudformation:ListStackSetOperationResults
                 Resource:
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
                   - !Sub "arn:${AWS::Partition}:cloudformation::${AWS::AccountId}:stackset-target/Blocks-CostEstimations-{{BLOCKS_CUSTOMER_RESOURCE_ID}}:*"
@@ -109,6 +110,7 @@ Resources:
         ZipFile: |
           import boto3
           import cfnresponse
+          import json
           import time
           import os
           from botocore.exceptions import ClientError
@@ -205,8 +207,42 @@ Resources:
                       break
                   time.sleep(30)
               if status != 'SUCCEEDED':
+                  try:
+                      log_failed_instances(cfn, stackset_name, operation_id)
+                  except Exception as e:
+                      print(f"log_failed_instances itself crashed: {e}")
                   raise Exception(f"StackSet operation {operation_id} ended with status: {status}")
               print(f"StackSet {stackset_name} deployed to org root {org_root_id}")
+
+          def log_failed_instances(cfn, stackset_name, operation_id):
+              max_logged = 50
+              logged = 0
+              try:
+                  paginator = cfn.get_paginator('list_stack_set_operation_results')
+                  pages = paginator.paginate(
+                      StackSetName=stackset_name,
+                      OperationId=operation_id,
+                      CallAs='SELF',
+                  )
+                  for page in pages:
+                      for s in page.get('Summaries', []):
+                          if s.get('Status') == 'SUCCEEDED':
+                              continue
+                          print(json.dumps({
+                              'event': 'failed_stack_instance',
+                              'account': s.get('Account', ''),
+                              'region': s.get('Region', ''),
+                              'status': s.get('Status', ''),
+                              'reason': s.get('StatusReason', ''),
+                          }))
+                          logged += 1
+                          if logged >= max_logged:
+                              print(f"Reached max_logged={max_logged}; further failures truncated.")
+                              break
+                      if logged >= max_logged:
+                          break
+              except ClientError as e:
+                  print(f"Could not fetch per-instance results: {e}")
 
           def delete_stackset(cfn):
               """Delete StackSet and all instances."""
