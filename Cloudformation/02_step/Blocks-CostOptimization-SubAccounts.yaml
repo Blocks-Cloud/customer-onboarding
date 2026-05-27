@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.59" # x-release-please-version
+  TemplateVersion: "0.1.60" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:

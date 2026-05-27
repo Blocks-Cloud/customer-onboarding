@@ -131,7 +131,9 @@ resource "aws_cloudformation_stack_set" "event_forwarding" {
   }
 
   operation_preferences {
-    failure_tolerance_percentage = 10
+    # 100% tolerance: a customer SCP may block EventBridge rule creation in some
+    # regions; let those instances stay FAILED (skipped) instead of failing the op.
+    failure_tolerance_percentage = 100
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
   }
@@ -163,7 +165,9 @@ resource "aws_cloudformation_stack_instances" "event_forwarding" {
   }
 
   operation_preferences {
-    failure_tolerance_percentage = 10
+    # 100% tolerance: a customer SCP may block EventBridge rule creation in some
+    # regions; let those instances stay FAILED (skipped) instead of failing the op.
+    failure_tolerance_percentage = 100
     max_concurrent_percentage    = 100
     region_concurrency_type      = "PARALLEL"
     concurrency_mode             = "SOFT_FAILURE_TOLERANCE"

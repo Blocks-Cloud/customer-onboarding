@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.59" # x-release-please-version
+  TemplateVersion: "0.1.60" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.59" # x-release-please-version
+      Version: "0.1.60" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -1356,7 +1356,11 @@ Resources:
             - ap-southeast-2
             - sa-east-1
       OperationPreferences:
-        FailureTolerancePercentage: 10
+        # 100% tolerance: a customer SCP may deny EventBridge rule creation in some
+        # regions. Tolerating all per-region failures lets those instances stay FAILED
+        # (rule skipped there) without failing the operation or rolling back Step 2.
+        # The SCP-immune management StackSet below stays strict to catch real failures.
+        FailureTolerancePercentage: 100
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
