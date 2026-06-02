@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.61" # x-release-please-version
+  TemplateVersion: "0.1.62" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.61" # x-release-please-version
+      Version: "0.1.62" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -804,6 +804,16 @@ Resources:
               - cloudtrail:StartLogging
               - cloudtrail:UpdateTrail
             Resource: "*"
+          # CloudTrail - Create service-linked role (AWSServiceRoleForCloudTrail) required when creating an organization trail
+          # Services: IAM, CloudTrail
+          - Sid: CloudTrailServiceLinkedRole
+            Effect: Allow
+            Action:
+              - iam:CreateServiceLinkedRole
+            Resource: "arn:aws:iam::*:role/aws-service-role/cloudtrail.amazonaws.com/AWSServiceRoleForCloudTrail"
+            Condition:
+              StringLike:
+                "iam:AWSServiceName": "cloudtrail.amazonaws.com"
 
   # IAM Policy: Custom Read Permissions
   # Custom read permissions for Blocks cost optimization not covered by AWS managed policies

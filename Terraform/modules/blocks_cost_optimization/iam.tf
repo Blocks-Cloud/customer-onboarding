@@ -331,6 +331,24 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
+  # CloudTrail - Create service-linked role (AWSServiceRoleForCloudTrail) required when creating an organization trail
+  # Services: IAM, CloudTrail
+  statement {
+    sid    = "CloudTrailServiceLinkedRole"
+    effect = "Allow"
+    actions = [
+      "iam:CreateServiceLinkedRole",
+    ]
+    resources = [
+      "arn:aws:iam::*:role/aws-service-role/cloudtrail.amazonaws.com/AWSServiceRoleForCloudTrail",
+    ]
+    condition {
+      test     = "StringLike"
+      variable = "iam:AWSServiceName"
+      values   = ["cloudtrail.amazonaws.com"]
+    }
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_cost_optimization_write" {
