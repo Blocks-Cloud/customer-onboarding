@@ -316,7 +316,7 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
-  # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery
+  # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417)
   # Services: CloudTrail
   statement {
     sid    = "CloudTrailOrgTrailManagement"
@@ -325,6 +325,7 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
       "cloudtrail:CreateTrail",
       "cloudtrail:StartLogging",
       "cloudtrail:UpdateTrail",
+      "cloudtrail:PutEventSelectors",
     ]
     resources = [
       "*",

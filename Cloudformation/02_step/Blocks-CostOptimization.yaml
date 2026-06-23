@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.63" # x-release-please-version
+  TemplateVersion: "0.1.64" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.63" # x-release-please-version
+      Version: "0.1.64" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -795,7 +795,7 @@ Resources:
               - s3:PutLifecycleConfiguration
               - s3:PutBucketOwnershipControls
             Resource: "arn:aws:s3:::blocks-cur-data-*"
-          # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery
+          # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417)
           # Services: CloudTrail
           - Sid: CloudTrailOrgTrailManagement
             Effect: Allow
@@ -803,6 +803,7 @@ Resources:
               - cloudtrail:CreateTrail
               - cloudtrail:StartLogging
               - cloudtrail:UpdateTrail
+              - cloudtrail:PutEventSelectors
             Resource: "*"
           # CloudTrail - Create service-linked role (AWSServiceRoleForCloudTrail) required when creating an organization trail
           # Services: IAM, CloudTrail
