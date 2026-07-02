@@ -748,11 +748,12 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 11: Instance Access
+  # TIER 11: Instance Access. DescribeInstanceAttribute is denied because Attribute=userData returns instance user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance metadata via DescribeInstances instead.
   statement {
     sid    = "DenyInstanceAccess"
     effect = "Deny"
     actions = [
+      "ec2:DescribeInstanceAttribute",
       "ec2:GetConsoleOutput",
       "ec2:GetConsoleScreenshot",
       "ec2:GetPasswordData",

@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.64" # x-release-please-version
+  TemplateVersion: "0.1.66" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -409,10 +409,11 @@ Resources:
               - rekognition:SearchFaces*
               - comprehend:DetectPiiEntities
             Resource: "*"
-          # TIER 11: Instance Access
+          # TIER 11: Instance Access. DescribeInstanceAttribute is denied because Attribute=userData returns instance user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance metadata via DescribeInstances instead.
           - Sid: DenyInstanceAccess
             Effect: Deny
             Action:
+              - ec2:DescribeInstanceAttribute
               - ec2:GetConsoleOutput
               - ec2:GetConsoleScreenshot
               - ec2:GetPasswordData
