@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.67" # x-release-please-version
+  TemplateVersion: "0.1.68" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -272,6 +272,8 @@ Resources:
               - kms:Encrypt
               - kms:GenerateDataKey
               - kms:ReEncrypt*
+              - glue:GetConnection
+              - glue:GetConnections
             Resource: "*"
           # TIER 2: Communications (Emails, Messages, SMS)
           - Sid: DenyCommunicationsData
@@ -398,6 +400,9 @@ Resources:
               - codeartifact:ReadFromRepository
               - ecr:BatchGetImage
               - ecr:GetDownloadUrlForLayer
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - ecs:DescribeTaskDefinition
             Resource: "*"
           # TIER 10: Machine Learning Data
           - Sid: DenyMachineLearningData
@@ -424,6 +429,9 @@ Resources:
             Action:
               - sqs:ReceiveMessage
               - kinesis:GetRecords
+              - apigateway:GET
+              - states:GetExecutionHistory
+              - states:DescribeExecution
             Resource: "*"
 
   # ==== END GENERATED IAM POLICIES ====

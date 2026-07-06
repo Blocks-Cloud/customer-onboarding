@@ -284,6 +284,8 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "kms:Encrypt",
       "kms:GenerateDataKey",
       "kms:ReEncrypt*",
+      "glue:GetConnection",
+      "glue:GetConnections",
     ]
     resources = [
       "*",
@@ -469,6 +471,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "codeartifact:ReadFromRepository",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "ecs:DescribeTaskDefinition",
     ]
     resources = [
       "*",
@@ -513,6 +518,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     actions = [
       "sqs:ReceiveMessage",
       "kinesis:GetRecords",
+      "apigateway:GET",
+      "states:GetExecutionHistory",
+      "states:DescribeExecution",
     ]
     resources = [
       "*",
