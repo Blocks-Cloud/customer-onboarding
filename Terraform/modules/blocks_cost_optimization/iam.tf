@@ -511,7 +511,7 @@ resource "aws_iam_policy" "blocks_custom_read" {
 
 # ============================================================================
 # IAM Managed Policy: Data Protection Policy (Step 2 - Cost Optimization)
-# Explicit Deny Policy - Cryptographic Assurance of Data Protection
+# Explicit Deny Policy - Explicit IAM Deny Controls for Data Protection
 # ============================================================================
 # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
 # Coverage: secrets, communications, documents, databases, storage, analytics,
@@ -788,7 +788,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
 
 resource "aws_iam_policy" "blocks_data_protection" {
   name        = "BlocksDataProtectionPolicy-${var.customer_resource_id}"
-  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data."
+  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
   policy      = data.aws_iam_policy_document.blocks_data_protection.json
   tags        = local.common_tags
 }

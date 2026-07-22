@@ -8,7 +8,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.69" # x-release-please-version
+  TemplateVersion: "0.1.72" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -184,7 +184,7 @@ Resources:
 
   # ============================================================================
   # IAM Managed Policy: Data Protection Policy (Step 1 - Cost Estimations)
-  # Explicit Deny Policy - Cryptographic Assurance of Data Protection
+  # Explicit Deny Policy - Explicit IAM Deny Controls for Data Protection
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
   # Coverage: secrets, communications, documents, databases, storage, analytics,
@@ -195,7 +195,7 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub "BlocksEstimationsDataProtectionPolicy-${BlocksCustomerId}"
-      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data during cost estimations."
+      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data during cost estimations."
       PolicyDocument:
         Version: "2012-10-17"
         Statement:

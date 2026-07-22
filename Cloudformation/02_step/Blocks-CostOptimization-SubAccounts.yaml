@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.69" # x-release-please-version
+  TemplateVersion: "0.1.72" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -41,7 +41,6 @@ Resources:
   BlocksCostOptimizationWritePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub "BlocksCostOptimizationWritePolicy-${BlocksCustomerId}"
       Description: "Used by Blocks.cloud. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance. Grants execution permissions for cost optimization actions including purchasing Savings Plans, RIs, and managing accounts."
       PolicyDocument:
         Version: "2012-10-17"
@@ -171,7 +170,6 @@ Resources:
   BlocksCustomReadPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub "BlocksCustomReadPolicy-${BlocksCustomerId}"
       Description: "Custom read permissions for Blocks cost optimization not covered by AWS managed policies"
       PolicyDocument:
         Version: "2012-10-17"
@@ -241,7 +239,7 @@ Resources:
 
   # ============================================================================
   # IAM Managed Policy: Data Protection Policy (Step 2 - Cost Optimization)
-  # Explicit Deny Policy - Cryptographic Assurance of Data Protection
+  # Explicit Deny Policy - Explicit IAM Deny Controls for Data Protection
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
   # Coverage: secrets, communications, documents, databases, storage, analytics,
@@ -251,8 +249,7 @@ Resources:
   BlocksDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub "BlocksDataProtectionPolicy-${BlocksCustomerId}"
-      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides cryptographic assurance that Blocks cannot access customer sensitive data."
+      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
