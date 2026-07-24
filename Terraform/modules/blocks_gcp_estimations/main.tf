@@ -108,5 +108,11 @@ resource "google_service_account" "blocks_scanner" {
       condition     = var.scope != "org" || var.org_id != ""
       error_message = "scope = org requires org_id."
     }
+    # Billing-export coordinates are all-or-nothing: a half-set pair would
+    # silently skip the dataset grant in bigquery.tf. Fail loudly instead.
+    precondition {
+      condition     = (var.billing_export_project_id == "") == (var.billing_export_dataset_id == "")
+      error_message = "Set billing_export_project_id and billing_export_dataset_id together, or leave both empty (see docs/gcp-billing-export.md)."
+    }
   }
 }

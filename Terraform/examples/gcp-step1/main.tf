@@ -58,6 +58,12 @@ module "blocks_gcp_estimations" {
   scope      = "project" # project | folder | org
   # folder_id = "123456789"  # required when scope = folder
   # org_id    = "987654321"  # required when scope = folder or org
+
+  # Optional (BLO-3942): grant the scanner read on your Cloud Billing BigQuery
+  # export dataset for spend ingest. Set BOTH or neither. A detailed, EU/US
+  # multi-region export is required — see docs/gcp-billing-export.md.
+  # billing_export_project_id = "my-billing-project"
+  # billing_export_dataset_id = "all_billing_data"
 }
 
 output "deployment_summary" {

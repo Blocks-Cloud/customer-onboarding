@@ -23,3 +23,8 @@ output "scope" {
   description = "Scope the read-only access was granted at (project, folder, or org)"
   value       = var.scope
 }
+
+output "billing_export_reader_granted" {
+  description = "Whether this module manages a billing-export dataset read binding (coordinates supplied and the google_bigquery_dataset_iam_member is present)"
+  value       = length(google_bigquery_dataset_iam_member.billing_export_reader) > 0
+}

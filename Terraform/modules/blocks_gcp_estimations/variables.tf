@@ -123,3 +123,34 @@ variable "org_id" {
     error_message = "org_id must be the numeric organization ID (no 'organizations/' prefix)."
   }
 }
+
+############################
+# Billing-export dataset (optional; BLO-3942)
+# Set BOTH to grant the scanner read on your Cloud Billing BigQuery export
+# dataset, or leave BOTH empty to skip. See docs/gcp-billing-export.md and
+# bigquery.tf. These are deployment choices (like scope/project) — not
+# Blocks-owned values — so they are plain variables, never {{ TOKEN }}s.
+############################
+
+variable "billing_export_project_id" {
+  type        = string
+  description = "Project that hosts the Cloud Billing BigQuery export dataset. Set together with billing_export_dataset_id to grant the scanner roles/bigquery.dataViewer on it. Leave empty to skip (no spend ingest)."
+  default     = ""
+
+  validation {
+    condition     = var.billing_export_project_id == "" || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.billing_export_project_id))
+    error_message = "billing_export_project_id must be empty or a valid GCP project ID (6-30 chars, lowercase letters, digits, hyphens)."
+  }
+}
+
+variable "billing_export_dataset_id" {
+  type        = string
+  description = "BigQuery dataset ID of the Cloud Billing export. A detailed, EU/US multi-region export is required for resource-level spend (see docs/gcp-billing-export.md). Set together with billing_export_project_id; leave empty to skip."
+  default     = ""
+
+  validation {
+    # BigQuery dataset IDs are up to 1024 chars of letters, digits, underscores.
+    condition     = var.billing_export_dataset_id == "" || can(regex("^[a-zA-Z0-9_]{1,1024}$", var.billing_export_dataset_id))
+    error_message = "billing_export_dataset_id must be empty or a valid BigQuery dataset ID (letters, digits, underscores only)."
+  }
+}
