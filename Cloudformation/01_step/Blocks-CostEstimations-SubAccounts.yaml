@@ -8,7 +8,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.73" # x-release-please-version
+  TemplateVersion: "0.1.74" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -280,11 +280,10 @@ Resources:
               - s3:GetObjectVersion
               - s3:GetObjectTorrent
             Resource: "*"
-          # TIER 5: File systems and backups
+          # TIER 5: File systems and backups. GetRecoveryPointRestoreMetadata is denied because it returns the metadata required to restore a recovery point, which can reveal the contents and layout of protected data; cost analysis reads backup plan and vault configuration instead.
           - Sid: DenyFileSystemAndBackupAccess
             Effect: Deny
             Action:
-              - fsx:*
               - backup:GetRecoveryPointRestoreMetadata
             Resource: "*"
           # TIER 6: Analytics Query Results
@@ -354,7 +353,7 @@ Resources:
               - rekognition:SearchFaces*
               - comprehend:DetectPiiEntities
             Resource: "*"
-          # TIER 11: Instance Access. DescribeInstanceAttribute is denied because Attribute=userData returns instance user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance metadata via DescribeInstances instead.
+          # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
           - Sid: DenyInstanceAccess
             Effect: Deny
             Action:
@@ -362,6 +361,7 @@ Resources:
               - ec2:GetConsoleOutput
               - ec2:GetConsoleScreenshot
               - ec2:GetPasswordData
+              - ec2:GetLaunchTemplateData
             Resource: "*"
           # Additional sensitive operations
           - Sid: DenyOtherSensitiveOperations

@@ -378,12 +378,11 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 5: File systems and backups
+  # TIER 5: File systems and backups. GetRecoveryPointRestoreMetadata is denied because it returns the metadata required to restore a recovery point, which can reveal the contents and layout of protected data; cost analysis reads backup plan and vault configuration instead.
   statement {
     sid    = "DenyFileSystemAndBackupAccess"
     effect = "Deny"
     actions = [
-      "fsx:*",
       "backup:GetRecoveryPointRestoreMetadata",
     ]
     resources = [
@@ -496,7 +495,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 11: Instance Access. DescribeInstanceAttribute is denied because Attribute=userData returns instance user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance metadata via DescribeInstances instead.
+  # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
   statement {
     sid    = "DenyInstanceAccess"
     effect = "Deny"
@@ -505,6 +504,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetConsoleOutput",
       "ec2:GetConsoleScreenshot",
       "ec2:GetPasswordData",
+      "ec2:GetLaunchTemplateData",
     ]
     resources = [
       "*",

@@ -114,13 +114,14 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
-  # Governance & Monitoring - Budgets, anomaly detection, and service quotas
+  # Governance & Monitoring - Budgets, anomaly detection, and service quotas. ViewBudget and ModifyBudget authorize the full budget CRUD surface; the Budget Action APIs are intentionally not granted, since they can attach IAM policies or stop EC2/RDS instances when a threshold trips.
   # Services: Budgets, Cost Explorer, Billing, Account, Service Quotas, IAM
   statement {
     sid    = "GovernanceWrite"
     effect = "Allow"
     actions = [
-      "budgets:*",
+      "budgets:ViewBudget",
+      "budgets:ModifyBudget",
       "ce:CreateAnomalyMonitor",
       "ce:CreateAnomalySubscription",
       "ce:UpdateAnomalyMonitor",
@@ -635,12 +636,11 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     }
   }
 
-  # TIER 5: File systems and backups
+  # TIER 5: File systems and backups. GetRecoveryPointRestoreMetadata is denied because it returns the metadata required to restore a recovery point, which can reveal the contents and layout of protected data; cost analysis reads backup plan and vault configuration instead.
   statement {
     sid    = "DenyFileSystemAndBackupAccess"
     effect = "Deny"
     actions = [
-      "fsx:*",
       "backup:GetRecoveryPointRestoreMetadata",
     ]
     resources = [
@@ -753,7 +753,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 11: Instance Access. DescribeInstanceAttribute is denied because Attribute=userData returns instance user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance metadata via DescribeInstances instead.
+  # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
   statement {
     sid    = "DenyInstanceAccess"
     effect = "Deny"
@@ -762,6 +762,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetConsoleOutput",
       "ec2:GetConsoleScreenshot",
       "ec2:GetPasswordData",
+      "ec2:GetLaunchTemplateData",
     ]
     resources = [
       "*",
