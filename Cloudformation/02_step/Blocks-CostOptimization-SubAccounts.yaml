@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.75" # x-release-please-version
+  TemplateVersion: "0.1.76" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -396,7 +396,7 @@ Resources:
               - iam:GetServiceSpecificCredential
               - iam:GetLoginProfile
             Resource: "*"
-          # TIER 9: Code & Artifacts
+          # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and task/function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables.
           - Sid: DenyCodeAccess
             Effect: Deny
             Action:
@@ -410,6 +410,8 @@ Resources:
               - ecr:GetDownloadUrlForLayer
               - lambda:GetFunction
               - lambda:GetFunctionConfiguration
+              - lambda:ListFunctions
+              - lambda:ListVersionsByFunction
               - ecs:DescribeTaskDefinition
             Resource: "*"
           # TIER 10: Machine Learning Data

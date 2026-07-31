@@ -732,7 +732,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 9: Code & Artifacts
+  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and task/function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables.
   statement {
     sid    = "DenyCodeAccess"
     effect = "Deny"
@@ -747,6 +747,8 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ecr:GetDownloadUrlForLayer",
       "lambda:GetFunction",
       "lambda:GetFunctionConfiguration",
+      "lambda:ListFunctions",
+      "lambda:ListVersionsByFunction",
       "ecs:DescribeTaskDefinition",
     ]
     resources = [
