@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.74" #  x-release-please-version
+  TemplateVersion: "0.1.75" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.74" #  x-release-please-version
+      Version: "0.1.75" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -502,15 +502,16 @@ Resources:
   # Explicit Deny Policy - Explicit IAM Deny Controls for Data Protection
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
-  # Coverage: secrets, communications, documents, databases, storage, analytics,
-  # logs, identity, code, ML, instance access, and additional sensitive operations.
+  # Coverage: secrets, communications, documents, databases, search, storage,
+  # analytics, logs, identity, code, ML, instance access, and additional
+  # sensitive operations.
   # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
   # ============================================================================
   BlocksEstimationsDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: "BlocksEstimationsDataProtectionPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
-      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data during cost estimations."
+      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data during cost estimations."
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -586,6 +587,16 @@ Resources:
               - dynamodb:GetShardIterator
               - rds:DownloadDBLogFilePortion
               - rds:DownloadCompleteDBLogFile
+            Resource: "*"
+          # TIER 4: Search data plane - HTTP reads against OpenSearch/Elasticsearch domains return index documents. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. Cost analysis needs the control plane only (see statements/read/opensearch.json).
+          # Services: Amazon OpenSearch Service, Amazon OpenSearch Serverless
+          - Sid: DenyOpenSearchDataPlane
+            Effect: Deny
+            Action:
+              - es:ESHttpGet
+              - es:ESHttpHead
+              - es:ESHttpPost
+              - aoss:APIAccessAll
             Resource: "*"
           # TIER 5: Storage Content (Complete S3 deny - no CUR exception in Step 1)
           - Sid: DenyS3DataAccess

@@ -515,8 +515,9 @@ resource "aws_iam_policy" "blocks_custom_read" {
 # Explicit Deny Policy - Explicit IAM Deny Controls for Data Protection
 # ============================================================================
 # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
-# Coverage: secrets, communications, documents, databases, storage, analytics,
-# logs, identity, code, ML, instance access, and additional sensitive operations.
+# Coverage: secrets, communications, documents, databases, search, storage,
+# analytics, logs, identity, code, ML, instance access, and additional
+# sensitive operations.
 # Note: Step 2 allows CUR bucket access (blocks-cur-data-*/cur2/*).
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
@@ -611,6 +612,22 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "dynamodb:GetShardIterator",
       "rds:DownloadDBLogFilePortion",
       "rds:DownloadCompleteDBLogFile",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # TIER 4: Search data plane - HTTP reads against OpenSearch/Elasticsearch domains return index documents. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. Cost analysis needs the control plane only (see statements/read/opensearch.json).
+  # Services: Amazon OpenSearch Service, Amazon OpenSearch Serverless
+  statement {
+    sid    = "DenyOpenSearchDataPlane"
+    effect = "Deny"
+    actions = [
+      "es:ESHttpGet",
+      "es:ESHttpHead",
+      "es:ESHttpPost",
+      "aoss:APIAccessAll",
     ]
     resources = [
       "*",
@@ -789,7 +806,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
 
 resource "aws_iam_policy" "blocks_data_protection" {
   name        = "BlocksDataProtectionPolicy-${var.customer_resource_id}"
-  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
+  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
   policy      = data.aws_iam_policy_document.blocks_data_protection.json
   tags        = local.common_tags
 }
