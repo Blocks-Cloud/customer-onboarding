@@ -665,6 +665,21 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
+  # TIER 5: EBS direct APIs read the raw block contents of snapshots - i.e. the volume data itself, including anything on the root filesystem. Snapshot cost analysis reads ec2:DescribeSnapshots metadata (size, age, source volume) and never the blocks. ListSnapshotBlocks/ListChangedBlocks are denied alongside GetSnapshotBlock because they enumerate the block indices and tokens that GetSnapshotBlock consumes.
+  # Services: EBS direct APIs
+  statement {
+    sid    = "DenyEBSDirectSnapshotDataAccess"
+    effect = "Deny"
+    actions = [
+      "ebs:GetSnapshotBlock",
+      "ebs:ListSnapshotBlocks",
+      "ebs:ListChangedBlocks",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # TIER 6: Analytics Query Results
   statement {
     sid    = "DenyAnalyticsQueryResults"

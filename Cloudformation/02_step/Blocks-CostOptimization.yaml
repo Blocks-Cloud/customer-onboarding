@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.76" # x-release-please-version
+  TemplateVersion: "0.1.77" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.76" # x-release-please-version
+      Version: "0.1.77" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -1018,6 +1018,15 @@ Resources:
             Effect: Deny
             Action:
               - backup:GetRecoveryPointRestoreMetadata
+            Resource: "*"
+          # TIER 5: EBS direct APIs read the raw block contents of snapshots - i.e. the volume data itself, including anything on the root filesystem. Snapshot cost analysis reads ec2:DescribeSnapshots metadata (size, age, source volume) and never the blocks. ListSnapshotBlocks/ListChangedBlocks are denied alongside GetSnapshotBlock because they enumerate the block indices and tokens that GetSnapshotBlock consumes.
+          # Services: EBS direct APIs
+          - Sid: DenyEBSDirectSnapshotDataAccess
+            Effect: Deny
+            Action:
+              - ebs:GetSnapshotBlock
+              - ebs:ListSnapshotBlocks
+              - ebs:ListChangedBlocks
             Resource: "*"
           # TIER 6: Analytics Query Results
           - Sid: DenyAnalyticsQueryResults
