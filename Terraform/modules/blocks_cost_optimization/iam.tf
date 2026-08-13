@@ -526,6 +526,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     sid    = "DenySecretsAndCredentials"
     effect = "Deny"
     actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:BatchGetSecretValue",
+      "secretsmanager:ListSecretVersionIds",
       "secretsmanager:GetResourcePolicy",
       "secretsmanager:DescribeSecret",
       "ssm:GetParameter",
@@ -565,6 +568,14 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "chime:GetConversation*",
       "chime:ListMessages",
       "connect:GetContactAttributes",
+      "connect:DescribeContact",
+      "connect:SearchContacts",
+      "connect:ListContactReferences",
+      "connect:ListContactEvaluations",
+      "connect:DescribeContactEvaluation",
+      "connect:ListRealtimeContactAnalysisSegments",
+      "connect:ListRealtimeContactAnalysisSegmentsV2",
+      "connect:GetFederationToken",
       "sns:GetSMSAttributes",
       "sns:ListPlatformApplications",
       "sns:GetPlatformApplicationAttributes",
@@ -612,6 +623,18 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "dynamodb:GetShardIterator",
       "rds:DownloadDBLogFilePortion",
       "rds:DownloadCompleteDBLogFile",
+      "rds-data:ExecuteStatement",
+      "rds-data:BatchExecuteStatement",
+      "rds-data:ExecuteSql",
+      "rds-data:BeginTransaction",
+      "rds-data:CommitTransaction",
+      "rds-data:RollbackTransaction",
+      "redshift-data:ExecuteStatement",
+      "redshift-data:BatchExecuteStatement",
+      "redshift-data:GetStatementResult",
+      "redshift-data:GetStatementResultV2",
+      "redshift-data:DescribeStatement",
+      "redshift-data:ListStatements",
     ]
     resources = [
       "*",

@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.77" #  x-release-please-version
+  TemplateVersion: "0.1.79" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.77" #  x-release-please-version
+      Version: "0.1.79" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -519,6 +519,9 @@ Resources:
           - Sid: DenySecretsAndCredentials
             Effect: Deny
             Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:BatchGetSecretValue
+              - secretsmanager:ListSecretVersionIds
               - secretsmanager:GetResourcePolicy
               - secretsmanager:DescribeSecret
               - ssm:GetParameter
@@ -552,6 +555,14 @@ Resources:
               - chime:GetConversation*
               - chime:ListMessages
               - connect:GetContactAttributes
+              - connect:DescribeContact
+              - connect:SearchContacts
+              - connect:ListContactReferences
+              - connect:ListContactEvaluations
+              - connect:DescribeContactEvaluation
+              - connect:ListRealtimeContactAnalysisSegments
+              - connect:ListRealtimeContactAnalysisSegmentsV2
+              - connect:GetFederationToken
               - sns:GetSMSAttributes
               - sns:ListPlatformApplications
               - sns:GetPlatformApplicationAttributes
@@ -587,6 +598,18 @@ Resources:
               - dynamodb:GetShardIterator
               - rds:DownloadDBLogFilePortion
               - rds:DownloadCompleteDBLogFile
+              - rds-data:ExecuteStatement
+              - rds-data:BatchExecuteStatement
+              - rds-data:ExecuteSql
+              - rds-data:BeginTransaction
+              - rds-data:CommitTransaction
+              - rds-data:RollbackTransaction
+              - redshift-data:ExecuteStatement
+              - redshift-data:BatchExecuteStatement
+              - redshift-data:GetStatementResult
+              - redshift-data:GetStatementResultV2
+              - redshift-data:DescribeStatement
+              - redshift-data:ListStatements
             Resource: "*"
           # TIER 4: Search data plane - HTTP reads against OpenSearch/Elasticsearch domains return index documents. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. Cost analysis needs the control plane only (see statements/read/opensearch.json).
           # Services: Amazon OpenSearch Service, Amazon OpenSearch Serverless
