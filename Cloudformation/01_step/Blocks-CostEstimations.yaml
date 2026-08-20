@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.1.80" #  x-release-please-version
+  TemplateVersion: "0.1.83" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.80" #  x-release-please-version
+      Version: "0.1.83" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -203,7 +203,15 @@ Resources:
                   DeploymentTargets={'OrganizationalUnitIds': [org_root_id]},
                   Regions=['us-east-1'],
                   OperationPreferences={
-                      'FailureTolerancePercentage': 0,
+                      # 100% tolerance: attempt EVERY account rather than aborting the
+                      # operation on the first failure. Individual accounts fail for
+                      # reasons we cannot fix from here (a customer SCP, a suspended
+                      # account, an IAM name collision) and partial org coverage is far
+                      # more useful than none. Failures are reported below rather than
+                      # swallowed — with tolerance 100 the operation itself reports
+                      # SUCCEEDED even when instances failed, so the per-instance
+                      # results are the ONLY signal that coverage is incomplete.
+                      'FailureTolerancePercentage': 100,
                       'MaxConcurrentPercentage': 100,
                       'RegionConcurrencyType': 'PARALLEL',
                       'ConcurrencyMode': 'SOFT_FAILURE_TOLERANCE'
@@ -223,17 +231,33 @@ Resources:
                   if status in ['SUCCEEDED', 'FAILED', 'STOPPED']:
                       break
                   time.sleep(30)
-              if status != 'SUCCEEDED':
-                  try:
-                      log_failed_instances(cfn, stackset_name, operation_id)
-                  except Exception as e:
-                      print(f"log_failed_instances itself crashed: {e}")
+              # Always enumerate per-instance results, not just on a failed operation.
+              # Failure tolerance is 100, so the operation reports SUCCEEDED even when
+              # individual accounts failed; skipping this on success would make partial
+              # coverage invisible.
+              failed = 0
+              try:
+                  failed = log_failed_instances(cfn, stackset_name, operation_id)
+              except Exception as e:
+                  print(f"log_failed_instances itself crashed: {e}")
+              if status in ['FAILED', 'STOPPED']:
+                  # Tolerance 100 means per-account failures no longer land here — this
+                  # is a systemic failure of the operation itself, so keep failing hard.
                   raise Exception(f"StackSet operation {operation_id} ended with status: {status}")
-              print(f"StackSet {stackset_name} deployed to org root {org_root_id}")
+              if failed:
+                  print(f"StackSet {stackset_name} deployed to org root {org_root_id} with {failed} account(s) FAILED — org coverage is partial")
+              else:
+                  print(f"StackSet {stackset_name} deployed to org root {org_root_id}")
+              return failed
 
           def log_failed_instances(cfn, stackset_name, operation_id):
+              """Print every non-SUCCEEDED stack instance; return how many there were.
+
+              Printing is capped at max_logged to keep the log readable, but counting
+              is not — the caller reports the true number of accounts that failed.
+              """
               max_logged = 50
-              logged = 0
+              failed = 0
               try:
                   paginator = cfn.get_paginator('list_stack_set_operation_results')
                   pages = paginator.paginate(
@@ -245,21 +269,20 @@ Resources:
                       for s in page.get('Summaries', []):
                           if s.get('Status') == 'SUCCEEDED':
                               continue
-                          print(json.dumps({
-                              'event': 'failed_stack_instance',
-                              'account': s.get('Account', ''),
-                              'region': s.get('Region', ''),
-                              'status': s.get('Status', ''),
-                              'reason': s.get('StatusReason', ''),
-                          }))
-                          logged += 1
-                          if logged >= max_logged:
-                              print(f"Reached max_logged={max_logged}; further failures truncated.")
-                              break
-                      if logged >= max_logged:
-                          break
+                          failed += 1
+                          if failed <= max_logged:
+                              print(json.dumps({
+                                  'event': 'failed_stack_instance',
+                                  'account': s.get('Account', ''),
+                                  'region': s.get('Region', ''),
+                                  'status': s.get('Status', ''),
+                                  'reason': s.get('StatusReason', ''),
+                              }))
+                          elif failed == max_logged + 1:
+                              print(f"Reached max_logged={max_logged}; further failures counted but not printed.")
               except ClientError as e:
                   print(f"Could not fetch per-instance results: {e}")
+              return failed
 
           def delete_stackset(cfn):
               """Delete StackSet and all instances."""
@@ -275,6 +298,17 @@ Resources:
                               DeploymentTargets={'OrganizationalUnitIds': ou_ids},
                               Regions=regions,
                               RetainStacks=False,
+                              OperationPreferences={
+                                  # Same reasoning as create, and it matters more here:
+                                  # the API default is tolerance 0, so one account that
+                                  # cannot be cleaned up would abort deletion for all the
+                                  # others and leave the customer's stack stuck in
+                                  # DELETE_FAILED with orphaned roles across the org.
+                                  'FailureTolerancePercentage': 100,
+                                  'MaxConcurrentPercentage': 100,
+                                  'RegionConcurrencyType': 'PARALLEL',
+                                  'ConcurrencyMode': 'SOFT_FAILURE_TOLERANCE'
+                              },
                               CallAs='SELF',
                           )
                           operation_id = operation['OperationId']
@@ -315,12 +349,17 @@ Resources:
                               raise Exception("Organization must have 'All Features' enabled.")
 
                           enable_stacksets(orgs, cfn)
-                          create_stackset(cfn, org_root_id)
+                          failed = create_stackset(cfn, org_root_id)
                           response_data['OrganizationRootId'] = org_root_id
                           response_data['StackSetDeployed'] = 'true'
+                          # Non-zero means the StackSet succeeded but org coverage is
+                          # partial. 'StackSetDeployed' stays 'true' either way, so this
+                          # is the only place the distinction survives.
+                          response_data['FailedAccountCount'] = str(failed)
                       else:
                           response_data['OrganizationRootId'] = ''
                           response_data['StackSetDeployed'] = 'false'
+                          response_data['FailedAccountCount'] = '0'
                           print(f"Account type: {account_type}. StackSet skipped.")
 
                   elif event['RequestType'] == 'Delete':
@@ -850,6 +889,7 @@ Resources:
                   "step": "1",
                   "accountType": "${EnableStackSets.AccountType}",
                   "stackSetDeployed": "${EnableStackSets.StackSetDeployed}",
+                  "failedAccountCount": "${EnableStackSets.FailedAccountCount}",
                   "organizationRootId": "${EnableStackSets.OrganizationRootId}",
                   "managementAccountId": "${EnableStackSets.ManagementAccountId}"
                 }

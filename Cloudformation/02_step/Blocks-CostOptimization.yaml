@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.80" # x-release-please-version
+  TemplateVersion: "0.1.83" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.80" # x-release-please-version
+      Version: "0.1.83" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -593,7 +593,13 @@ Resources:
           Regions:
             - us-east-1
       OperationPreferences:
-        FailureTolerancePercentage: 0
+        # 100% tolerance: attempt EVERY account rather than aborting on the first
+        # failure. Accounts fail for reasons the customer cannot fix mid-deploy (an
+        # SCP, a suspended account, an IAM name collision), and partial org coverage
+        # beats none. Trade-off: this resource reaches CREATE_COMPLETE even when some
+        # instances FAILED, so incomplete coverage has to be read from the StackSet's
+        # per-instance results rather than from the stack status.
+        FailureTolerancePercentage: 100
         MaxConcurrentPercentage: 100
         RegionConcurrencyType: PARALLEL
         ConcurrencyMode: SOFT_FAILURE_TOLERANCE
