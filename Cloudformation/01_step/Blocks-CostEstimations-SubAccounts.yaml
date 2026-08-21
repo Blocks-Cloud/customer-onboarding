@@ -8,7 +8,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.83" # x-release-please-version
+  TemplateVersion: "0.1.84" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -370,7 +370,7 @@ Resources:
               - iam:GetServiceSpecificCredential
               - iam:GetLoginProfile
             Resource: "*"
-          # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and task/function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables.
+          # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
           - Sid: DenyCodeAccess
             Effect: Deny
             Action:
@@ -386,7 +386,6 @@ Resources:
               - lambda:GetFunctionConfiguration
               - lambda:ListFunctions
               - lambda:ListVersionsByFunction
-              - ecs:DescribeTaskDefinition
             Resource: "*"
           # TIER 10: Machine Learning Data
           - Sid: DenyMachineLearningData

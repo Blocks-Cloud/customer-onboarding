@@ -770,7 +770,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and task/function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables.
+  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
   statement {
     sid    = "DenyCodeAccess"
     effect = "Deny"
@@ -787,7 +787,6 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "lambda:GetFunctionConfiguration",
       "lambda:ListFunctions",
       "lambda:ListVersionsByFunction",
-      "ecs:DescribeTaskDefinition",
     ]
     resources = [
       "*",

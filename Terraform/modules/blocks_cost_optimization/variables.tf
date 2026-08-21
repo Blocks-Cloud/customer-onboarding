@@ -54,7 +54,7 @@ variable "stackset_template_url" {
 variable "event_forwarding_template_url" {
   type        = string
   description = "S3 URL for the EventForwarding CloudFormation template deployed via multi-region StackSet to member accounts"
-  default     = "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/shared/Blocks-EventForwarding.yaml"
+  default     = "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/shared/Blocks-EventForwarding.yaml?versionId=FArhse2A3dvNafmf1EOAMBGNn5wH8NOD"
 
   validation {
     condition     = can(regex("^https://", var.event_forwarding_template_url))
@@ -82,7 +82,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.83" # x-release-please-version
+  default     = "0.1.84" # x-release-please-version
 
   validation {
     condition     = length(var.template_version) > 0
