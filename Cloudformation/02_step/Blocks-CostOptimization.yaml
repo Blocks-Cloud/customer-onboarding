@@ -801,15 +801,22 @@ Resources:
               - s3:PutLifecycleConfiguration
               - s3:PutBucketOwnershipControls
             Resource: "arn:aws:s3:::blocks-cur-data-*"
-          # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417)
+          # CloudTrail Blocks trail management - Create and manage the Blocks organization CloudTrail trail (blocks-org-trail-*) for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417). Scoped to blocks-org-trail-* so Blocks cannot reconfigure customer trails (BLO-4870)
           # Services: CloudTrail
-          - Sid: CloudTrailOrgTrailManagement
+          - Sid: CloudTrailBlocksTrailManagement
             Effect: Allow
             Action:
               - cloudtrail:CreateTrail
               - cloudtrail:StartLogging
               - cloudtrail:UpdateTrail
               - cloudtrail:PutEventSelectors
+            Resource: !Sub "arn:${AWS::Partition}:cloudtrail:*:*:trail/blocks-org-trail-*"
+          # CloudTrail restart customer org trail - StartLogging only, so Blocks can restart a stopped customer organization trail instead of creating a duplicate one; restart-only, cannot reconfigure (BLO-4870)
+          # Services: CloudTrail
+          - Sid: CloudTrailRestartCustomerOrgTrail
+            Effect: Allow
+            Action:
+              - cloudtrail:StartLogging
             Resource: "*"
           # CloudTrail - Create service-linked role (AWSServiceRoleForCloudTrail) required when creating an organization trail
           # Services: IAM, CloudTrail

@@ -317,16 +317,29 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
   }
 
-  # CloudTrail org trail management - Create and manage organization CloudTrail trail for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417)
+  # CloudTrail Blocks trail management - Create and manage the Blocks organization CloudTrail trail (blocks-org-trail-*) for EventBridge event delivery; PutEventSelectors scopes the Blocks trail to management write events (BLO-3417). Scoped to blocks-org-trail-* so Blocks cannot reconfigure customer trails (BLO-4870)
   # Services: CloudTrail
   statement {
-    sid    = "CloudTrailOrgTrailManagement"
+    sid    = "CloudTrailBlocksTrailManagement"
     effect = "Allow"
     actions = [
       "cloudtrail:CreateTrail",
       "cloudtrail:StartLogging",
       "cloudtrail:UpdateTrail",
       "cloudtrail:PutEventSelectors",
+    ]
+    resources = [
+      "arn:${local.partition}:cloudtrail:*:*:trail/blocks-org-trail-*",
+    ]
+  }
+
+  # CloudTrail restart customer org trail - StartLogging only, so Blocks can restart a stopped customer organization trail instead of creating a duplicate one; restart-only, cannot reconfigure (BLO-4870)
+  # Services: CloudTrail
+  statement {
+    sid    = "CloudTrailRestartCustomerOrgTrail"
+    effect = "Allow"
+    actions = [
+      "cloudtrail:StartLogging",
     ]
     resources = [
       "*",
