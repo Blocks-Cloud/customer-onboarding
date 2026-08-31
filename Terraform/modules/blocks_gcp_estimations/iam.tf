@@ -15,16 +15,31 @@
 # permissions, so unlike AWS there is no broad-allow + deny-shield pattern here.
 # Safety comes from granting ONLY the narrow roles below.
 
-# Custom role instead of a predefined roles/recommender.* role: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md)
-# Planes: Recommender
-resource "google_project_iam_custom_role" "blocks_recommender_read_project" {
+# Single custom role replacing roles/compute.viewer + roles/monitoring.viewer + the former blocksRecommenderRead: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md). Renamed from blocksRecommenderRead 2026-08-26 (no GCP customers live yet, so no migration constraint).
+# Planes: Compute inventory, Cloud Monitoring, Recommender
+resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
   count       = var.scope == "project" ? 1 : 0
   project     = var.project_id
-  role_id     = "blocksRecommenderRead_${replace(var.customer_resource_id, "-", "_")}"
-  title       = "Blocks Recommender Read"
-  description = "Read access to Google Cloud Recommender cost recommendations for Blocks.cloud cost estimations. Managed by Blocks onboarding."
+  role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
+  title       = "Blocks Cost Estimations Read"
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, and Recommender cost recommendations. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
+    "compute.regions.list",
+    "compute.regions.get",
+    "compute.zones.list",
+    "compute.zones.get",
+    "compute.instances.list",
+    "compute.instances.get",
+    "compute.disks.list",
+    "compute.disks.get",
+    "compute.addresses.list",
+    "compute.addresses.get",
+    "compute.globalAddresses.list",
+    "compute.machineTypes.list",
+    "compute.machineTypes.get",
+    "monitoring.timeSeries.list",
+    "monitoring.metricDescriptors.list",
     "recommender.computeInstanceMachineTypeRecommendations.list",
     "recommender.computeInstanceIdleResourceRecommendations.list",
     "recommender.computeDiskIdleResourceRecommendations.list",
@@ -33,14 +48,29 @@ resource "google_project_iam_custom_role" "blocks_recommender_read_project" {
   ]
 }
 
-resource "google_organization_iam_custom_role" "blocks_recommender_read_org" {
+resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
   count       = var.scope == "project" ? 0 : 1
   org_id      = var.org_id
-  role_id     = "blocksRecommenderRead_${replace(var.customer_resource_id, "-", "_")}"
-  title       = "Blocks Recommender Read"
-  description = "Read access to Google Cloud Recommender cost recommendations for Blocks.cloud cost estimations. Managed by Blocks onboarding."
+  role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
+  title       = "Blocks Cost Estimations Read"
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, and Recommender cost recommendations. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
+    "compute.regions.list",
+    "compute.regions.get",
+    "compute.zones.list",
+    "compute.zones.get",
+    "compute.instances.list",
+    "compute.instances.get",
+    "compute.disks.list",
+    "compute.disks.get",
+    "compute.addresses.list",
+    "compute.addresses.get",
+    "compute.globalAddresses.list",
+    "compute.machineTypes.list",
+    "compute.machineTypes.get",
+    "monitoring.timeSeries.list",
+    "monitoring.metricDescriptors.list",
     "recommender.computeInstanceMachineTypeRecommendations.list",
     "recommender.computeInstanceIdleResourceRecommendations.list",
     "recommender.computeDiskIdleResourceRecommendations.list",
@@ -49,71 +79,25 @@ resource "google_organization_iam_custom_role" "blocks_recommender_read_org" {
   ]
 }
 
-# Compute Engine read-only: region/zone discovery (compute.regions.list + compute.regions.get) for the scan region grid and per-zone recommender enumeration, plus instances, disks, addresses for native orphan/idle detection
-# Planes: Compute inventory
-resource "google_project_iam_member" "blocks_scanner_compute_viewer_project" {
+# Bind custom role: blocksEstimationsRead
+resource "google_project_iam_member" "blocks_scanner_blocks_estimations_read_project" {
   count   = var.scope == "project" ? 1 : 0
   project = var.project_id
-  role    = "roles/compute.viewer"
+  role    = google_project_iam_custom_role.blocks_estimations_read_project[0].name
   member  = "serviceAccount:${google_service_account.blocks_scanner.email}"
 }
 
-resource "google_folder_iam_member" "blocks_scanner_compute_viewer_folder" {
+resource "google_folder_iam_member" "blocks_scanner_blocks_estimations_read_folder" {
   count  = var.scope == "folder" ? 1 : 0
   folder = var.folder_id
-  role   = "roles/compute.viewer"
+  role   = google_organization_iam_custom_role.blocks_estimations_read_org[0].name
   member = "serviceAccount:${google_service_account.blocks_scanner.email}"
 }
 
-resource "google_organization_iam_member" "blocks_scanner_compute_viewer_org" {
+resource "google_organization_iam_member" "blocks_scanner_blocks_estimations_read_org" {
   count  = var.scope == "org" ? 1 : 0
   org_id = var.org_id
-  role   = "roles/compute.viewer"
-  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-# Cloud Monitoring read-only: CPU/memory metrics (8-day rightsize window, 14-day idle window)
-# Planes: Cloud Monitoring
-resource "google_project_iam_member" "blocks_scanner_monitoring_viewer_project" {
-  count   = var.scope == "project" ? 1 : 0
-  project = var.project_id
-  role    = "roles/monitoring.viewer"
-  member  = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-resource "google_folder_iam_member" "blocks_scanner_monitoring_viewer_folder" {
-  count  = var.scope == "folder" ? 1 : 0
-  folder = var.folder_id
-  role   = "roles/monitoring.viewer"
-  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-resource "google_organization_iam_member" "blocks_scanner_monitoring_viewer_org" {
-  count  = var.scope == "org" ? 1 : 0
-  org_id = var.org_id
-  role   = "roles/monitoring.viewer"
-  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-# Bind custom role: blocksRecommenderRead
-resource "google_project_iam_member" "blocks_scanner_blocks_recommender_read_project" {
-  count   = var.scope == "project" ? 1 : 0
-  project = var.project_id
-  role    = google_project_iam_custom_role.blocks_recommender_read_project[0].name
-  member  = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-resource "google_folder_iam_member" "blocks_scanner_blocks_recommender_read_folder" {
-  count  = var.scope == "folder" ? 1 : 0
-  folder = var.folder_id
-  role   = google_organization_iam_custom_role.blocks_recommender_read_org[0].name
-  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
-}
-
-resource "google_organization_iam_member" "blocks_scanner_blocks_recommender_read_org" {
-  count  = var.scope == "org" ? 1 : 0
-  org_id = var.org_id
-  role   = google_organization_iam_custom_role.blocks_recommender_read_org[0].name
+  role   = google_organization_iam_custom_role.blocks_estimations_read_org[0].name
   member = "serviceAccount:${google_service_account.blocks_scanner.email}"
 }
 

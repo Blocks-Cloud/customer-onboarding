@@ -404,6 +404,21 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
+  # TIER 4: Enterprise search data plane. kendra:Query is granted by AWS-managed ReadOnlyAccess and returns DocumentExcerpt text out of the customer's index - the same class of exposure as the OpenSearch data plane above. GetQuerySuggestions returns query strings derived from real end-user searches. kendra:Retrieve is not in ReadOnlyAccess today and is denied as forward cover. Cost analysis reads DescribeIndex/ListIndices/ListDataSources metadata (edition, capacity units, storage) instead.
+  # Services: Amazon Kendra
+  statement {
+    sid    = "DenyEnterpriseSearchDataPlane"
+    effect = "Deny"
+    actions = [
+      "kendra:Query",
+      "kendra:Retrieve",
+      "kendra:GetQuerySuggestions",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # TIER 5: Storage Content (Complete S3 deny - no CUR exception in Step 1)
   statement {
     sid    = "DenyS3DataAccess"
@@ -551,6 +566,41 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
+  # TIER 10: Generative AI content. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. GetPrompt returns the stored prompt template text (customer IP, frequently with embedded few-shot examples containing real data) and is matched exactly, so the cost-relevant GetPromptRouter stays readable. GetAgent* covers GetAgent/GetAgentVersion, which return the agent instruction plus promptOverrideConfiguration.basePromptTemplate - effectively the system prompt, which commonly carries internal business rules - as well as GetAgentActionGroup (tool/API schemas) and GetAgentCollaborator (collaborationInstruction). GetFlow* covers flow definitions, whose prompt nodes embed inline prompt text. The agentcore memory and event reads return stored end-user conversation content verbatim. bedrock:Retrieve* (Retrieve, RetrieveAndGenerate) returns document chunks out of the customer knowledge base; it is not in ReadOnlyAccess today and is denied as forward cover. Prefix wildcards are deliberate: they also close equivalents AWS adds later. Cost analysis reads model, throughput and job metadata instead - GetFoundationModel, Get/ListProvisionedModelThroughputs, ListAgents/ListPrompts/ListKnowledgeBases and GetModelInvocationJob (verified: returns only S3 pointers, never request content) all stay allowed.
+  # Services: Amazon Bedrock, Amazon Bedrock AgentCore
+  statement {
+    sid    = "DenyGenAIContentAccess"
+    effect = "Deny"
+    actions = [
+      "bedrock:GetPrompt",
+      "bedrock:GetAgent*",
+      "bedrock:GetFlow*",
+      "bedrock:Retrieve*",
+      "bedrock-agentcore:*MemoryRecord*",
+      "bedrock-agentcore:*Event*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # TIER 10: Speech and conversational content. AWS-managed ReadOnlyAccess grants transcribe:Get*/List* and lex:Get*, and those Get families are content reads end to end, so they are denied as families rather than enumerated. Several of them hand out content via a URL the S3 object deny cannot reach: GetTranscriptionJob/GetMedicalTranscriptionJob/GetCallAnalyticsJob/GetMedicalScribeJob return Transcript.TranscriptFileUri (also RedactedTranscriptFileUri, ClinicalDocumentUri), which per the API model is a temporary pre-signed URI into a service-managed bucket whenever the job ran without OutputBucketName - fetched over plain HTTPS with no IAM evaluation at all. The same applies to DownloadUri on GetVocabulary/GetMedicalVocabulary/GetVocabularyFilter, to lex GetExport.url and to lex v2 DescribeExport.downloadUrl. lex GetUtterancesView.utterances and GetSession (messages, sessionAttributes, dialogAction) return end-user conversation text verbatim, GetBotChannelAssociation(s).botConfiguration carries channel integration credentials, and the lex v2 analytics reads (ListAggregatedUtterances, ListUtteranceAnalyticsData, ListSessionAnalyticsData) return utterance and session content - those three are not in ReadOnlyAccess today and are denied as forward cover. Cost analysis reads inventory instead: ListTranscriptionJobs, ListVocabularies, lex ListBots/ListBotVersions/DescribeBot are all still allowed.
+  # Services: Amazon Transcribe, Amazon Lex, Amazon Lex V2
+  statement {
+    sid    = "DenySpeechAndConversationContent"
+    effect = "Deny"
+    actions = [
+      "transcribe:Get*",
+      "lex:Get*",
+      "lex:DescribeExport",
+      "lex:ListAggregatedUtterances",
+      "lex:List*AnalyticsData",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
   statement {
     sid    = "DenyInstanceAccess"
@@ -587,7 +637,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
 
 resource "aws_iam_policy" "blocks_data_protection" {
   name        = "BlocksEstimationsDataProtectionPolicy-${var.customer_resource_id}"
-  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data during cost estimations."
+  description = "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML/GenAI, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data during cost estimations."
   policy      = data.aws_iam_policy_document.blocks_data_protection.json
   tags        = local.common_tags
 }

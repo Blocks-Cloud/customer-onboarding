@@ -16,8 +16,13 @@
 #
 # The binding is ADDITIVE (google_bigquery_dataset_iam_member): it adds exactly
 # this one member to this one role and leaves the customer's existing dataset
-# access untouched. Enabling a detailed, EU/US multi-region export is a
-# console-only manual step — see docs/gcp-billing-export.md.
+# access untouched. CAUTION: if the dataset itself is declared elsewhere in your
+# Terraform with an authoritative `access {}` block (or via
+# google_bigquery_dataset_access / *_iam_policy / *_iam_binding), that
+# declaration owns the whole dataset ACL and will DELETE this member on its next
+# apply — move the grant into that declaration instead of applying both.
+# Enabling a detailed, EU/US multi-region export is a console-only manual
+# step — see docs/gcp-billing-export.md.
 # ============================================================================
 
 locals {

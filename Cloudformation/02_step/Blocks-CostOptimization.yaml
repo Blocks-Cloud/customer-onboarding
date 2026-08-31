@@ -11,12 +11,12 @@ Description: >
   4. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.84" # x-release-please-version
+  TemplateVersion: "0.1.85" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.84" # x-release-please-version
+      Version: "0.1.85" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -921,7 +921,7 @@ Resources:
   BlocksDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
+      Description: "Comprehensive 11-tier data protection policy with 100+ explicit denies across secrets, communications, documents, databases, search data plane, storage, analytics, logs, identity, code, ML/GenAI, and instance access. Provides explicit IAM deny controls ensuring Blocks cannot access customer sensitive data."
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1031,6 +1031,15 @@ Resources:
               - es:ESHttpPost
               - aoss:APIAccessAll
             Resource: "*"
+          # TIER 4: Enterprise search data plane. kendra:Query is granted by AWS-managed ReadOnlyAccess and returns DocumentExcerpt text out of the customer's index - the same class of exposure as the OpenSearch data plane above. GetQuerySuggestions returns query strings derived from real end-user searches. kendra:Retrieve is not in ReadOnlyAccess today and is denied as forward cover. Cost analysis reads DescribeIndex/ListIndices/ListDataSources metadata (edition, capacity units, storage) instead.
+          # Services: Amazon Kendra
+          - Sid: DenyEnterpriseSearchDataPlane
+            Effect: Deny
+            Action:
+              - kendra:Query
+              - kendra:Retrieve
+              - kendra:GetQuerySuggestions
+            Resource: "*"
           # TIER 5: Storage Content - S3 with CUR exception
           - Sid: DenyS3DataAccessExceptCURBucket
             Effect: Deny
@@ -1124,6 +1133,29 @@ Resources:
               - rekognition:DetectFaces
               - rekognition:SearchFaces*
               - comprehend:DetectPiiEntities
+            Resource: "*"
+          # TIER 10: Generative AI content. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. GetPrompt returns the stored prompt template text (customer IP, frequently with embedded few-shot examples containing real data) and is matched exactly, so the cost-relevant GetPromptRouter stays readable. GetAgent* covers GetAgent/GetAgentVersion, which return the agent instruction plus promptOverrideConfiguration.basePromptTemplate - effectively the system prompt, which commonly carries internal business rules - as well as GetAgentActionGroup (tool/API schemas) and GetAgentCollaborator (collaborationInstruction). GetFlow* covers flow definitions, whose prompt nodes embed inline prompt text. The agentcore memory and event reads return stored end-user conversation content verbatim. bedrock:Retrieve* (Retrieve, RetrieveAndGenerate) returns document chunks out of the customer knowledge base; it is not in ReadOnlyAccess today and is denied as forward cover. Prefix wildcards are deliberate: they also close equivalents AWS adds later. Cost analysis reads model, throughput and job metadata instead - GetFoundationModel, Get/ListProvisionedModelThroughputs, ListAgents/ListPrompts/ListKnowledgeBases and GetModelInvocationJob (verified: returns only S3 pointers, never request content) all stay allowed.
+          # Services: Amazon Bedrock, Amazon Bedrock AgentCore
+          - Sid: DenyGenAIContentAccess
+            Effect: Deny
+            Action:
+              - bedrock:GetPrompt
+              - bedrock:GetAgent*
+              - bedrock:GetFlow*
+              - bedrock:Retrieve*
+              - bedrock-agentcore:*MemoryRecord*
+              - bedrock-agentcore:*Event*
+            Resource: "*"
+          # TIER 10: Speech and conversational content. AWS-managed ReadOnlyAccess grants transcribe:Get*/List* and lex:Get*, and those Get families are content reads end to end, so they are denied as families rather than enumerated. Several of them hand out content via a URL the S3 object deny cannot reach: GetTranscriptionJob/GetMedicalTranscriptionJob/GetCallAnalyticsJob/GetMedicalScribeJob return Transcript.TranscriptFileUri (also RedactedTranscriptFileUri, ClinicalDocumentUri), which per the API model is a temporary pre-signed URI into a service-managed bucket whenever the job ran without OutputBucketName - fetched over plain HTTPS with no IAM evaluation at all. The same applies to DownloadUri on GetVocabulary/GetMedicalVocabulary/GetVocabularyFilter, to lex GetExport.url and to lex v2 DescribeExport.downloadUrl. lex GetUtterancesView.utterances and GetSession (messages, sessionAttributes, dialogAction) return end-user conversation text verbatim, GetBotChannelAssociation(s).botConfiguration carries channel integration credentials, and the lex v2 analytics reads (ListAggregatedUtterances, ListUtteranceAnalyticsData, ListSessionAnalyticsData) return utterance and session content - those three are not in ReadOnlyAccess today and are denied as forward cover. Cost analysis reads inventory instead: ListTranscriptionJobs, ListVocabularies, lex ListBots/ListBotVersions/DescribeBot are all still allowed.
+          # Services: Amazon Transcribe, Amazon Lex, Amazon Lex V2
+          - Sid: DenySpeechAndConversationContent
+            Effect: Deny
+            Action:
+              - transcribe:Get*
+              - lex:Get*
+              - lex:DescribeExport
+              - lex:ListAggregatedUtterances
+              - lex:List*AnalyticsData
             Resource: "*"
           # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
           - Sid: DenyInstanceAccess
