@@ -1,7 +1,11 @@
 ############################
 # Primary Outputs
-# Paste these into the Blocks dashboard (or feed them to blocks_cli) —
-# Blocks verifies the connection automatically (status: pending -> healthy).
+# There is no paste field in the Blocks dashboard any more: registration is a
+# presigned upload performed by the one-shot Cloud Shell script (BLO-4985).
+# The Terraform path is available on request only — send these values to
+# support@blocks.cloud, who register the connection for you; Blocks then
+# verifies it automatically (dashboard status: Pending -> Connected).
+# See BLO-5215 for a self-serve registration path from Terraform.
 ############################
 
 output "service_account_email" {

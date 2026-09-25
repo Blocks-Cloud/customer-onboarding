@@ -8,7 +8,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.1.86" # x-release-please-version
+  TemplateVersion: "0.2.2" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -148,6 +148,14 @@ Resources:
               - support:DescribeTrustedAdvisorChecks
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
+            Resource: "*"
+          # Service Quotas - Read the Organizations account quota (L-E619E033) to check headroom before creating accounts in the customer org. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
+          # Services: Service Quotas
+          - Sid: OrganizationsAccountQuotaRead
+            Effect: Allow
+            Action:
+              - servicequotas:GetServiceQuota
+              - servicequotas:GetAWSDefaultServiceQuota
             Resource: "*"
           # Compute Optimizer - Get-only read access for rightsizing and resource optimization recommendations
           # Services: Compute Optimizer

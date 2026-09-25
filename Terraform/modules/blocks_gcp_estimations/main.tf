@@ -1,7 +1,7 @@
 # ============================================================================
 # Blocks.cloud — GCP Cost Estimations onboarding (Step 1, read-only)
 #
-# IaC analog of CloudShell/gcp/step1/blocks-gcp-estimations.sh. Everything
+# IaC analog of CloudShell/gcp/step1/blocks-gcp-step1.sh. Everything
 # here is read-only; nothing can modify your resources:
 #   - A Workload Identity Pool + AWS provider that ONLY accepts Blocks'
 #     shared cost-scanner AWS identity (CEL attribute condition pinning the
@@ -38,6 +38,9 @@ locals {
     "monitoring.googleapis.com",
     "recommender.googleapis.com",
     "cloudbilling.googleapis.com",
+    "logging.googleapis.com",
+    "cloudasset.googleapis.com",
+    "sqladmin.googleapis.com",
   ]
 }
 
@@ -66,18 +69,21 @@ resource "google_iam_workload_identity_pool" "blocks_scanner" {
   depends_on = [google_project_service.required]
 }
 
-# The attribute condition pins Blocks' shared scanner AWS role ARN — only that
-# identity can authenticate through this provider (confused-deputy protection).
-# attribute.aws_role is mapped to the BARE role name so the SA impersonation
-# grant (iam.tf) can be scoped to that role. The default AWS mapping would
-# resolve attribute.aws_role to the full assumed-role ARN, so it is set
-# explicitly here to match var.scanner_pod_role_name.
+# The attribute condition pins Blocks' AWS account AND Blocks' shared scanner
+# role name — only that identity can authenticate through this provider
+# (confused-deputy protection). Shape `assertion.account == '<acct>' &&
+# attribute.aws_role in [<roles>]`: admitting a further Blocks role later is one
+# more list entry plus one impersonation binding, not a new condition shape
+# (BLO-5100 decision 4). attribute.aws_role is mapped to the BARE role name; the
+# condition and the SA impersonation grant both key on it. The default AWS
+# mapping would resolve attribute.aws_role to the full assumed-role ARN, so it
+# is set explicitly here to match var.scanner_pod_role_name.
 resource "google_iam_workload_identity_pool_provider" "blocks_aws" {
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.blocks_scanner.workload_identity_pool_id
   workload_identity_pool_provider_id = var.wif_provider_id
   display_name                       = "Blocks AWS"
-  attribute_condition                = "assertion.arn.startsWith('${var.scanner_pod_role_arn}')"
+  attribute_condition                = "assertion.account == '${var.scanner_aws_account_id}' && attribute.aws_role in ['${var.scanner_pod_role_name}']"
 
   attribute_mapping = {
     "google.subject"     = "assertion.arn"
@@ -86,6 +92,16 @@ resource "google_iam_workload_identity_pool_provider" "blocks_aws" {
 
   aws {
     account_id = var.scanner_aws_account_id
+  }
+
+  lifecycle {
+    # scanner_pod_role_arn is the same identity as scanner_aws_account_id +
+    # scanner_pod_role_name in one string; the condition keys on the latter two.
+    # A mismatch would fail closed but silently — make it a plan-time error.
+    precondition {
+      condition     = var.scanner_pod_role_arn == "arn:aws:sts::${var.scanner_aws_account_id}:assumed-role/${var.scanner_pod_role_name}/"
+      error_message = "Inconsistent scanner identity: scanner_pod_role_arn must equal arn:aws:sts::${var.scanner_aws_account_id}:assumed-role/${var.scanner_pod_role_name}/ (derived from scanner_aws_account_id + scanner_pod_role_name)."
+    }
   }
 }
 

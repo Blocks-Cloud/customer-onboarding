@@ -247,3 +247,59 @@ resource "aws_organizations_policy_attachment" "blocks_governance_ou" {
 
   depends_on = [aws_organizations_organizational_unit.blocks_optimization]
 }
+
+############################
+# Blocks-managed accounts
+# The 4 accounts Blocks buys commitments in (3 Compute Savings Plans, 1 Database Savings
+# Plan), created inside the customer org under the BlocksOptimization OU so the
+# governance SCP applies from the first second. Terraform state makes this idempotent.
+############################
+
+locals {
+  # name => { purpose tag, short email suffix }. AWS caps account emails at 64 chars.
+  blocks_managed_accounts = {
+    "Blocks-Compute-1-${var.customer_resource_id}"  = { purpose = "ComputeSavingsPlans", slug = "bc1" }
+    "Blocks-Compute-2-${var.customer_resource_id}"  = { purpose = "ComputeSavingsPlans", slug = "bc2" }
+    "Blocks-Compute-3-${var.customer_resource_id}"  = { purpose = "ComputeSavingsPlans", slug = "bc3" }
+    "Blocks-Database-1-${var.customer_resource_id}" = { purpose = "DatabaseSavingsPlans", slug = "bd1" }
+  }
+
+  # Customer-owned root email: plus-address the management account's root email so the
+  # customer receives every root mail and holds the root credentials.
+  # ponytail: plus-addressing is not supported by every mail provider, and AWS caps
+  # emails at 64 chars; pass managed_account_root_emails to override per account.
+  mgmt_root_email_local  = split("+", split("@", data.aws_organizations_organization.current.master_account_email)[0])[0]
+  mgmt_root_email_domain = split("@", data.aws_organizations_organization.current.master_account_email)[1]
+  blocks_managed_account_emails = {
+    for name, a in local.blocks_managed_accounts :
+    name => lookup(var.managed_account_root_emails, name, "${local.mgmt_root_email_local}+${a.slug}-${lower(var.customer_resource_id)}@${local.mgmt_root_email_domain}")
+  }
+}
+
+resource "aws_organizations_account" "blocks_managed" {
+  for_each = local.is_management_account ? local.blocks_managed_accounts : {}
+
+  name                       = each.key
+  email                      = local.blocks_managed_account_emails[each.key]
+  parent_id                  = aws_organizations_organizational_unit.blocks_optimization[0].id
+  iam_user_access_to_billing = "DENY"
+  # Accounts hold live commitments; a customer destroy only forgets them (they stay in the org).
+  # Internal/sandbox deployments close them so CI does not leak accounts into the sandbox quota.
+  close_on_deletion = var.internal
+
+  tags = merge(local.common_tags, {
+    Purpose                  = each.value.purpose
+    BlocksCustomerResourceId = var.customer_resource_id
+  })
+
+  lifecycle {
+    precondition {
+      condition     = length(local.blocks_managed_account_emails[each.key]) <= 64
+      error_message = "Root email for ${each.key} exceeds AWS's 64-character limit; set managed_account_root_emails[\"${each.key}\"]."
+    }
+    # AWS does not allow changing these after creation.
+    ignore_changes = [email, iam_user_access_to_billing, role_name]
+  }
+
+  depends_on = [aws_organizations_policy_attachment.blocks_governance_ou]
+}

@@ -82,7 +82,7 @@ variable "target_ou_ids" {
 variable "template_version" {
   type        = string
   description = "Template version for deployment tracking and SQS notifications"
-  default     = "0.1.86" # x-release-please-version
+  default     = "0.2.2" # x-release-please-version
 
   validation {
     condition     = length(var.template_version) > 0
@@ -95,3 +95,10 @@ variable "internal" {
   description = "Mark this as an internal test customer"
   default     = false
 }
+
+variable "managed_account_root_emails" {
+  type        = map(string)
+  description = "Optional override of the root email per Blocks-managed account name (e.g. \"Blocks-Compute-1-<id>\" => \"aws-blocks-1@example.com\"). Defaults to plus-addressing the management account's root email."
+  default     = {}
+}
+

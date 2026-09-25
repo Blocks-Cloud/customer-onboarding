@@ -188,6 +188,20 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
+  # Service Quotas - Read the Organizations account quota (L-E619E033) to check headroom before creating accounts in the customer org. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
+  # Services: Service Quotas
+  statement {
+    sid    = "OrganizationsAccountQuotaRead"
+    effect = "Allow"
+    actions = [
+      "servicequotas:GetServiceQuota",
+      "servicequotas:GetAWSDefaultServiceQuota",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # Compute Optimizer - Get-only read access for rightsizing and resource optimization recommendations
   # Services: Compute Optimizer
   statement {

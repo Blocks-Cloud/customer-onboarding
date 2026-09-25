@@ -7,6 +7,8 @@ locals {
   base_notification_triggers = [
     aws_iam_role.blocks_execution_role.arn,
     aws_iam_role.blocks_read_role.arn,
+    # Re-notify existing customers once their Blocks-managed accounts exist.
+    join(",", [for k in sort(keys(aws_organizations_account.blocks_managed)) : aws_organizations_account.blocks_managed[k].id]),
   ]
 
 }
@@ -14,18 +16,19 @@ locals {
 resource "terraform_data" "notify_blocks_deployment" {
   # Store values in input for use in destroy provisioner
   input = {
-    blocks_account_id         = var.blocks_account_id
-    notifier_role_arn         = aws_iam_role.blocks_optimization_notifier_role.arn
-    region                    = local.region
-    account_id                = local.account_id
-    template_version          = var.template_version
-    customer_resource_id      = var.customer_resource_id
-    external_id               = var.external_id
-    execution_role_arn        = aws_iam_role.blocks_execution_role.arn
-    read_role_arn             = aws_iam_role.blocks_read_role.arn
-    majortom_read_role_arn    = aws_iam_role.majortom_read_role.arn
-    blocks_optimization_ou_id = try(aws_organizations_organizational_unit.blocks_optimization[0].id, "")
-    internal                  = var.internal
+    blocks_account_id          = var.blocks_account_id
+    notifier_role_arn          = aws_iam_role.blocks_optimization_notifier_role.arn
+    region                     = local.region
+    account_id                 = local.account_id
+    template_version           = var.template_version
+    customer_resource_id       = var.customer_resource_id
+    external_id                = var.external_id
+    execution_role_arn         = aws_iam_role.blocks_execution_role.arn
+    read_role_arn              = aws_iam_role.blocks_read_role.arn
+    majortom_read_role_arn     = aws_iam_role.majortom_read_role.arn
+    blocks_optimization_ou_id  = try(aws_organizations_organizational_unit.blocks_optimization[0].id, "")
+    blocks_managed_account_ids = join(",", [for k in sort(keys(aws_organizations_account.blocks_managed)) : aws_organizations_account.blocks_managed[k].id])
+    internal                   = var.internal
   }
 
   triggers_replace = local.base_notification_triggers
@@ -69,6 +72,8 @@ resource "terraform_data" "notify_blocks_deployment" {
           "readRoleArn": "${aws_iam_role.blocks_read_role.arn}",
           "majorTomReadRoleArn": "${aws_iam_role.majortom_read_role.arn}",
           "blocksOptimizationOUId": "${self.input.blocks_optimization_ou_id}",
+          "blocksManagedAccountIds": "${self.input.blocks_managed_account_ids}",
+          "blocksManagedAccountsError": "",
           "step": "2",
           "status": "CREATE_COMPLETE",
           "internal": ${var.internal}

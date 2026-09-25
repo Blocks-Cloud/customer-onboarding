@@ -16,13 +16,13 @@
 # Safety comes from granting ONLY the narrow roles below.
 
 # Single custom role replacing roles/compute.viewer + roles/monitoring.viewer + the former blocksRecommenderRead: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md). Renamed from blocksRecommenderRead 2026-08-26 (no GCP customers live yet, so no migration constraint).
-# Planes: Compute inventory, Cloud Monitoring, Recommender
+# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata), Cloud Asset Inventory (search), Cloud SQL (instance metadata)
 resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
   count       = var.scope == "project" ? 1 : 0
   project     = var.project_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, and Recommender cost recommendations. Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, Recommender cost recommendations, Cloud Audit Logs Admin Activity entries (action attribution), and billing-account metadata (org scope). Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -45,6 +45,11 @@ resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
     "recommender.computeDiskIdleResourceRecommendations.list",
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
+    "logging.logEntries.list",
+    "storage.buckets.list",
+    "cloudasset.assets.searchAllResources",
+    "cloudsql.instances.list",
+    "cloudsql.instances.get",
   ]
 }
 
@@ -53,7 +58,7 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
   org_id      = var.org_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, and Recommender cost recommendations. Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, Recommender cost recommendations, Cloud Audit Logs Admin Activity entries (action attribution), and billing-account metadata (org scope). Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -76,6 +81,15 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "recommender.computeDiskIdleResourceRecommendations.list",
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
+    "logging.logEntries.list",
+    "storage.buckets.list",
+    "cloudasset.assets.searchAllResources",
+    "cloudsql.instances.list",
+    "cloudsql.instances.get",
+    "billing.accounts.get",
+    "billing.accounts.list",
+    "billing.resourceAssociations.list",
+    "resourcemanager.projects.list",
   ]
 }
 

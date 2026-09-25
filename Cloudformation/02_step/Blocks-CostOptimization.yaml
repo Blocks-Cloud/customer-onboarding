@@ -8,15 +8,16 @@ Description: >
   1. Enables AWS Organizations trusted access for Cost Optimization Hub and Compute Optimizer via Lambda function.
   2. Deploys BlocksExecutionRole to all member accounts via StackSet for organization-wide optimization.
   3. Creates BlocksExecutionRole in management account with permissions for Savings Plans/RIs, Budgets, EventBridge, CloudWatch, Cost Optimization Hub, and AWS Organizations management.
-  4. Creates EventBridge rule to notify Blocks upon stack completion.
+  4. Creates 4 empty member accounts in the locked-down BlocksOptimization OU where Blocks buys Savings Plans for you. Root email: your management root email +bc1-<id>/+bc2-<id>/+bc3-<id>/+bd1-<id>; you own root.
+  5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.1.86" # x-release-please-version
+  TemplateVersion: "0.2.2" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.86" # x-release-please-version
+      Version: "0.2.2" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -87,6 +88,23 @@ Resources:
                 Action:
                   - cloudformation:DescribeOrganizationsAccess
                   - cloudformation:ActivateOrganizationsAccess
+                Resource: "*"
+              # Permissions to create the Blocks-managed Savings Plans accounts inside the customer org (CreateBlocksAccountsLambda)
+              - Sid: BlocksManagedAccountsCreate
+                Effect: Allow
+                Action:
+                  - organizations:CreateAccount
+                  - organizations:DescribeCreateAccountStatus
+                  - organizations:ListCreateAccountStatus
+                  - organizations:DescribeAccount
+                  - organizations:ListAccounts
+                  - organizations:ListAccountsForParent
+                  - organizations:ListParents
+                  - organizations:MoveAccount
+                  - organizations:TagResource
+                  - organizations:ListTagsForResource
+                  - servicequotas:GetServiceQuota
+                  - servicequotas:GetAWSDefaultServiceQuota
                 Resource: "*"
               # Permissions for deleting Step 1 stack
               - Effect: Allow
@@ -564,6 +582,231 @@ Resources:
         - Key: Purpose
           Value: GovernanceControl
 
+  # Lambda Function: Create Blocks-managed accounts
+  # Creates the 4 accounts Blocks buys commitments in (3 Compute Savings Plans, 1 Database Savings Plan)
+  # directly inside the customer org and moves them into the BlocksOptimization OU. Idempotent: existing
+  # accounts are matched by name, so re-running never exceeds 4. Never fails the stack: any problem is
+  # returned in AccountCreationError (stack output + Blocks notification) so the rest of step 2 still lands.
+  CreateBlocksAccountsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "Lambda function to create the Blocks-managed Savings Plans accounts in the BlocksOptimization OU"
+      FunctionName: CreateBlocksAccounts-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt BlocksOnboardingLambdaRole.Arn
+      Timeout: 900
+      Architectures:
+        - arm64
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: CostOptimization
+      Code:
+        ZipFile: |
+          import time
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          RESOURCE_ID = "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+          # 3 Compute Savings Plans accounts + 1 Database Savings Plan account. Fixed by design.
+          # email_slug is the plus-address suffix on the management account root email; AWS caps emails at 64 chars.
+          ACCOUNTS = [
+              {"name": "Blocks-Compute-1-" + RESOURCE_ID, "purpose": "ComputeSavingsPlans", "email_slug": "bc1"},
+              {"name": "Blocks-Compute-2-" + RESOURCE_ID, "purpose": "ComputeSavingsPlans", "email_slug": "bc2"},
+              {"name": "Blocks-Compute-3-" + RESOURCE_ID, "purpose": "ComputeSavingsPlans", "email_slug": "bc3"},
+              {"name": "Blocks-Database-1-" + RESOURCE_ID, "purpose": "DatabaseSavingsPlans", "email_slug": "bd1"},
+          ]
+          MAX_EMAIL_LENGTH = 64
+          ACCOUNT_QUOTA_CODE = "L-E619E033"  # Organizations: maximum number of accounts
+          CREATE_DELAY_SECONDS = 2  # Organizations allows 5 CreateAccount calls per minute
+
+          def paginate(fn, key, **kwargs):
+              token = None
+              while True:
+                  resp = fn(**kwargs, **({"NextToken": token} if token else {}))
+                  yield from resp.get(key, [])
+                  token = resp.get("NextToken")
+                  if not token:
+                      return
+
+          def root_email(orgs, mgmt_account_id):
+              # Customer-owned root email: plus-address the management account's root email so the
+              # customer receives every root mail and holds the root credentials.
+              # ponytail: plus-addressing is not supported by every mail provider; if a customer's
+              # provider rejects it, add a template placeholder for an explicit email pattern.
+              email = orgs.describe_account(AccountId=mgmt_account_id)["Account"]["Email"]
+              local, domain = email.rsplit("@", 1)
+              local = local.split("+", 1)[0]
+              return local, domain
+
+          def existing_accounts(orgs):
+              # Match by name across the whole org, so accounts a customer moved out of the OU are
+              # adopted (and moved back) instead of colliding on EMAIL_ALREADY_EXISTS.
+              active, suspended = {}, []
+              for acct in paginate(orgs.list_accounts, "Accounts"):
+                  if acct["Status"] == "SUSPENDED":
+                      suspended.append(acct["Name"])
+                  else:
+                      active[acct["Name"]] = acct
+              return active, suspended
+
+          def in_progress_requests(orgs):
+              pending = {}
+              for st in paginate(orgs.list_create_account_status, "CreateAccountStatuses", States=["IN_PROGRESS"]):
+                  pending[st["AccountName"]] = st["Id"]
+              return pending
+
+          def check_headroom(orgs, needed):
+              if needed == 0:
+                  return
+              quotas = boto3.client("service-quotas", region_name="us-east-1")
+              try:
+                  try:
+                      quota = quotas.get_service_quota(ServiceCode="organizations", QuotaCode=ACCOUNT_QUOTA_CODE)
+                  except ClientError as e:
+                      if e.response["Error"]["Code"] != "NoSuchResourceException":
+                          raise
+                      quota = quotas.get_aws_default_service_quota(ServiceCode="organizations", QuotaCode=ACCOUNT_QUOTA_CODE)
+                  limit = int(quota["Quota"]["Value"])
+              except Exception as e:
+                  # Advisory only: CreateAccount itself fails with ACCOUNT_NUMBER_LIMIT_EXCEEDED when the org is full.
+                  print(f"Could not read the Organizations account quota, proceeding without a headroom check: {e}")
+                  return
+              current = sum(1 for _ in paginate(orgs.list_accounts, "Accounts"))
+              if current + needed > limit:
+                  raise Exception(
+                      f"Organization account quota exhausted: {current} accounts, limit {limit}, need {needed} more. "
+                      f"Request an increase for Service Quotas code {ACCOUNT_QUOTA_CODE} (organizations) and re-run."
+                  )
+              print(f"Account quota headroom OK: {current}/{limit}, creating {needed}")
+
+          # Organizations serialises changes org-wide: another CreateAccount (or any org edit the
+          # customer is making) raises ConcurrentModificationException. Retry with backoff.
+          RETRYABLE_CREATE_ERRORS = ("ConcurrentModificationException", "TooManyRequestsException")
+
+          def create_account_with_retry(orgs, context, *, email, name, purpose):
+              delay = 5
+              while True:
+                  try:
+                      return orgs.create_account(
+                          Email=email,
+                          AccountName=name,
+                          IamUserAccessToBilling="DENY",
+                          Tags=[
+                              {"Key": "OwnedBy", "Value": "Blocks.cloud"},
+                              {"Key": "Purpose", "Value": purpose},
+                              {"Key": "BlocksCustomerResourceId", "Value": RESOURCE_ID},
+                          ],
+                      )
+                  except ClientError as e:
+                      code = e.response["Error"]["Code"]
+                      if code not in RETRYABLE_CREATE_ERRORS or context.get_remaining_time_in_millis() < 120_000:
+                          raise
+                      print(f"CreateAccount {name} hit {code}, retrying in {delay}s")
+                      time.sleep(delay)
+                      delay = min(delay * 2, 60)
+
+          def wait_for_account(orgs, request_id, context):
+              while True:
+                  st = orgs.describe_create_account_status(CreateAccountRequestId=request_id)["CreateAccountStatus"]
+                  if st["State"] == "SUCCEEDED":
+                      return st["AccountId"]
+                  if st["State"] == "FAILED":
+                      raise Exception(f"CreateAccount {request_id} failed: {st.get('FailureReason')}")
+                  if context.get_remaining_time_in_millis() < 60_000:
+                      # Answer CloudFormation before the Lambda is killed; a silent timeout would hang the
+                      # stack for an hour and then fail it. The next template update adopts the account.
+                      raise Exception(f"CreateAccount {request_id} still IN_PROGRESS near the Lambda timeout; re-run the stack update to finish")
+                  time.sleep(5)
+
+          def ensure_in_ou(orgs, account_id, root_id, ou_id):
+              parents = orgs.list_parents(ChildId=account_id)["Parents"]
+              if parents and parents[0]["Id"] == ou_id:
+                  return
+              orgs.move_account(AccountId=account_id, SourceParentId=parents[0]["Id"] if parents else root_id, DestinationParentId=ou_id)
+              print(f"Moved {account_id} into {ou_id}")
+
+          def handler(event, context):
+              # Always SUCCESS: a failure here must not roll back the rest of step 2. Errors are
+              # surfaced loudly through AccountCreationError (stack output + Blocks notification).
+              data = {"AccountIds": "", "AccountCreationError": ""}
+              ids = []
+              try:
+                  props = event["ResourceProperties"]
+                  ou_id, root_id = props["OrganizationalUnitId"], props["OrganizationRootId"]
+                  if event["RequestType"] == "Delete":
+                      # Accounts hold live commitments; never close them from a stack delete.
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+                      return
+
+                  orgs = boto3.client("organizations")
+                  present, suspended = existing_accounts(orgs)
+                  pending = in_progress_requests(orgs)
+
+                  # 1. Adopt what already exists first, so partial progress from an earlier run is
+                  #    governed (moved into the OU) and reported even if everything below fails.
+                  for account in ACCOUNTS:
+                      name = account["name"]
+                      if name in present:
+                          ensure_in_ou(orgs, present[name]["Id"], root_id, ou_id)
+                          ids.append(present[name]["Id"])
+
+                  # 2. Create what is missing.
+                  missing = [a for a in ACCOUNTS if a["name"] not in present and a["name"] not in pending]
+                  closed = [a["name"] for a in missing if a["name"] in suspended]
+                  if closed:
+                      # A closed account keeps its email reserved for 90 days, so re-creating it cannot work.
+                      raise Exception(f"Blocks-managed account(s) {closed} were closed; their root email stays reserved for 90 days. Contact support@blocks.cloud.")
+                  check_headroom(orgs, len(missing))
+                  mgmt_id = orgs.describe_organization()["Organization"]["MasterAccountId"]
+                  local, domain = root_email(orgs, mgmt_id) if missing else (None, None)
+                  # +<slug>-<resource id> keeps the email unique per deployment (AWS reserves account emails for 90 days after closure).
+                  emails = {a["name"]: f"{local}+{a['email_slug']}-{RESOURCE_ID.lower()}@{domain}" for a in missing}
+                  too_long = [e for e in emails.values() if len(e) > MAX_EMAIL_LENGTH]
+                  if too_long:
+                      raise Exception(
+                          f"Root email {too_long[0]} exceeds AWS's {MAX_EMAIL_LENGTH}-character limit. "
+                          f"No accounts were created. Shorten the management account root email or contact support@blocks.cloud."
+                      )
+                  for account in missing:
+                      name, email = account["name"], emails[account["name"]]
+                      resp = create_account_with_retry(orgs, context, email=email, name=name, purpose=account["purpose"])
+                      pending[name] = resp["CreateAccountStatus"]["Id"]
+                      print(f"Requested account {name} ({email})")
+                      time.sleep(CREATE_DELAY_SECONDS)
+
+                  # 3. Wait for each new account, move it into the OU, report it as soon as it lands.
+                  for account in ACCOUNTS:
+                      name = account["name"]
+                      if name not in present:
+                          account_id = wait_for_account(orgs, pending[name], context)
+                          ensure_in_ou(orgs, account_id, root_id, ou_id)
+                          ids.append(account_id)
+                  print(f"Blocks-managed accounts ready: {ids}")
+              except Exception as e:
+                  # Single line, no double quotes: this string is interpolated into the EventBridge JSON InputTemplate.
+                  data["AccountCreationError"] = " ".join(f"CreateBlocksAccounts: {e}".split()).replace('"', "'")[:512]
+                  print(f"ERROR {data['AccountCreationError']}")
+              data["AccountIds"] = ",".join(ids)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+
+  # Custom Resource: Create Blocks-managed accounts
+  # Runs after the OU and its governance SCP exist. CreateAccount lands at the org root; the Lambda moves each
+  # account into the OU right after, so the ungoverned window is one MoveAccount call. No DependsOn towards
+  # SubAccountStackSet on purpose: its AutoDeployment to the root delivers BlocksExecutionRole asynchronously.
+  CreateBlocksAccounts:
+    Type: Custom::CreateBlocksAccounts
+    DependsOn: BlocksGovernanceDenyPolicy
+    Properties:
+      ServiceToken: !GetAtt CreateBlocksAccountsLambda.Arn
+      OrganizationalUnitId: !Ref BlocksOptimizationOU
+      OrganizationRootId: !GetAtt EnableOrgServices.OrganizationRootId
+      # Force re-execution on template updates by including version
+      TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
     DependsOn: BlocksSavingsPlansDenyPolicy
@@ -705,6 +948,15 @@ Resources:
             Condition:
               StringEquals:
                 "iam:AWSServiceName": "servicequotas.amazonaws.com"
+          # Support - Open and follow up on a support case to request an Organizations account-quota increase when the org has no headroom for a Blocks-managed account (requires Business/Enterprise support plan; the permission is inert on Basic/Developer plans)
+          # Services: Support
+          - Sid: SupportCaseWrite
+            Effect: Allow
+            Action:
+              - support:CreateCase
+              - support:DescribeCases
+              - support:AddCommunicationToCase
+            Resource: "*"
           # Cost Allocation Tags - Activate tags and trigger backfill (management account only)
           # Services: Cost Explorer
           - Sid: CostAllocationTagsWrite
@@ -1382,6 +1634,8 @@ Resources:
                   "readRoleArn": "${BlocksReadRole.Arn}",
                   "majorTomReadRoleArn": "${MajorTomReadRole.Arn}",
                   "blocksOptimizationOUId": "${BlocksOptimizationOU}",
+                  "blocksManagedAccountIds": "${CreateBlocksAccounts.AccountIds}",
+                  "blocksManagedAccountsError": "${CreateBlocksAccounts.AccountCreationError}",
                   "externalId": "{{EXTERNAL_ID}}",
                   "step": "2"
                 }
@@ -1657,6 +1911,14 @@ Outputs:
   BlocksOptimizationOUArn:
     Description: "ARN of the Blocks Optimization OU"
     Value: !GetAtt BlocksOptimizationOU.Arn
+
+  BlocksManagedAccountIds:
+    Description: "Comma-separated IDs of the 4 Blocks-managed accounts (3 Compute Savings Plans, 1 Database Savings Plan) in the Blocks Optimization OU"
+    Value: !GetAtt CreateBlocksAccounts.AccountIds
+
+  BlocksManagedAccountsError:
+    Description: "Empty when all 4 Blocks-managed accounts exist; otherwise why account creation stopped (the stack still completes)"
+    Value: !GetAtt CreateBlocksAccounts.AccountCreationError
 
   ###################################
   # Service Control Policies        #

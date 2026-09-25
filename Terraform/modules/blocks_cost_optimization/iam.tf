@@ -160,6 +160,21 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     }
   }
 
+  # Support - Open and follow up on a support case to request an Organizations account-quota increase when the org has no headroom for a Blocks-managed account (requires Business/Enterprise support plan; the permission is inert on Basic/Developer plans)
+  # Services: Support
+  statement {
+    sid    = "SupportCaseWrite"
+    effect = "Allow"
+    actions = [
+      "support:CreateCase",
+      "support:DescribeCases",
+      "support:AddCommunicationToCase",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # Cost Allocation Tags - Activate tags and trigger backfill (management account only)
   # Services: Cost Explorer
   statement {

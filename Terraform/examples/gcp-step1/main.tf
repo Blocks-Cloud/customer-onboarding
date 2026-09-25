@@ -16,7 +16,7 @@
 #   1. Fill in your values below (customer id + AWS account id are provided
 #      by Blocks; scope/project/folder/org are your deployment choice)
 #   2. Run: terraform init && terraform plan && terraform apply
-#   3. Paste the outputs into the Blocks dashboard
+#   3. Send the outputs to support@blocks.cloud to register the connection (the dashboard has no paste field; the Cloud Shell one-shot script registers itself)
 #
 ############################
 
@@ -67,7 +67,7 @@ module "blocks_gcp_estimations" {
 }
 
 output "deployment_summary" {
-  description = "Summary of the deployment for Blocks onboarding — paste into the Blocks dashboard"
+  description = "Summary of the deployment for Blocks onboarding — send to support@blocks.cloud to register the connection"
   value = {
     customer_resource_id  = module.blocks_gcp_estimations.customer_resource_id
     service_account_email = module.blocks_gcp_estimations.service_account_email

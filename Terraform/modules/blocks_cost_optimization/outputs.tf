@@ -116,3 +116,8 @@ output "blocks_optimization_ou_arn" {
   description = "ARN of the Blocks Optimization OU"
   value       = local.is_management_account ? aws_organizations_organizational_unit.blocks_optimization[0].arn : null
 }
+
+output "blocks_managed_account_ids" {
+  description = "IDs of the 4 Blocks-managed accounts (3 Compute Savings Plans, 1 Database Savings Plan) in the Blocks Optimization OU, keyed by account name"
+  value       = { for k, a in aws_organizations_account.blocks_managed : k => a.id }
+}
