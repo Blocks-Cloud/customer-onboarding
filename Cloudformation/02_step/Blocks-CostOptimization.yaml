@@ -12,12 +12,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.2" # x-release-please-version
+  TemplateVersion: "0.2.3" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.2" # x-release-please-version
+      Version: "0.2.3" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -1425,6 +1425,14 @@ Resources:
               - ec2:GetConsoleScreenshot
               - ec2:GetPasswordData
               - ec2:GetLaunchTemplateData
+            Resource: "*"
+          - Sid: DenyLightsailContentAccess
+            Effect: Deny
+            Action:
+              - lightsail:GetContainerServices
+              - lightsail:GetContainerServiceDeployments
+              - lightsail:GetRelationalDatabaseLogEvents
+              - lightsail:GetRelationalDatabaseLogStreams
             Resource: "*"
           # Additional sensitive operations
           - Sid: DenyOtherSensitiveOperations

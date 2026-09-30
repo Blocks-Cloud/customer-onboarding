@@ -631,6 +631,20 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
+  statement {
+    sid    = "DenyLightsailContentAccess"
+    effect = "Deny"
+    actions = [
+      "lightsail:GetContainerServices",
+      "lightsail:GetContainerServiceDeployments",
+      "lightsail:GetRelationalDatabaseLogEvents",
+      "lightsail:GetRelationalDatabaseLogStreams",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
   # Additional sensitive operations
   statement {
     sid    = "DenyOtherSensitiveOperations"
