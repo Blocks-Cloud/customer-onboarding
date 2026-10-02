@@ -12,12 +12,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.3" # x-release-please-version
+  TemplateVersion: "0.2.4" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.3" # x-release-please-version
+      Version: "0.2.4" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -684,30 +684,34 @@ Resources:
               print(f"Account quota headroom OK: {current}/{limit}, creating {needed}")
 
           # Organizations serialises changes org-wide: another CreateAccount (or any org edit the
-          # customer is making) raises ConcurrentModificationException. Retry with backoff.
-          RETRYABLE_CREATE_ERRORS = ("ConcurrentModificationException", "TooManyRequestsException")
+          # customer is making) raises ConcurrentModificationException on CreateAccount and MoveAccount. Retry with backoff.
+          RETRYABLE_ORG_ERRORS = ("ConcurrentModificationException", "TooManyRequestsException")
 
-          def create_account_with_retry(orgs, context, *, email, name, purpose):
+          def org_call_with_retry(context, label, fn, **kwargs):
               delay = 5
               while True:
                   try:
-                      return orgs.create_account(
-                          Email=email,
-                          AccountName=name,
-                          IamUserAccessToBilling="DENY",
-                          Tags=[
-                              {"Key": "OwnedBy", "Value": "Blocks.cloud"},
-                              {"Key": "Purpose", "Value": purpose},
-                              {"Key": "BlocksCustomerResourceId", "Value": RESOURCE_ID},
-                          ],
-                      )
+                      return fn(**kwargs)
                   except ClientError as e:
                       code = e.response["Error"]["Code"]
-                      if code not in RETRYABLE_CREATE_ERRORS or context.get_remaining_time_in_millis() < 120_000:
+                      if code not in RETRYABLE_ORG_ERRORS or context.get_remaining_time_in_millis() < 120_000:
                           raise
-                      print(f"CreateAccount {name} hit {code}, retrying in {delay}s")
+                      print(f"{label} hit {code}, retrying in {delay}s")
                       time.sleep(delay)
                       delay = min(delay * 2, 60)
+
+          def create_account_with_retry(orgs, context, *, email, name, purpose):
+              return org_call_with_retry(
+                  context, f"CreateAccount {name}", orgs.create_account,
+                  Email=email,
+                  AccountName=name,
+                  IamUserAccessToBilling="DENY",
+                  Tags=[
+                      {"Key": "OwnedBy", "Value": "Blocks.cloud"},
+                      {"Key": "Purpose", "Value": purpose},
+                      {"Key": "BlocksCustomerResourceId", "Value": RESOURCE_ID},
+                  ],
+              )
 
           def wait_for_account(orgs, request_id, context):
               while True:
@@ -722,11 +726,14 @@ Resources:
                       raise Exception(f"CreateAccount {request_id} still IN_PROGRESS near the Lambda timeout; re-run the stack update to finish")
                   time.sleep(5)
 
-          def ensure_in_ou(orgs, account_id, root_id, ou_id):
+          def ensure_in_ou(orgs, context, account_id, root_id, ou_id):
               parents = orgs.list_parents(ChildId=account_id)["Parents"]
               if parents and parents[0]["Id"] == ou_id:
                   return
-              orgs.move_account(AccountId=account_id, SourceParentId=parents[0]["Id"] if parents else root_id, DestinationParentId=ou_id)
+              org_call_with_retry(
+                  context, f"MoveAccount {account_id}", orgs.move_account,
+                  AccountId=account_id, SourceParentId=parents[0]["Id"] if parents else root_id, DestinationParentId=ou_id,
+              )
               print(f"Moved {account_id} into {ou_id}")
 
           def handler(event, context):
@@ -751,7 +758,7 @@ Resources:
                   for account in ACCOUNTS:
                       name = account["name"]
                       if name in present:
-                          ensure_in_ou(orgs, present[name]["Id"], root_id, ou_id)
+                          ensure_in_ou(orgs, context, present[name]["Id"], root_id, ou_id)
                           ids.append(present[name]["Id"])
 
                   # 2. Create what is missing.
@@ -783,7 +790,7 @@ Resources:
                       name = account["name"]
                       if name not in present:
                           account_id = wait_for_account(orgs, pending[name], context)
-                          ensure_in_ou(orgs, account_id, root_id, ou_id)
+                          ensure_in_ou(orgs, context, account_id, root_id, ou_id)
                           ids.append(account_id)
                   print(f"Blocks-managed accounts ready: {ids}")
               except Exception as e:
