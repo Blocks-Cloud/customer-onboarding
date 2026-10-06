@@ -638,7 +638,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 4: Database Content
+  # TIER 4: Database Content. dynamodb:PartiQLSelect is the PartiQL path to the same items as GetItem/Query/Scan and is granted by AWS-managed ReadOnlyAccess.
   statement {
     sid    = "DenyDatabaseContentAccess"
     effect = "Deny"
@@ -663,6 +663,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "redshift-data:GetStatementResultV2",
       "redshift-data:DescribeStatement",
       "redshift-data:ListStatements",
+      "dynamodb:PartiQLSelect",
     ]
     resources = [
       "*",
@@ -813,7 +814,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
+  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. cloudformation:GetTemplate returns the full template body, infrastructure code that can carry hardcoded secrets; stack metadata (DescribeStacks/ListStackResources) stays readable. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
   statement {
     sid    = "DenyCodeAccess"
     effect = "Deny"
@@ -830,6 +831,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "lambda:GetFunctionConfiguration",
       "lambda:ListFunctions",
       "lambda:ListVersionsByFunction",
+      "cloudformation:GetTemplate",
     ]
     resources = [
       "*",
@@ -887,7 +889,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData) and GetLaunchTemplateData both return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads the equivalent configuration via DescribeInstances and DescribeLaunchTemplateVersions instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
+  # TIER 11: Instance Access. DescribeInstanceAttribute (Attribute=userData), GetLaunchTemplateData, DescribeLaunchTemplateVersions (LaunchTemplateData.UserData) and autoscaling DescribeLaunchConfigurations (UserData) all return user-data, a common location for bootstrap secrets/credentials; cost/rightsizing reads instance configuration via DescribeInstances instead. Console output, console screenshots and password data expose live instance state and Windows administrator credentials, none of which cost analysis needs.
   statement {
     sid    = "DenyInstanceAccess"
     effect = "Deny"
@@ -897,6 +899,8 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ec2:GetConsoleScreenshot",
       "ec2:GetPasswordData",
       "ec2:GetLaunchTemplateData",
+      "ec2:DescribeLaunchTemplateVersions",
+      "autoscaling:DescribeLaunchConfigurations",
     ]
     resources = [
       "*",
