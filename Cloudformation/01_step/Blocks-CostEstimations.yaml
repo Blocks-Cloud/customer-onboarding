@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.2.5" #  x-release-please-version
+  TemplateVersion: "0.2.6" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.5" #  x-release-please-version
+      Version: "0.2.6" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -827,6 +827,25 @@ Resources:
               - apigateway:GET
               - states:GetExecutionHistory
               - states:DescribeExecution
+            Resource: "*"
+          # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Inherited from AWS-managed ReadOnlyAccess; cost estimation never needs them, so Blocks denies itself any view of a customer's security posture before a relationship exists. Step 2 keeps them readable because Blocks actively helps with security there.
+          - Sid: DenySecurityFindings
+            Effect: Deny
+            Action:
+              - guardduty:*
+              - inspector:*
+              - inspector2:*
+              - securityhub:*
+              - macie2:*
+              - detective:*
+              - access-analyzer:*
+              - auditmanager:*
+              - securityagent:*
+              - shield:*
+              - fms:*
+              - identitystore:*
+              - identitystore-auth:*
+              - sso-directory:*
             Resource: "*"
 
   # ==== END GENERATED IAM POLICIES ====

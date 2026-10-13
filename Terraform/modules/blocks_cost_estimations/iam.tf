@@ -665,6 +665,31 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
+  # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Inherited from AWS-managed ReadOnlyAccess; cost estimation never needs them, so Blocks denies itself any view of a customer's security posture before a relationship exists. Step 2 keeps them readable because Blocks actively helps with security there.
+  statement {
+    sid    = "DenySecurityFindings"
+    effect = "Deny"
+    actions = [
+      "guardduty:*",
+      "inspector:*",
+      "inspector2:*",
+      "securityhub:*",
+      "macie2:*",
+      "detective:*",
+      "access-analyzer:*",
+      "auditmanager:*",
+      "securityagent:*",
+      "shield:*",
+      "fms:*",
+      "identitystore:*",
+      "identitystore-auth:*",
+      "sso-directory:*",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
 }
 
 resource "aws_iam_policy" "blocks_data_protection" {

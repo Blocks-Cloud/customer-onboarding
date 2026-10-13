@@ -71,7 +71,7 @@ Resources:
           - aws.emr
           - aws.glue
           - aws.athena
-          - aws.msk
+          - aws.kafka # MSK (eventSource kafka.amazonaws.com)
           - aws.mediaconvert
           - aws.mediaconnect
           - aws.memorydb
@@ -94,6 +94,16 @@ Resources:
             - false
           errorCode:
             - exists: false
+          # aws.ecs is allow-listed to the calls Blocks consumes (BLO-5528):
+          # task-protection heartbeats (UpdateTaskProtection) dominated forwarded
+          # volume for ECS-heavy customers, billed at $1/M cross-account events.
+          # Keep in sync with the ecs.amazonaws.com entries in ground-control's
+          # functions/action-matcher/matcher/handler.py.
+          $or:
+            - eventSource:
+                - anything-but: ecs.amazonaws.com
+            - eventName:
+                - UpdateService
       # Note: InputTransformer is not supported when the target is an EventBridge event bus.
       # The event pattern filter already limits forwarded events to management write calls
       # with no errors, so only matching CloudTrail metadata crosses the account boundary.

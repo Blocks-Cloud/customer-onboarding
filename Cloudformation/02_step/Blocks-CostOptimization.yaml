@@ -12,12 +12,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.5" # x-release-please-version
+  TemplateVersion: "0.2.6" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.5" # x-release-please-version
+      Version: "0.2.6" # x-release-please-version
 
 Rules:
   EnforceUsEast1:

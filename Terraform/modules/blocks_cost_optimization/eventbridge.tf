@@ -189,7 +189,7 @@ resource "aws_cloudwatch_event_rule" "blocks_cloudtrail_forwarding" {
       "aws.emr",
       "aws.glue",
       "aws.athena",
-      "aws.msk",
+      "aws.kafka", # MSK (eventSource kafka.amazonaws.com)
       "aws.mediaconvert",
       "aws.mediaconnect",
       "aws.memorydb",
@@ -209,6 +209,12 @@ resource "aws_cloudwatch_event_rule" "blocks_cloudtrail_forwarding" {
       managementEvent = [true]
       readOnly        = [false]
       errorCode       = [{ exists = false }]
+      # aws.ecs is allow-listed to the calls Blocks consumes (BLO-5528); keep in
+      # sync with Cloudformation/02_step/Blocks-EventForwarding.yaml.
+      "$or" = [
+        { eventSource = [{ "anything-but" = "ecs.amazonaws.com" }] },
+        { eventName = ["UpdateService"] },
+      ]
     }
   })
 
