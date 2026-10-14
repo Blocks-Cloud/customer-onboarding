@@ -1,0 +1,548 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  IMPORTANT: Deploy this stack in your AWS Organization Management (root) account in the us-east-1 region only.
+
+  SUMMARY: Blocks AI Control (optional add-on). Creates one empty member account in its own organizational unit
+  and a service control policy that denies Amazon Bedrock. The policy is created but NOT attached.
+
+  ACTIONS (in order of execution):
+  1. Checks the organization (all features, SCP policy type, account quota, email length).
+  2. Creates the BlocksAIControlOU organizational unit.
+  3. Creates the "Blocks AI Control" member account in that OU (root email: your management root email +aic-<id>).
+  4. Creates the deny-Bedrock service control policy, not attached.
+  5. Creates an EventBridge rule that notifies Blocks about the state of this stack.
+
+Metadata:
+  TemplateVersion: "0.1.0" # x-release-please-version
+
+Mappings:
+  TemplateConfig:
+    Constants:
+      Version: "0.1.0" # x-release-please-version
+
+Rules:
+  EnforceUsEast1:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - !Ref AWS::Region
+            - us-east-1
+        AssertDescription: "You must deploy to region us-east-1 only."
+
+  EnforceManagementAccount:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Equals:
+                - !Ref AWS::AccountId
+                - "{{MANAGEMENT_ACCOUNT_ID}}"
+            - Fn::Equals:
+                - "{{MANAGEMENT_ACCOUNT_ID}}"
+                - "SKIP"
+        AssertDescription: "This stack must be deployed in the AWS Organization management account only. The current account does not match the expected management account."
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # One execution role per setup Lambda, each limited to what that Lambda calls
+  # ---------------------------------------------------------------------------
+  OrgInfoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksAIControlOrgInfoRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by the Blocks AI Control stack's preflight Lambda. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: BlocksAIControlPreflight
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeOrganization
+                  - organizations:ListRoots
+                  - organizations:ListPoliciesForTarget
+                  - organizations:ListAccounts
+                  - servicequotas:GetServiceQuota
+                  - servicequotas:GetAWSDefaultServiceQuota
+                Resource: "*"
+              - Effect: Allow
+                Action: organizations:EnablePolicyType
+                Resource: !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
+
+  ControlAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksAIControlAccountRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by the Blocks AI Control stack's account-creation Lambda. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: BlocksAIControlAccount
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:CreateAccount
+                  - organizations:TagResource
+                  - organizations:DescribeCreateAccountStatus
+                  - organizations:ListAccounts
+                  - organizations:ListParents
+                Resource: "*"
+              - Effect: Allow
+                Action: organizations:MoveAccount
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:ou/o-*/ou-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:account/o-*/*"
+
+  PolicyLifecycleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksAIControlLifecycleRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by the Blocks AI Control stack to detach its own policy on delete. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: BlocksAIControlDetachOwnPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:ListTargetsForPolicy
+                  - organizations:DetachPolicy
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:policy/o-*/service_control_policy/${KillSwitchPolicy}"
+              - Effect: Allow
+                Action: organizations:DetachPolicy
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:ou/o-*/ou-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:account/o-*/*"
+
+  # ---------------------------------------------------------------------------
+  # Preflight: organization facts and prerequisites (D27)
+  # ---------------------------------------------------------------------------
+  OrgInfo:
+    Type: Custom::BlocksAIControlOrgInfo
+    Properties:
+      ServiceToken: !GetAtt OrgInfoFunction.Arn
+      TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+
+  OrgInfoFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "BlocksAIControlOrgInfo-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 840
+      Role: !GetAtt OrgInfoRole.Arn
+      Code:
+        ZipFile: |
+          import time
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          SCP_LIMIT = 10
+
+
+          def ensure_scp_type(o, root):
+              on = any(t["Type"] == "SERVICE_CONTROL_POLICY" and t["Status"] == "ENABLED" for t in root["PolicyTypes"])
+              if on:
+                  return
+              try:
+                  o.enable_policy_type(RootId=root["Id"], PolicyType="SERVICE_CONTROL_POLICY")
+              except ClientError as e:
+                  if e.response["Error"]["Code"] != "PolicyTypeAlreadyEnabledException":
+                      raise
+
+
+          def account_headroom(sq, o):
+              try:
+                  quota = sq.get_service_quota(ServiceCode="organizations", QuotaCode="L-E619E033")["Quota"]["Value"]
+              except ClientError:
+                  quota = sq.get_aws_default_service_quota(ServiceCode="organizations", QuotaCode="L-E619E033")["Quota"]["Value"]
+              used = sum(1 for p in o.get_paginator("list_accounts").paginate() for _ in p["Accounts"])
+              return int(quota) - used
+
+
+          def email_fits(root_email, rid):
+              """Same derivation as the account Lambda: an existing +tag is replaced, not appended."""
+              local, domain = root_email.split("@")
+              return len(f"{local.split('+')[0]}+aic-{rid.lower()}@{domain}") <= 64
+
+
+          def check_new_account(o, sq, org, root, root_scp_count):
+              """Checks that only matter when the account and the policy are created (not on a version update)."""
+              ensure_scp_type(o, root)
+              if root_scp_count >= SCP_LIMIT:
+                  raise RuntimeError(f"The organization root already has {root_scp_count} service control policies attached (limit {SCP_LIMIT})")
+              headroom = account_headroom(sq, o)
+              if headroom < 1:
+                  raise RuntimeError("Your organization has no free account slot (quota L-E619E033); request a raise or close unused accounts")
+              if not email_fits(org["MasterAccountEmail"], "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"):
+                  raise RuntimeError("Management account root email is too long to derive the control account email (64 characters max)")
+              return headroom
+
+
+          def handler(event, ctx):
+              try:
+                  if event["RequestType"] == "Delete":
+                      cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {}, physicalResourceId="orginfo")
+                      return
+                  o = boto3.client("organizations", region_name="us-east-1")
+                  sq = boto3.client("service-quotas", region_name="us-east-1")
+                  org = o.describe_organization()["Organization"]
+                  if org["FeatureSet"] != "ALL":
+                      raise RuntimeError("Your organization must have all features enabled (not consolidated billing only)")
+                  root = o.list_roots()["Roots"][0]
+                  n = len(o.list_policies_for_target(TargetId=root["Id"], Filter="SERVICE_CONTROL_POLICY")["Policies"])
+                  headroom = check_new_account(o, sq, org, root, n) if event["RequestType"] == "Create" else ""
+                  cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {
+                      "RootId": root["Id"],
+                      "OrgId": org["Id"],
+                      "ManagementAccountId": org["MasterAccountId"],
+                      "RootEmail": org["MasterAccountEmail"],
+                      "RootScpCount": str(n),
+                      "AccountHeadroom": str(headroom),
+                  }, physicalResourceId="orginfo")
+              except Exception as e:
+                  cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=str(e).replace('"', "'").replace("\\", "/").replace("\n", " ")[:500])
+
+  # ---------------------------------------------------------------------------
+  # OU and control account
+  # ---------------------------------------------------------------------------
+  BlocksAIControlOU:
+    Type: AWS::Organizations::OrganizationalUnit
+    Properties:
+      Name: "BlocksAIControlOU-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      ParentId: !GetAtt OrgInfo.RootId
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+
+  CreateControlAccount:
+    Type: Custom::BlocksAIControlAccount
+    Properties:
+      ServiceToken: !GetAtt CreateControlAccountFunction.Arn
+      OrganizationalUnitId: !Ref BlocksAIControlOU
+      RootId: !GetAtt OrgInfo.RootId
+      RootEmail: !GetAtt OrgInfo.RootEmail
+      ResourceId: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+
+  CreateControlAccountFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "BlocksAIControlCreateAccount-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 900
+      Role: !GetAtt ControlAccountRole.Arn
+      Code:
+        ZipFile: |
+          import time
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          RETRYABLE = ("ConcurrentModificationException", "TooManyRequestsException")
+          MOCK_NO_ACCOUNT = False  # CI only: blocks_cli --mock-control-account sets this to True (no real account)
+
+
+          def retry(fn, ctx, **kw):
+              delay = 5
+              while True:
+                  try:
+                      return fn(**kw)
+                  except ClientError as e:
+                      if e.response["Error"]["Code"] not in RETRYABLE or ctx.get_remaining_time_in_millis() < 120000:
+                          raise
+                      time.sleep(delay)
+                      delay = min(delay * 2, 60)
+
+
+          def find_account(o, name):
+              found = None
+              for page in o.get_paginator("list_accounts").paginate():
+                  for a in page["Accounts"]:
+                      if a["Name"] == name:
+                          if a["Status"] == "ACTIVE":
+                              return a
+                          found = found or a
+              return found
+
+
+          def email_for(root_email, rid):
+              local, domain = root_email.split("@")
+              local = local.split("+")[0]
+              e = f"{local}+aic-{rid.lower()}@{domain}"
+              if len(e) > 64:
+                  raise RuntimeError("root email too long for plus-addressing (64 characters max)")
+              return e
+
+
+          def parent_of(o, acct_id):
+              return o.list_parents(ChildId=acct_id)["Parents"][0]["Id"]
+
+
+          def move(o, ctx, acct_id, dest):
+              src = parent_of(o, acct_id)
+              if src != dest:
+                  retry(o.move_account, ctx, AccountId=acct_id, SourceParentId=src, DestinationParentId=dest)
+
+
+          def create(o, ctx, email, name):
+              t0 = time.time()
+              r = retry(o.create_account, ctx, Email=email, AccountName=name, IamUserAccessToBilling="DENY",
+                        Tags=[{"Key": "OwnedBy", "Value": "Blocks.cloud"}, {"Key": "Purpose", "Value": "BlocksAIControl"}])
+              req = r["CreateAccountStatus"]["Id"]
+              while True:
+                  s = o.describe_create_account_status(CreateAccountRequestId=req)["CreateAccountStatus"]
+                  if s["State"] == "SUCCEEDED":
+                      print(f"CreateAccount took {time.time() - t0:.1f}s")
+                      return s["AccountId"]
+                  if s["State"] == "FAILED":
+                      raise RuntimeError(f"CreateAccount failed: {s.get('FailureReason')}")
+                  if ctx.get_remaining_time_in_millis() < 60000:
+                      raise RuntimeError("timed out waiting for CreateAccount; re-run the stack update to finish")
+                  time.sleep(5)
+
+
+          def handler(event, ctx):
+              p = event["ResourceProperties"]
+              name = f"Blocks AI Control {p['ResourceId']}"
+              o = boto3.client("organizations", region_name="us-east-1")
+              try:
+                  if MOCK_NO_ACCOUNT and event["RequestType"] != "Delete":
+                      cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": "", "AccountError": ""},
+                                       physicalResourceId=f"none-{p['ResourceId']}")
+                      return
+                  if event["RequestType"] == "Delete":
+                      phys = event.get("PhysicalResourceId", "")
+                      a = find_account(o, name)
+                      # Only the Delete issued for the live account acts. A Delete for a replaced physical id (for example
+                      # none-<rid> after a failed first run) must not move the account the stack just put in the OU.
+                      if a and a["Status"] == "ACTIVE" and a["Id"] == phys:
+                          move(o, ctx, a["Id"], p["RootId"])  # never close; free the OU for deletion
+                      cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {})
+                      return
+                  a = find_account(o, name)
+                  if a and a["Status"] != "ACTIVE":
+                      raise RuntimeError("the control account exists but is closed; its root email stays reserved for 90 days, contact support@blocks.cloud")
+                  acct_id = a["Id"] if a else create(o, ctx, email_for(p["RootEmail"], p["ResourceId"]), name)
+                  move(o, ctx, acct_id, p["OrganizationalUnitId"])
+                  cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": acct_id, "AccountError": ""},
+                                   physicalResourceId=acct_id)
+              except Exception as e:
+                  # Never fail the stack on account problems (Step 2 convention): report them in the outputs.
+                  msg = str(e).replace('"', "'").replace("\\", "/").replace("\n", " ")[:500]
+                  print(f"control account error: {msg}")
+                  # Keep the existing physical id on Update: a changed id is a replacement, and the cleanup Delete would
+                  # move the live account back to the root.
+                  phys = event.get("PhysicalResourceId") or ""
+                  kept = "" if (not phys or phys.startswith("none-")) else phys  # report the account that still exists
+                  cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": kept, "AccountError": msg},
+                                   physicalResourceId=phys or f"none-{p['ResourceId']}")
+
+  # ---------------------------------------------------------------------------
+  # Kill-switch SCP (created, not attached) and its delete-time lifecycle (D4, D12)
+  # ---------------------------------------------------------------------------
+  KillSwitchPolicy:
+    Type: AWS::Organizations::Policy
+    DependsOn: OrgInfo
+    Properties:
+      Name: "BlocksAIControlDenyBedrock-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Type: SERVICE_CONTROL_POLICY
+      Description: "Blocks AI Control kill switch. Denies Amazon Bedrock. Attached only when you block Bedrock through Blocks."
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BlocksAIControlDenyBedrock
+            Effect: Deny
+            Action:
+              - "bedrock:*"
+              - "bedrock-mantle:*"
+            Resource: "*"
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+
+  KillSwitchPolicyLifecycle:
+    Type: Custom::BlocksAIControlPolicyLifecycle
+    Properties:
+      ServiceToken: !GetAtt KillSwitchPolicyLifecycleFunction.Arn
+      PolicyId: !Ref KillSwitchPolicy
+
+  KillSwitchPolicyLifecycleFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "BlocksAIControlPolicyLifecycle-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 600
+      Role: !GetAtt PolicyLifecycleRole.Arn
+      Code:
+        ZipFile: |
+          import time
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+
+          def detach_all(o, policy_id):
+              try:
+                  targets = o.list_targets_for_policy(PolicyId=policy_id)["Targets"]
+              except ClientError as e:
+                  if e.response["Error"]["Code"] in ("PolicyNotFoundException", "AWSOrganizationsNotInUseException"):
+                      return 0
+                  raise
+              n = 0
+              for t in targets:
+                  try:
+                      o.detach_policy(PolicyId=policy_id, TargetId=t["TargetId"])
+                      n += 1
+                  except ClientError as e:
+                      if e.response["Error"]["Code"] != "PolicyNotAttachedException":
+                          raise
+                  time.sleep(0.5)  # DetachPolicy throttle is 2 per second
+              return n
+
+
+          def handler(event, ctx):
+              try:
+                  pid = (event.get("ResourceProperties") or {}).get("PolicyId")
+                  stable = f"lifecycle-{pid}"
+                  if event["RequestType"] == "Delete":
+                      # Detach only when the live resource is deleted. A Delete for a replaced physical id (property or
+                      # ServiceToken change on update) must not release an engaged kill switch.
+                      if pid and event.get("PhysicalResourceId") == stable:
+                          o = boto3.client("organizations", region_name="us-east-1")
+                          print(f"detached from {detach_all(o, pid)} targets")
+                  cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {}, physicalResourceId=stable)
+              except Exception as e:
+                  cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=str(e).replace('"', "'").replace("\n", " ")[:500])
+
+  # ---------------------------------------------------------------------------
+  # Pingback to Blocks (own queue, D13-D15, D18)
+  # ---------------------------------------------------------------------------
+  BlocksAIControlNotifierRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "BlocksAIControlNotifierRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Used by Blocks.cloud to notify about AI Control deployment events. Must remain in place. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+        - Key: Purpose
+          Value: EventNotification
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SendToBlocksSQS
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: "arn:aws:sqs:us-east-1:{{BLOCKS_ACCOUNT_ID}}:Blocks-AIControl-Queue"
+
+  NotifyBlocksAIControl:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "NotifyBlocksAIControl-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Notifies Blocks when this AI Control stack changes state"
+      EventPattern:
+        source:
+          - "aws.cloudformation"
+        detail-type:
+          - "CloudFormation Stack Status Change"
+        detail:
+          stack-id:
+            - prefix: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/"
+      Targets:
+        - Arn: "arn:aws:sqs:us-east-1:{{BLOCKS_ACCOUNT_ID}}:Blocks-AIControl-Queue"
+          Id: "BlocksAIControlQueue"
+          RoleArn: !GetAtt BlocksAIControlNotifierRole.Arn
+          InputTransformer:
+            InputPathsMap:
+              account: "$.account"
+              region: "$.region"
+              time: "$.time"
+              stackId: "$.detail.stack-id"
+              statusDetails: "$.detail.status-details"
+            InputTemplate: !Sub
+              - |
+                {
+                  "source": "aws.cloudformation",
+                  "account": <account>,
+                  "region": <region>,
+                  "time": <time>,
+                  "stackId": <stackId>,
+                  "statusDetails": <statusDetails>,
+                  "service": "ai_control",
+                  "templateVersion": "${TemplateVersion}",
+                  "customerResourceId": "{{BLOCKS_CUSTOMER_RESOURCE_ID}}",
+                  "externalId": "{{EXTERNAL_ID}}",
+                  "controlAccountId": "${CreateControlAccount.AccountId}",
+                  "controlAccountError": "${CreateControlAccount.AccountError}",
+                  "policyId": "${KillSwitchPolicy}",
+                  "organizationalUnitId": "${BlocksAIControlOU}"
+                }
+              - TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+
+Outputs:
+  ControlAccountId:
+    Value: !GetAtt CreateControlAccount.AccountId
+  ControlAccountError:
+    Value: !GetAtt CreateControlAccount.AccountError
+  PolicyId:
+    Value: !Ref KillSwitchPolicy
+  OrganizationalUnitId:
+    Value: !Ref BlocksAIControlOU
+  RootScpCount:
+    Value: !GetAtt OrgInfo.RootScpCount
+  TemplateVersion:
+    Value: !FindInMap [TemplateConfig, Constants, Version]
