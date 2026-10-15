@@ -12,12 +12,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.6" # x-release-please-version
+  TemplateVersion: "0.2.7" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.6" # x-release-please-version
+      Version: "0.2.7" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -736,6 +736,21 @@ Resources:
               )
               print(f"Moved {account_id} into {ou_id}")
 
+          def move_to_root(orgs, context, root_id, ou_id):
+              # Idempotent: accounts already elsewhere (or gone) are skipped.
+              present, _ = existing_accounts(orgs)
+              for account in ACCOUNTS:
+                  acct = present.get(account["name"])
+                  if not acct:
+                      continue
+                  parents = orgs.list_parents(ChildId=acct["Id"])["Parents"]
+                  if parents and parents[0]["Id"] == ou_id:
+                      org_call_with_retry(
+                          context, f"MoveAccount {acct['Id']}", orgs.move_account,
+                          AccountId=acct["Id"], SourceParentId=ou_id, DestinationParentId=root_id,
+                      )
+                      print(f"Moved {acct['Id']} back to {root_id}")
+
           def handler(event, context):
               # Always SUCCESS: a failure here must not roll back the rest of step 2. Errors are
               # surfaced loudly through AccountCreationError (stack output + Blocks notification).
@@ -744,12 +759,15 @@ Resources:
               try:
                   props = event["ResourceProperties"]
                   ou_id, root_id = props["OrganizationalUnitId"], props["OrganizationRootId"]
+                  orgs = boto3.client("organizations")
                   if event["RequestType"] == "Delete":
-                      # Accounts hold live commitments; never close them from a stack delete.
+                      # Accounts hold live commitments; never close them from a stack delete. Move them back
+                      # to root instead, so the OU is empty and CloudFormation can delete it (this resource
+                      # !Refs the OU, so it is deleted first). A redeploy then recreates the OU and adopts them.
+                      move_to_root(orgs, context, root_id, ou_id)
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
                       return
 
-                  orgs = boto3.client("organizations")
                   present, suspended = existing_accounts(orgs)
                   pending = in_progress_requests(orgs)
 

@@ -25,6 +25,7 @@ resource "aws_cloudformation_stack_set" "cost_estimations" {
     BlocksCustomerId = var.customer_resource_id
     BlocksAccountId  = var.blocks_account_id
     ExternalId       = var.external_id
+    AccessExpiresAt  = local.access_expires_at
   }
 
   template_url = var.stackset_template_url

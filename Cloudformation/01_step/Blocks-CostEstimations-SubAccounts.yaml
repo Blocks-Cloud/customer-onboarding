@@ -8,7 +8,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.2.6" # x-release-please-version
+  TemplateVersion: "0.2.7" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -26,6 +26,11 @@ Parameters:
   ExternalId:
     Type: String
     Description: "External ID for secure cross-account role assumption"
+
+  AccessExpiresAt:
+    Type: String
+    Description: "UTC time (ISO-8601, e.g. 2027-01-12T16:00:00Z) after which Blocks can no longer assume the read role. Set by the management stack."
+    AllowedPattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
 
 Resources:
   # ==== BEGIN GENERATED IAM POLICIES ====
@@ -495,7 +500,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "BlocksEstimationsReadRole-${BlocksCustomerId}"
-      Description: "Used by Blocks.cloud to analyze cost savings. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+      Description: "Used by Blocks.cloud to analyze cost savings. Access expires 90 days after deployment unless you upgrade to step 2. Email support@blocks.cloud for assistance."
       MaxSessionDuration: 3600
       Tags:
         - Key: OwnedBy
@@ -513,6 +518,8 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
+              DateLessThan:
+                "aws:CurrentTime": !Ref AccessExpiresAt
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"

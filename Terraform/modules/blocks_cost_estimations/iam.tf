@@ -706,9 +706,17 @@ resource "aws_iam_policy" "blocks_data_protection" {
 # Cross-account role assumed by Blocks for cost analysis
 ############################
 
+# Fixed at first apply, so later applies never move the expiry.
+resource "time_static" "access_start" {}
+
+locals {
+  # The read roles' trust policy stops allowing AssumeRole 90 days after deployment.
+  access_expires_at = timeadd(time_static.access_start.rfc3339, "2160h")
+}
+
 resource "aws_iam_role" "blocks_estimations_read_role" {
   name                 = "BlocksEstimationsReadRole-${var.customer_resource_id}"
-  description          = "Used by Blocks.cloud to analyze cost savings. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
+  description          = "Used by Blocks.cloud to analyze cost savings. Access expires 90 days after deployment unless you upgrade to step 2. Email support@blocks.cloud for assistance."
   max_session_duration = 3600
   tags = merge(local.common_tags, {
     Purpose = "CostAnalysis"
@@ -726,6 +734,9 @@ resource "aws_iam_role" "blocks_estimations_read_role" {
         Condition = {
           StringEquals = {
             "sts:ExternalId" = var.external_id
+          }
+          DateLessThan = {
+            "aws:CurrentTime" = local.access_expires_at
           }
         }
       },

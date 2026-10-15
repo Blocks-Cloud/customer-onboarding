@@ -64,6 +64,7 @@ resource "terraform_data" "notify_blocks" {
           "stackSetDeployed": "${local.is_management_account && local.deploy_stackset ? "true" : "false"}",
           "organizationRootId": "${local.organization_root_id != null ? local.organization_root_id : ""}",
           "managementAccountId": "${local.management_account_id != null ? local.management_account_id : ""}",
+          "accessExpiresAt": "${local.access_expires_at}",
           "step": "1",
           "internal": ${var.internal},
           "status": "CREATE_COMPLETE"

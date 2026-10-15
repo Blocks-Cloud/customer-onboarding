@@ -4,6 +4,20 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.7 (2026-10-15)
+
+### Permissions
+- Step 1: Savings estimation, management and member accounts: the `BlocksEstimationsReadRole` trust policy now has a `DateLessThan` condition on `aws:CurrentTime`, so Blocks can assume the role only until 90 days after you first deploy. The date is set once and later stack updates or applies don't change it. Upgrade to Step 2 before it passes to keep access. The role description now says this. No actions were added or removed, and Step 2 is unchanged.
+
+### Added
+- Step 1: Savings estimation: a new `AccessExpiresAt` stack output (CloudFormation) and `access_expires_at` module output (Terraform) show when Blocks loses access through the read roles (UTC). The deployment notification sent to Blocks now includes the same date.
+
+### Changed
+- Step 1: Savings estimation, Terraform only: the module now needs the `hashicorp/time` provider (`>= 0.9`). Run `terraform init` to install it.
+
+### Fixed
+- Step 2: Blocks membership, CloudFormation only: deleting the stack now moves the 4 Blocks-managed accounts out of the `BlocksOptimization` OU and back to the organization root. The accounts are still not closed. This leaves the OU empty, so CloudFormation can delete it, and a later redeploy recreates the OU instead of failing because an OU with that name already exists.
+
 ## v0.2.6 (2026-10-13)
 
 ### Permissions

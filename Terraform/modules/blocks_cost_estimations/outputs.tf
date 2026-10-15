@@ -13,6 +13,11 @@ output "read_role_name" {
   value       = aws_iam_role.blocks_estimations_read_role.name
 }
 
+output "access_expires_at" {
+  description = "When Blocks loses access through the read roles (UTC, RFC 3339). Upgrade to step 2 before this date to keep access."
+  value       = local.access_expires_at
+}
+
 output "notifier_role_arn" {
   description = "ARN of the BlocksEstimationsNotifierRole for SQS notifications"
   value       = aws_iam_role.blocks_estimations_notifier_role.arn
