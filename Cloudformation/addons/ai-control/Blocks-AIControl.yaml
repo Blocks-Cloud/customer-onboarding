@@ -2,23 +2,32 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   IMPORTANT: Deploy this stack in your AWS Organization Management (root) account in the us-east-1 region only.
 
-  SUMMARY: Blocks AI Control (optional add-on). Creates one empty member account in its own organizational unit
-  and a service control policy that denies Amazon Bedrock. The policy is created but NOT attached.
+  SUMMARY: Blocks AI Control (optional add-on). Creates one member account in its own OU, a service control policy
+  that denies Amazon Bedrock (created, NOT attached) and a kill switch Lambda in that account that only Blocks can call.
 
   ACTIONS (in order of execution):
-  1. Checks the organization (all features, SCP policy type, account quota, email length).
+  1. Checks the organization (all features, SCP type, StackSets trusted access, account quota, email length).
   2. Creates the BlocksAIControlOU organizational unit.
   3. Creates the "Blocks AI Control" member account in that OU (root email: your management root email +aic-<id>).
   4. Creates the deny-Bedrock service control policy, not attached.
-  5. Creates an EventBridge rule that notifies Blocks about the state of this stack.
+  5. Creates a role that only the kill switch can assume; it can attach or detach only that policy.
+  6. StackSet into the control account: Lambda BlocksAIControlKillSwitch and role BlocksAIControlInvokeRole (ExternalId).
+  7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.1.0" # x-release-please-version
+  TemplateVersion: "0.2.0" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.1.0" # x-release-please-version
+      Version: "0.2.0" # x-release-please-version
+      # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
+      ExecutorRoleName: ai-control-executor-role
+      # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
+      DeployKillSwitch: "true"
+
+Conditions:
+  DeployKillSwitch: !Equals [!FindInMap [TemplateConfig, Constants, DeployKillSwitch], "true"]
 
 Rules:
   EnforceUsEast1:
@@ -79,6 +88,15 @@ Resources:
               - Effect: Allow
                 Action: organizations:EnablePolicyType
                 Resource: !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
+              # Service-managed StackSets need trusted access (same grants as Step 2 EnableOrgServices)
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeOrganizationsAccess
+                  - cloudformation:ActivateOrganizationsAccess
+                  - organizations:EnableAWSServiceAccess
+                  - iam:GetRole
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
 
   ControlAccountRole:
     Type: AWS::IAM::Role
@@ -219,6 +237,18 @@ Resources:
               return headroom
 
 
+          def ensure_stacksets_access(cfn, wait=60, tries=12):
+              """The kill switch StackSet is service-managed: it needs StackSets trusted access (a Step 1 customer may not have it)."""
+              if cfn.describe_organizations_access(CallAs="SELF")["Status"] == "ENABLED":
+                  return
+              cfn.activate_organizations_access()
+              for _ in range(tries):
+                  if cfn.describe_organizations_access(CallAs="SELF")["Status"] == "ENABLED":
+                      return
+                  time.sleep(wait)
+              raise RuntimeError("StackSets trusted access did not turn on; activate it in the CloudFormation StackSets console and retry")
+
+
           def handler(event, ctx):
               try:
                   if event["RequestType"] == "Delete":
@@ -229,6 +259,7 @@ Resources:
                   org = o.describe_organization()["Organization"]
                   if org["FeatureSet"] != "ALL":
                       raise RuntimeError("Your organization must have all features enabled (not consolidated billing only)")
+                  ensure_stacksets_access(boto3.client("cloudformation", region_name="us-east-1"))
                   root = o.list_roots()["Roots"][0]
                   n = len(o.list_policies_for_target(TargetId=root["Id"], Filter="SERVICE_CONTROL_POLICY")["Policies"])
                   headroom = check_new_account(o, sq, org, root, n) if event["RequestType"] == "Create" else ""
@@ -264,6 +295,7 @@ Resources:
       RootEmail: !GetAtt OrgInfo.RootEmail
       ResourceId: "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+      RequireAccount: !FindInMap [TemplateConfig, Constants, DeployKillSwitch]
 
   CreateControlAccountFunction:
     Type: AWS::Lambda::Function
@@ -370,13 +402,20 @@ Resources:
                   cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": acct_id, "AccountError": ""},
                                    physicalResourceId=acct_id)
               except Exception as e:
-                  # Never fail the stack on account problems (Step 2 convention): report them in the outputs.
                   msg = str(e).replace('"', "'").replace("\\", "/").replace("\n", " ")[:500]
                   print(f"control account error: {msg}")
                   # Keep the existing physical id on Update: a changed id is a replacement, and the cleanup Delete would
                   # move the live account back to the root.
                   phys = event.get("PhysicalResourceId") or ""
                   kept = "" if (not phys or phys.startswith("none-")) else phys  # report the account that still exists
+                  if not kept and event["RequestType"] != "Delete" and p.get("RequireAccount") == "true":
+                      # v0.2 cannot work without the account: an empty id would reach the policy role principal and fail
+                      # the stack with an opaque IAM error. Fail here with the real reason. With an account that still
+                      # exists (an Update that failed later) the error is only reported in the outputs. The rollback of a
+                      # failed v0.1 -> v0.2 update sends the v0.1 properties (no RequireAccount) to this code: it must
+                      # still answer SUCCESS, or the rollback fails (UPDATE_ROLLBACK_FAILED).
+                      cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=msg, physicalResourceId=phys or f"none-{p['ResourceId']}")
+                      return
                   cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": kept, "AccountError": msg},
                                    physicalResourceId=phys or f"none-{p['ResourceId']}")
 
@@ -460,6 +499,408 @@ Resources:
                   cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=str(e).replace('"', "'").replace("\n", " ")[:500])
 
   # ---------------------------------------------------------------------------
+  # Kill switch (I3): policy role here, Lambda and invoke role in the control account through a StackSet (D3, D29)
+  # ---------------------------------------------------------------------------
+  KillSwitchPolicyRole:
+    Type: AWS::IAM::Role
+    Condition: DeployKillSwitch
+    Properties:
+      RoleName: "BlocksAIControlPolicyRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Lets only the Blocks AI Control kill switch Lambda in the control account attach or detach the Blocks deny-Bedrock policy. Email support@blocks.cloud for assistance."
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${CreateControlAccount.AccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                "aws:PrincipalArn": !Sub "arn:${AWS::Partition}:iam::${CreateControlAccount.AccountId}:role/BlocksAIControlLambdaRole"
+      Policies:
+        - PolicyName: BlocksAIControlAttachOwnPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:AttachPolicy
+                  - organizations:DetachPolicy
+                Resource:
+                  - !GetAtt KillSwitchPolicy.Arn
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:ou/o-*/ou-*"
+                  - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:account/o-*/*"
+              - Effect: Allow
+                Action:
+                  - organizations:ListRoots
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:ListAccountsForParent
+                  - organizations:ListAccounts
+                  - organizations:ListPoliciesForTarget
+                  - organizations:ListPolicies
+                  - organizations:DescribePolicy
+                  - organizations:DescribeOrganization
+                  - organizations:ListTargetsForPolicy
+                Resource: "*"
+
+  ControlAccountStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: DeployKillSwitch
+    # Deleted before the lifecycle resource, so no kill switch can attach while the stack detaches on delete.
+    DependsOn: KillSwitchPolicyLifecycle
+    Properties:
+      StackSetName: "BlocksAIControl-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+      Description: "Blocks AI Control kill switch Lambda and invoke role in the control account. Email support@blocks.cloud for assistance."
+      PermissionModel: SERVICE_MANAGED
+      CallAs: SELF
+      AutoDeployment:
+        Enabled: false
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      OperationPreferences:
+        FailureToleranceCount: 0
+        MaxConcurrentCount: 1
+      Parameters:
+        - ParameterKey: BlocksAccountId
+          ParameterValue: "{{BLOCKS_ACCOUNT_ID}}"
+        - ParameterKey: ExternalId
+          ParameterValue: "{{EXTERNAL_ID}}"
+        - ParameterKey: ExecutorRoleName
+          ParameterValue: !FindInMap [TemplateConfig, Constants, ExecutorRoleName]
+        - ParameterKey: PolicyRoleArn
+          ParameterValue: !GetAtt KillSwitchPolicyRole.Arn
+        - ParameterKey: PolicyId
+          ParameterValue: !Ref KillSwitchPolicy
+        - ParameterKey: ManagementAccountId
+          ParameterValue: !Ref AWS::AccountId
+        - ParameterKey: TemplateVersion
+          ParameterValue: !FindInMap [TemplateConfig, Constants, Version]
+      StackInstancesGroup:
+        - DeploymentTargets:
+            OrganizationalUnitIds:
+              - !Ref BlocksAIControlOU
+            Accounts:
+              - !GetAtt CreateControlAccount.AccountId
+            AccountFilterType: INTERSECTION
+          Regions:
+            - us-east-1
+      Tags:
+        - Key: OwnedBy
+          Value: Blocks.cloud
+      TemplateBody: |
+        AWSTemplateFormatVersion: "2010-09-09"
+        Description: "Blocks AI Control kill switch in the control account. Deployed and removed by the Blocks AI Control stack in your management account. Email support@blocks.cloud for assistance."
+        Parameters:
+          BlocksAccountId:
+            Type: String
+            AllowedPattern: "^[0-9]{12}$"
+          ExternalId:
+            Type: String
+            MinLength: 1
+            NoEcho: true
+          ExecutorRoleName:
+            Type: String
+            AllowedPattern: "^[A-Za-z0-9+=,.@_-]{1,64}$"
+          PolicyRoleArn:
+            Type: String
+          PolicyId:
+            Type: String
+            AllowedPattern: "^p-[0-9a-z]{8,128}$"
+          ManagementAccountId:
+            Type: String
+            AllowedPattern: "^[0-9]{12}$"
+          TemplateVersion:
+            Type: String
+        Resources:
+          KillSwitchLogGroup:
+            Type: AWS::Logs::LogGroup
+            Properties:
+              LogGroupName: /aws/lambda/BlocksAIControlKillSwitch
+              RetentionInDays: 365
+          KillSwitchLambdaRole:
+            Type: AWS::IAM::Role
+            Properties:
+              RoleName: BlocksAIControlLambdaRole
+              Description: "Execution role of the Blocks AI Control kill switch. It can only assume the policy role in your management account."
+              Tags:
+                - Key: OwnedBy
+                  Value: Blocks.cloud
+              AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                      Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+              Policies:
+                - PolicyName: BlocksAIControlKillSwitch
+                  PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                      - Effect: Allow
+                        Action: sts:AssumeRole
+                        Resource: !Ref PolicyRoleArn
+                      - Effect: Allow
+                        Action:
+                          - logs:CreateLogStream
+                          - logs:PutLogEvents
+                        Resource: !GetAtt KillSwitchLogGroup.Arn
+          KillSwitchFunction:
+            Type: AWS::Lambda::Function
+            Properties:
+              FunctionName: BlocksAIControlKillSwitch
+              Description: "Attaches or detaches the Blocks AI Control deny-Bedrock SCP. Actions: engage, release, dry_run."
+              Runtime: python3.13
+              Architectures: [arm64]
+              Handler: index.handler
+              Timeout: 300
+              MemorySize: 256
+              Role: !GetAtt KillSwitchLambdaRole.Arn
+              LoggingConfig:
+                LogGroup: !Ref KillSwitchLogGroup
+              Environment:
+                Variables:
+                  POLICY_ROLE_ARN: !Ref PolicyRoleArn
+                  POLICY_ID: !Ref PolicyId
+                  MANAGEMENT_ACCOUNT_ID: !Ref ManagementAccountId
+                  TEMPLATE_VERSION: !Ref TemplateVersion
+              Code:
+                ZipFile: |
+                  import json
+                  import os
+                  import re
+                  import time
+
+                  import boto3
+                  from botocore.config import Config
+                  from botocore.exceptions import BotoCoreError, ClientError
+
+                  SCHEMA_VERSIONS = (1,)
+                  ACTIONS = ("engage", "release", "dry_run")
+                  SCP_LIMIT = 10  # direct SCP attachments per root, OU or account (D32)
+                  PACE_SECONDS = 0.5  # AttachPolicy and DetachPolicy: at most 2 calls per second
+                  MAX_TARGETS = 50
+                  TARGET_RE = re.compile(r"^(r-[0-9a-z]{4,32}|ou-[0-9a-z]{4,32}-[a-z0-9]{8,32}|[0-9]{12})$")
+                  DENIED = {"bedrock:*", "bedrock-mantle:*"}
+                  RETRIES = Config(retries={"mode": "standard", "max_attempts": 10})
+
+
+                  class InputError(ValueError):
+                      pass
+
+
+                  def parse(event):
+                      """Validate the request. The policy id never comes from the request, only from the stack."""
+                      if not isinstance(event, dict):
+                          raise InputError("the request must be a JSON object")
+                      if event.get("schema_version") not in SCHEMA_VERSIONS:
+                          raise InputError(f"unsupported schema_version {event.get('schema_version')!r}")
+                      action = event.get("action")
+                      if action not in ACTIONS:
+                          raise InputError(f"unknown action {action!r}")
+                      targets = event.get("targets") or []
+                      if not isinstance(targets, list) or len(targets) > MAX_TARGETS:
+                          raise InputError(f"targets must be a list of at most {MAX_TARGETS} ids")
+                      if not all(isinstance(t, str) and TARGET_RE.match(t) for t in targets):
+                          raise InputError("each target must be a root, OU or account id")
+                      if action == "engage" and not targets:
+                          raise InputError("engage needs at least one target")
+                      return action, list(dict.fromkeys(targets)), str(event.get("request_id") or "")[:128]
+
+
+                  def _error_name(e):
+                      return e.response["Error"]["Code"] if isinstance(e, ClientError) else type(e).__name__
+
+
+                  def org_client():
+                      """Organizations client on the policy role in the management account (the one hop this Lambda makes)."""
+                      sts = boto3.client("sts", region_name="us-east-1")
+                      c = sts.assume_role(RoleArn=os.environ["POLICY_ROLE_ARN"], RoleSessionName="BlocksAIControlKillSwitch")["Credentials"]
+                      return boto3.client("organizations", region_name="us-east-1", config=RETRIES, aws_access_key_id=c["AccessKeyId"],
+                                          aws_secret_access_key=c["SecretAccessKey"], aws_session_token=c["SessionToken"])
+
+
+                  def pages(o, op, key, **kw):
+                      for page in o.get_paginator(op).paginate(**kw):
+                          yield from page[key]
+
+
+                  def snapshot(o):
+                      """Root, OUs and accounts with ids, names and parents. Names go back to Blocks, never to the logs."""
+                      root = o.list_roots()["Roots"][0]
+                      ous, accounts, todo = [], [], [root["Id"]]
+                      while todo:
+                          parent = todo.pop()
+                          for ou in pages(o, "list_organizational_units_for_parent", "OrganizationalUnits", ParentId=parent):
+                              ous.append({"id": ou["Id"], "name": ou["Name"], "parent": parent})
+                              todo.append(ou["Id"])
+                          for a in pages(o, "list_accounts_for_parent", "Accounts", ParentId=parent):
+                              accounts.append({"id": a["Id"], "name": a["Name"], "status": a["Status"], "parent": parent})
+                      return {"root": {"id": root["Id"]}, "ous": ous, "accounts": accounts}
+
+
+                  def scps_on(o, target):
+                      return [p["Id"] for p in pages(o, "list_policies_for_target", "Policies", TargetId=target, Filter="SERVICE_CONTROL_POLICY")]
+
+
+                  def policy_problem(o, policy_id):
+                      """None when the policy is our deny-Bedrock SCP, else the reason."""
+                      p = o.describe_policy(PolicyId=policy_id)["Policy"]
+                      if p["PolicySummary"]["Type"] != "SERVICE_CONTROL_POLICY":
+                          return "not a service control policy"
+                      statements = json.loads(p["Content"]).get("Statement", [])
+                      statements = statements if isinstance(statements, list) else [statements]
+                      for s in statements:
+                          actions = s.get("Action", [])
+                          actions = {actions} if isinstance(actions, str) else set(actions)
+                          if s.get("Effect") == "Deny" and DENIED <= actions and s.get("Resource") == "*" and "Condition" not in s:
+                              return None
+                      return "the policy no longer denies bedrock:* and bedrock-mantle:* without conditions"
+
+
+                  def refusals(targets, snap, mgmt, control):
+                      """Targets this Lambda will not touch, with the reason. Everything else is in the Organization."""
+                      known = {snap["root"]["id"]} | {u["id"] for u in snap["ous"]} | {a["id"] for a in snap["accounts"]}
+                      refused = []
+                      for t in targets:
+                          if t == mgmt:
+                              refused.append({"target": t, "reason": "management_account"})
+                          elif t == control:
+                              refused.append({"target": t, "reason": "control_account"})
+                          elif t not in known:
+                              refused.append({"target": t, "reason": "not_in_organization"})
+                      return refused
+
+
+                  def change(o, policy_id, targets, attach):
+                      """Attach or detach on each target (idempotent), paced, then read back."""
+                      results = []
+                      for i, t in enumerate(targets):
+                          if i:
+                              time.sleep(PACE_SECONDS)
+                          try:
+                              if attach:
+                                  o.attach_policy(PolicyId=policy_id, TargetId=t)
+                              else:
+                                  o.detach_policy(PolicyId=policy_id, TargetId=t)
+                          except (ClientError, BotoCoreError) as e:
+                              code = _error_name(e)
+                              if code not in ("DuplicatePolicyAttachmentException", "PolicyNotAttachedException"):
+                                  results.append({"target": t, "ok": False, "error": code})
+                                  continue
+                          try:
+                              attached = policy_id in scps_on(o, t)
+                          except (ClientError, BotoCoreError) as e:
+                              # The change is made; keep reporting it, and the targets before it.
+                              results.append({"target": t, "ok": False, "error": "not_verified", "detail": _error_name(e)})
+                              continue
+                          ok = attached == attach
+                          results.append({"target": t, "ok": ok, "attached": attached} if ok else
+                                         {"target": t, "ok": False, "attached": attached, "error": "not_verified"})
+                      return results
+
+
+                  def dry_run(o, policy_id, targets, snap):
+                      """Everything an engage needs, without changing anything."""
+                      problem = policy_problem(o, policy_id)
+                      checked = []
+                      for t in targets or [snap["root"]["id"]]:
+                          ids = scps_on(o, t)
+                          checked.append({"target": t, "scp_count": len(ids), "headroom": SCP_LIMIT - len(ids), "attached": policy_id in ids})
+                      attached_to = [x["TargetId"] for x in pages(o, "list_targets_for_policy", "Targets", PolicyId=policy_id)]
+                      ok = problem is None and all(c["headroom"] > 0 or c["attached"] for c in checked)
+                      return {"ok": ok, "scp_problem": problem, "targets": checked, "attached_targets": attached_to, "snapshot": snap}
+
+
+                  def run(action, targets, control):
+                      policy_id, mgmt = os.environ["POLICY_ID"], os.environ["MANAGEMENT_ACCOUNT_ID"]
+                      try:
+                          o = org_client()
+                          org = o.describe_organization()["Organization"]
+                      except (ClientError, BotoCoreError) as e:
+                          return {"ok": False, "error": "assume_or_read_failed", "detail": _error_name(e)}
+                      if org["MasterAccountId"] != mgmt:
+                          return {"ok": False, "error": "management_account_mismatch"}
+                      snap = snapshot(o)
+                      snap.update({"organization_id": org["Id"], "management_account_id": mgmt, "control_account_id": control})
+                      # Detaching can never lock anyone out, so release refuses nothing; engage and dry_run refuse what they must not touch.
+                      refused = [] if action == "release" else refusals(targets, snap, mgmt, control)
+                      allowed = [t for t in targets if t not in {r["target"] for r in refused}]
+                      if action == "dry_run":
+                          return {**dry_run(o, policy_id, allowed, snap), "refused": refused}
+                      if action == "release" and not targets:
+                          allowed = [x["TargetId"] for x in pages(o, "list_targets_for_policy", "Targets", PolicyId=policy_id)]
+                      results = change(o, policy_id, allowed, attach=action == "engage")
+                      return {"ok": not refused and all(r["ok"] for r in results), "results": results, "refused": refused}
+
+
+                  def handler(event, ctx):
+                      t0 = time.time()
+                      control = ctx.invoked_function_arn.split(":")[4]
+                      try:
+                          action, targets, request_id = parse(event)
+                      except InputError as e:
+                          return {"schema_version": 1, "ok": False, "error": "invalid_input", "detail": str(e)}
+                      try:
+                          out = run(action, targets, control)
+                      except (ClientError, BotoCoreError) as e:
+                          # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
+                          out = {"ok": False, "error": "organizations_call_failed", "detail": _error_name(e)}
+                      out.update({"schema_version": 1, "action": action, "request_id": request_id, "policy_id": os.environ["POLICY_ID"],
+                                  "template_version": os.environ.get("TEMPLATE_VERSION", ""), "duration_ms": int((time.time() - t0) * 1000)})
+                      # Ids only in the log: no account or OU names.
+                      print(json.dumps({"request_id": request_id, "action": action, "ok": out["ok"], "error": out.get("error"),
+                                        "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"]}))
+                      return out
+          InvokeRole:
+            Type: AWS::IAM::Role
+            Properties:
+              RoleName: BlocksAIControlInvokeRole
+              Description: "Lets the Blocks platform invoke the AI Control kill switch, and nothing else."
+              Tags:
+                - Key: OwnedBy
+                  Value: Blocks.cloud
+              AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                      AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:root"
+                    Action: sts:AssumeRole
+                    Condition:
+                      StringEquals:
+                        "sts:ExternalId": !Ref ExternalId
+                      ArnEquals:
+                        "aws:PrincipalArn": !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/${ExecutorRoleName}"
+                  - Effect: Allow
+                    Principal:
+                      AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:root"
+                    Action: sts:TagSession
+                    Condition:
+                      ArnEquals:
+                        "aws:PrincipalArn": !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/${ExecutorRoleName}"
+              Policies:
+                - PolicyName: BlocksAIControlInvoke
+                  PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                      - Effect: Allow
+                        Action: lambda:InvokeFunction
+                        Resource: !GetAtt KillSwitchFunction.Arn
+                      - Effect: Allow
+                        Action: organizations:DescribeOrganization
+                        Resource: "*"
+        Outputs:
+          KillSwitchFunctionArn:
+            Value: !GetAtt KillSwitchFunction.Arn
+          InvokeRoleArn:
+            Value: !GetAtt InvokeRole.Arn
+
+  # ---------------------------------------------------------------------------
   # Pingback to Blocks (own queue, D13-D15, D18)
   # ---------------------------------------------------------------------------
   BlocksAIControlNotifierRole:
@@ -529,9 +970,21 @@ Resources:
                   "controlAccountId": "${CreateControlAccount.AccountId}",
                   "controlAccountError": "${CreateControlAccount.AccountError}",
                   "policyId": "${KillSwitchPolicy}",
-                  "organizationalUnitId": "${BlocksAIControlOU}"
+                  "organizationalUnitId": "${BlocksAIControlOU}",
+                  "policyRoleArn": "${PolicyRoleArn}",
+                  "invokeRoleArn": "${InvokeRoleArn}",
+                  "killLambdaArn": "${KillLambdaArn}"
                 }
               - TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
+                PolicyRoleArn: !If [DeployKillSwitch, !GetAtt KillSwitchPolicyRole.Arn, ""]
+                InvokeRoleArn: !If
+                  - DeployKillSwitch
+                  - !Sub "arn:${AWS::Partition}:iam::${CreateControlAccount.AccountId}:role/BlocksAIControlInvokeRole"
+                  - ""
+                KillLambdaArn: !If
+                  - DeployKillSwitch
+                  - !Sub "arn:${AWS::Partition}:lambda:us-east-1:${CreateControlAccount.AccountId}:function:BlocksAIControlKillSwitch"
+                  - ""
 
 Outputs:
   ControlAccountId:
@@ -546,3 +999,15 @@ Outputs:
     Value: !GetAtt OrgInfo.RootScpCount
   TemplateVersion:
     Value: !FindInMap [TemplateConfig, Constants, Version]
+  PolicyRoleArn:
+    Condition: DeployKillSwitch
+    Value: !GetAtt KillSwitchPolicyRole.Arn
+  ControlAccountStackSetId:
+    Condition: DeployKillSwitch
+    Value: !Ref ControlAccountStackSet
+  InvokeRoleArn:
+    Condition: DeployKillSwitch
+    Value: !Sub "arn:${AWS::Partition}:iam::${CreateControlAccount.AccountId}:role/BlocksAIControlInvokeRole"
+  KillSwitchFunctionArn:
+    Condition: DeployKillSwitch
+    Value: !Sub "arn:${AWS::Partition}:lambda:us-east-1:${CreateControlAccount.AccountId}:function:BlocksAIControlKillSwitch"
