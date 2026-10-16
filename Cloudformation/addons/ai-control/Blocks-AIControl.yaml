@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.2" # x-release-please-version
+  TemplateVersion: "0.2.3" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.2" # x-release-please-version
+      Version: "0.2.3" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -917,7 +917,7 @@ Resources:
               Architectures: [arm64]
               Handler: index.handler
               Timeout: 300
-              MemorySize: 256
+              MemorySize: 512
               Role: !GetAtt KillSwitchLambdaRole.Arn
               LoggingConfig:
                 LogGroup: !Ref KillSwitchLogGroup
@@ -940,6 +940,7 @@ Resources:
                   from concurrent.futures import ThreadPoolExecutor, wait
 
                   import boto3
+                  import botocore
                   from botocore.auth import SigV4Auth
                   from botocore.awsrequest import AWSRequest
                   from botocore.config import Config
@@ -953,7 +954,7 @@ Resources:
                   MAX_TARGETS = 50
                   TARGET_RE = re.compile(r"^(r-[0-9a-z]{4,32}|ou-[0-9a-z]{4,32}-[a-z0-9]{8,32}|[0-9]{12})$")
                   DENIED = {"bedrock:*", "bedrock-mantle:*"}
-                  RETRIES = Config(retries={"mode": "standard", "max_attempts": 10})
+                  RETRIES = Config(connect_timeout=5, read_timeout=15, retries={"mode": "standard", "max_attempts": 10})
 
 
                   class InputError(ValueError):
@@ -976,12 +977,15 @@ Resources:
                           raise InputError("each target must be a root, OU or account id")
                       if action == "engage" and not targets:
                           raise InputError("engage needs at least one target")
-                      return action, list(dict.fromkeys(targets)), str(event.get("request_id") or "")[:128]
+                      scp_only = event.get("scp_only") is True
+                      if scp_only and action != "dry_run":
+                          raise InputError("scp_only is for dry_run only")
+                      return action, list(dict.fromkeys(targets)), str(event.get("request_id") or "")[:128], scp_only
 
 
                   def policy_role_credentials():
                       """Credentials of the policy role in the management account (the one hop this Lambda makes)."""
-                      sts = boto3.client("sts", region_name="us-east-1")
+                      sts = boto3.client("sts", region_name="us-east-1", config=CLIENT_CONFIG)
                       return sts.assume_role(RoleArn=os.environ["POLICY_ROLE_ARN"], RoleSessionName="BlocksAIControlKillSwitch")["Credentials"]
 
 
@@ -1131,10 +1135,14 @@ Resources:
                   OPENER = urllib.request.build_opener(NoRedirect)
 
 
+                  # One Session per container; clients are made from it in the handler thread only (a Session is not thread safe, its clients are),
+                  # so a late thread holds only its client, not a Session.
+                  SESSION = boto3.session.Session()
+
+
                   def creds_client(creds, service, region="us-east-1"):
-                      # A new session per call: the default session is not safe to share between threads.
-                      return boto3.session.Session().client(service, region_name=region, config=CLIENT_CONFIG, aws_access_key_id=creds["AccessKeyId"],
-                                                            aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
+                      return SESSION.client(service, region_name=region, config=CLIENT_CONFIG, aws_access_key_id=creds["AccessKeyId"],
+                                            aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
 
 
                   def control_plane(creds, region):
@@ -1176,17 +1184,18 @@ Resources:
 
                   def guard_regions(creds):
                       """Regions to cover: every Bedrock region the SDK or AWS (public SSM parameters) lists that the account has enabled.
-                      The union means a Bedrock region that is new to an old SDK is still covered."""
-                      known = set(boto3.session.Session().get_available_regions("bedrock"))
+                      The union means a Bedrock region that is new to an old SDK is still covered.
+                      Returns (regions, source): source is "sdk_fallback" when the SSM list could not be read."""
+                      known, source = set(SESSION.get_available_regions("bedrock")), "ssm"
                       try:
                           for page in creds_client(creds, "ssm").get_paginator("get_parameters_by_path").paginate(
                                   Path="/aws/service/global-infrastructure/services/bedrock/regions"):
                               known |= {p["Value"] for p in page["Parameters"]}
                       except (ClientError, BotoCoreError):
-                          pass  # the SDK list alone still covers every region it knows
+                          source = "sdk_fallback"  # the SDK list alone still covers every region it knows
                       on = ["ENABLED", "ENABLED_BY_DEFAULT"]
                       enabled = {r["RegionName"] for r in all_items(creds_client(creds, "account"), "list_regions", "Regions", RegionOptStatusContains=on)}
-                      return sorted(r for r in known & enabled if GUARD_REGION_RE.match(r))
+                      return sorted(r for r in known & enabled if GUARD_REGION_RE.match(r)), source
 
 
                   def find_guardrail(bc, name):
@@ -1237,7 +1246,7 @@ Resources:
                   GUARD_BUDGET_SECONDS = 100  # from the start of the request: the executor waits about 150 s for the answer
                   GUARD_GRACE_SECONDS = 12  # a call in flight is bounded by the client timeouts
                   GUARD_POLL_SECONDS = 2
-                  MAX_REGION_WORKERS = 12
+                  MAX_REGION_WORKERS = 12  # each worker holds only its region's client; the Session and its botocore data are shared
                   BLOCK_ALL_PATTERN = "[\\s\\S]"
                   BLOCKED_MESSAGE = "Blocked by the Blocks AI Control kill switch."
                   COMPREHENSIVE = {"system": "COMPREHENSIVE", "messages": "COMPREHENSIVE"}
@@ -1316,8 +1325,8 @@ Resources:
                               and models.get("includedModels") == ["ALL"] and not models.get("excludedModels"))
 
 
-                  def engage_region(creds, region, name, budget):
-                      bc, call = creds_client(creds, "bedrock", region), control_plane(creds, region)
+                  def engage_region(creds, bc, region, name, budget):
+                      call = control_plane(creds, region)
                       g = find_guardrail(bc, name)
                       ours, others = split_configs(enforced_configs(call), g)
                       # A configuration that is not ours is information only: it is never changed, and ours is put next to it.
@@ -1340,9 +1349,9 @@ Resources:
                               "other_config": bool(others)}
 
 
-                  def release_region(creds, region, name, budget):
+                  def release_region(creds, bc, region, name, budget):
                       """Delete our enforced configuration only. The guardrail stays (a later engage reuses it)."""
-                      g, call = find_guardrail(creds_client(creds, "bedrock", region), name), control_plane(creds, region)
+                      g, call = find_guardrail(bc, name), control_plane(creds, region)
                       ours, others = split_configs(enforced_configs(call), g)
                       for cfg in ours:
                           check_time(budget)
@@ -1352,9 +1361,8 @@ Resources:
                       return {"region": region, "ok": True, "enforced": False, "changed": bool(ours), "other_config": bool(others)}
 
 
-                  def dry_run_region(creds, region, name, budget):
+                  def dry_run_region(creds, bc, region, name, budget):
                       """Changes nothing: is our guardrail there, is it enforced, is something else enforced."""
-                      bc = creds_client(creds, "bedrock", region)
                       g = find_guardrail(bc, name)
                       ours, others = split_configs(enforced_configs(control_plane(creds, region)), g)
                       taken = bool(g) and not g["owned"]
@@ -1370,36 +1378,49 @@ Resources:
                   GUARD_TASKS = {"engage": engage_region, "release": release_region, "dry_run": dry_run_region}
 
 
-                  def run_region(creds, action, region, name, budget):
+                  def run_region(creds, bc, action, region, name, budget):
                       try:
-                          return GUARD_TASKS[action](creds, region, name, budget)
+                          return GUARD_TASKS[action](creds, bc, region, name, budget)
                       except Exception as e:  # one region must never take the answer down
                           return {"region": region, "ok": False, "error": code_of(e)}
 
 
+                  def build_clients(creds, regions):
+                      """One client per region, built here in the calling thread. A region whose client cannot be built answers its own error."""
+                      clients, failed = {}, []
+                      for region in regions:
+                          try:
+                              clients[region] = creds_client(creds, "bedrock", region)
+                          except Exception as e:  # one region must never take the answer down
+                              failed.append({"region": region, "ok": False, "error": code_of(e)})
+                      return clients, failed
+
+
                   def guard_run(creds, action, name, deadline):
+                      regions, source = guard_regions(creds)
+                      clients, failed = build_clients(creds, regions)
                       budget, pool = Budget(deadline), ThreadPoolExecutor(max_workers=MAX_REGION_WORKERS)
-                      futures = {pool.submit(run_region, creds, action, region, name, budget): region for region in guard_regions(creds)}
+                      futures = {pool.submit(run_region, creds, bc, action, region, name, budget): region for region, bc in clients.items()}
                       done, late = wait(futures, timeout=max(0, deadline - time.monotonic()) + GUARD_GRACE_SECONDS)
                       budget.cancel.set()
                       pool.shutdown(wait=False, cancel_futures=True)
-                      results = [f.result() for f in done] + [{"region": futures[f], "ok": False, "error": "timeout"} for f in late]
+                      results = failed + [f.result() for f in done] + [{"region": futures[f], "ok": False, "error": "timeout"} for f in late]
                       results.sort(key=lambda r: r["region"])
                       errors = {}
                       for r in results:
                           if r.get("error"):
                               errors[r["error"]] = errors.get(r["error"], 0) + 1
-                      return {"ok": all(r["ok"] for r in results), "regions": results, "enforced_regions": sum(1 for r in results if r.get("enforced")),
+                      return {"ok": all(r["ok"] for r in results), "region_source": source, "regions": results, "enforced_regions": sum(1 for r in results if r.get("enforced")),
                               "other_config_regions": [r["region"] for r in results if r.get("other_config")], "errors": errors}
 
 
-                  def skip_reason(action, targets):
+                  def skip_reason(action, targets, scp_only=False):
                       """Why the management account part does not run. It belongs to the organization root: an engage that targets the management
                       account itself (the SCP part refuses it), or names no root, and a release of single targets leave it alone. The rule reads
                       the request only, so it gives the same answer whether or not the SCP part got far enough to compute its refusals.
-                      dry_run always reports."""
+                      dry_run reports unless the caller asked for the SCP part only."""
                       if action == "dry_run":
-                          return None
+                          return "scp_only" if scp_only else None
                       if action == "engage" and os.environ.get("MANAGEMENT_ACCOUNT_ID") in targets:
                           return "management_account_targeted"
                       if targets and not any(t.startswith("r-") for t in targets):
@@ -1407,15 +1428,17 @@ Resources:
                       return None
 
 
-                  def management_guard(action, started, targets):
+                  def management_guard(action, started, targets, scp_only=False):
                       """The management account part of an answer. Needs the policy role; an empty name means an older stack instance.
                       started: time.monotonic() at the start of the request, so the SCP part counts against the budget."""
                       name = os.environ.get("GUARDRAIL_NAME", "")
                       if not name:
                           return {"enabled": False}
-                      skipped = skip_reason(action, targets)
+                      skipped = skip_reason(action, targets, scp_only)
                       if skipped:
                           return {"enabled": True, "skipped": skipped}
+                      if time.monotonic() >= started + GUARD_BUDGET_SECONDS:  # no role and no region sweep for a budget that is already used
+                          return {"enabled": True, "ok": False, "error": "management_account_failed", "detail": "timeout"}
                       try:
                           return {"enabled": True, **guard_run(policy_role_credentials(), action, name, started + GUARD_BUDGET_SECONDS)}
                       except Exception as e:  # the SCP part of the answer must still go out
@@ -1426,7 +1449,7 @@ Resources:
                       t0, started = time.time(), time.monotonic()
                       control = ctx.invoked_function_arn.split(":")[4]
                       try:
-                          action, targets, request_id = parse(event)
+                          action, targets, request_id, scp_only = parse(event)
                       except InputError as e:
                           return {"schema_version": 1, "ok": False, "error": "invalid_input", "detail": str(e)}
                       try:
@@ -1435,7 +1458,7 @@ Resources:
                           # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
                           out = {"ok": False, "error": "organizations_call_failed", "detail": code_of(e)}
                       if out.get("error") != "management_account_mismatch":
-                          ma = out["management_account"] = management_guard(action, started, targets)
+                          ma = out["management_account"] = management_guard(action, started, targets, scp_only)
                           if ma.get("enabled") and not ma.get("skipped"):
                               # ok covers both parts: the SCP part alone is scp_ok.
                               out["scp_ok"], out["ok"] = out["ok"], bool(out["ok"] and ma.get("ok"))
@@ -1443,12 +1466,13 @@ Resources:
                                   # Without a code the executor reports a partial answer with no reason.
                                   out["error"] = "management_account_incomplete"
                       out.update({"schema_version": 1, "action": action, "request_id": request_id, "policy_id": os.environ["POLICY_ID"],
-                                  "template_version": os.environ.get("TEMPLATE_VERSION", ""), "duration_ms": int((time.time() - t0) * 1000)})
+                                  "template_version": os.environ.get("TEMPLATE_VERSION", ""), "sdk_version": botocore.__version__,
+                                  "duration_ms": int((time.time() - t0) * 1000)})
                       # Ids, regions and counts only in the log: no account, OU or guardrail names.
                       m = out.get("management_account", {})
                       print(json.dumps({"request_id": request_id, "action": action, "ok": out["ok"], "error": out.get("error"),
-                                        "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"],
-                                        "management_account": {k: m.get(k) for k in ("enabled", "skipped", "ok", "error", "detail", "enforced_regions", "other_config_regions", "errors")}}))
+                                        "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"], "sdk_version": out["sdk_version"],
+                                        "management_account": {k: m.get(k) for k in ("enabled", "skipped", "ok", "error", "detail", "enforced_regions", "other_config_regions", "errors", "region_source")}}))
                       return out
           InvokeRole:
             Type: AWS::IAM::Role

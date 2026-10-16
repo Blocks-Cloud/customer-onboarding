@@ -4,6 +4,20 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.3 (2026-10-16)
+
+### Added
+- Blocks can now ask for a dry run of the service control policy part only. That dry run skips the management account block and says why in the answer. Asking for this with engage or release is refused as invalid input.
+- The answer to Blocks now includes the AWS SDK version the kill switch Lambda runs with, and whether the list of Bedrock regions came from AWS or only from the SDK because the AWS list could not be read. The kill switch logs carry the same two values.
+
+### Changed
+- Calls the kill switch makes to AWS Organizations and AWS STS now time out after 5 seconds to connect and 15 seconds to read, so a call that hangs cannot use up the time of the request.
+- If the service control policy part of a request has already used up the time for the management account block, that part is reported as failed with `timeout` and is not started.
+
+### Fixed
+- The kill switch Lambda `BlocksAIControlKillSwitch` in the control account now has 512 MB of memory instead of 256 MB and uses less memory per region, so it no longer runs out of memory while it handles the management account block in every region.
+- A region where the kill switch cannot set up its connection to Bedrock now reports its own error, and the other regions still run.
+
 ## v0.2.2 (2026-10-16)
 
 ### Permissions
