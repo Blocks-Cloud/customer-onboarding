@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.0" # x-release-please-version
+  TemplateVersion: "0.2.1" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.0" # x-release-please-version
+      Version: "0.2.1" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -169,6 +169,24 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
                   - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:ou/o-*/ou-*"
                   - !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:account/o-*/*"
+        # On stack delete: remove the account-level Bedrock block of the kill switch in every region, and its guardrails.
+        - PolicyName: BlocksAIControlRemoveBedrockBlock
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                  - bedrock:ListEnforcedGuardrailsConfiguration
+                  - bedrock:DeleteEnforcedGuardrailConfiguration
+                  - account:ListRegions
+                Resource: "*"
+              - Effect: Allow
+                Action: bedrock:DeleteGuardrail
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+              - Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/global-infrastructure/services/bedrock/regions"
 
   # ---------------------------------------------------------------------------
   # Preflight: organization facts and prerequisites (D27)
@@ -447,6 +465,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt KillSwitchPolicyLifecycleFunction.Arn
       PolicyId: !Ref KillSwitchPolicy
+      GuardrailName: "BlocksAIControlBlockAll-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
 
   KillSwitchPolicyLifecycleFunction:
     Type: AWS::Lambda::Function
@@ -459,10 +478,19 @@ Resources:
       Role: !GetAtt PolicyLifecycleRole.Arn
       Code:
         ZipFile: |
+          import json
+          import re
           import time
+          import urllib.error
+          import urllib.request
+
           import boto3
           import cfnresponse
-          from botocore.exceptions import ClientError
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+          from botocore.config import Config
+          from botocore.credentials import Credentials
+          from botocore.exceptions import BotoCoreError, ClientError
 
 
           def detach_all(o, policy_id):
@@ -484,9 +512,150 @@ Resources:
               return n
 
 
+          GUARD_REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")
+          CONFIG_PATH = "/enforcedGuardrailsConfiguration"
+          REST_TIMEOUT = 20
+          CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"mode": "standard", "max_attempts": 3})
+
+
+          class GuardError(Exception):
+              """A step failed. The message is an error code, never a name, an ARN or a request value."""
+
+
+          def code_of(e):
+              if isinstance(e, ClientError):
+                  return e.response["Error"]["Code"]
+              return str(e) if isinstance(e, GuardError) else type(e).__name__
+
+
+          def creds_client(creds, service, region="us-east-1"):
+              # A new session per call: the default session is not safe to share between threads.
+              return boto3.session.Session().client(service, region_name=region, config=CLIENT_CONFIG, aws_access_key_id=creds["AccessKeyId"],
+                                                    aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
+
+
+          def control_plane(creds, region):
+              """A function (method, path, body=None) that makes SigV4-signed calls to the Bedrock control plane of this region, for the
+              account-level enforcement operations only.
+              Why not boto3: the SDK that Lambda bundles changes with runtime updates and region, and may not know these operations
+              or their current shape (selectiveContentGuarding, modelEnforcement)."""
+              credentials = Credentials(creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"])
+
+              def call(method, path, body=None):
+                  url = f"https://bedrock.{region}.amazonaws.com{path}"
+                  data = json.dumps(body).encode() if body is not None else None
+                  req = AWSRequest(method=method, url=url, data=data, headers={"Content-Type": "application/json"} if data else {})
+                  SigV4Auth(credentials, "bedrock", region).add_auth(req)
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
+                          raw = r.read()
+                  except urllib.error.HTTPError as e:
+                      raise GuardError((e.headers.get("x-amzn-ErrorType") or "").split(":")[0] or f"HTTP{e.code}") from None
+                  except (urllib.error.URLError, OSError):
+                      raise GuardError("ConnectionError") from None
+                  return json.loads(raw) if raw else {}
+
+              return call
+
+
+          def all_items(client, op, key, **kw):
+              for page in client.get_paginator(op).paginate(**kw):
+                  yield from page[key]
+
+
+          def guard_regions(creds):
+              """Regions to cover: every Bedrock region the SDK or AWS (public SSM parameters) lists that the account has enabled.
+              The union means a Bedrock region that is new to an old SDK is still covered."""
+              known = set(boto3.session.Session().get_available_regions("bedrock"))
+              try:
+                  for page in creds_client(creds, "ssm").get_paginator("get_parameters_by_path").paginate(
+                          Path="/aws/service/global-infrastructure/services/bedrock/regions"):
+                      known |= {p["Value"] for p in page["Parameters"]}
+              except (ClientError, BotoCoreError):
+                  pass  # the SDK list alone still covers every region it knows
+              on = ["ENABLED", "ENABLED_BY_DEFAULT"]
+              enabled = {r["RegionName"] for r in all_items(creds_client(creds, "account"), "list_regions", "Regions", RegionOptStatusContains=on)}
+              return sorted(r for r in known & enabled if GUARD_REGION_RE.match(r))
+
+
+          def find_guardrail(bc, name):
+              """The DRAFT summary (id, arn) of the guardrail with this name, or None."""
+              for g in all_items(bc, "list_guardrails", "guardrails"):
+                  if g["name"] == name:
+                      return g
+              return None
+
+
+          def cfg_guardrail_id(cfg):
+              """The guardrail id of an enforced configuration (the id, or the last part of the ARN)."""
+              return cfg.get("guardrailId") or (cfg.get("guardrailArn") or "").rsplit("/", 1)[-1]
+
+
+          def owns(cfg, g):
+              """True when this enforced configuration points to our guardrail (g: its summary from list_guardrails, or None)."""
+              return bool(cfg and g and cfg_guardrail_id(cfg) == g["id"])
+
+
+          def enforced_config(call):
+              """The account-level enforced configuration of this region, or None. A region can have at most one."""
+              configs = call("GET", CONFIG_PATH).get("guardrailsConfig") or []
+              return configs[0] if configs else None
+
+
+          def remove_enforcement(call, cfg):
+              """Delete this enforced configuration. The caller has checked that it points to our guardrail."""
+              if not re.fullmatch(r"[a-z0-9]+", str(cfg.get("configId"))):
+                  raise GuardError("InvalidConfigId")
+              call("DELETE", f"{CONFIG_PATH}/{cfg['configId']}")
+
+
+          LIFECYCLE_BUDGET_SECONDS = 540  # the Lambda times out at 600 s: answer CloudFormation before that
+
+
+          def remove_in_region(creds, region, name, deadline):
+              """Remove our enforced configuration (if it is ours) and then our guardrail. Reading the enforcement comes first, so
+              nothing is deleted before we know whether it is enforced. A read that fails is not fatal by itself (a region may have no
+              enforcement API): the guardrail delete then decides, because AWS refuses to delete an enforced guardrail."""
+              if time.monotonic() > deadline:
+                  raise GuardError("timeout")  # before anything is deleted: a retry still finds the guardrail and so our enforcement
+              bc = creds_client(creds, "bedrock", region)
+              g = find_guardrail(bc, name)
+              if g is None:
+                  return
+              call, read_error = control_plane(creds, region), None
+              try:
+                  cfg = enforced_config(call)
+              except (ClientError, BotoCoreError, GuardError) as e:
+                  cfg, read_error = None, e
+              if owns(cfg, g):
+                  remove_enforcement(call, cfg)
+              try:
+                  bc.delete_guardrail(guardrailIdentifier=g["id"])
+              except ClientError:
+                  if read_error:
+                      raise read_error  # enforcement unreadable and the guardrail is kept: fail so the delete can be retried
+
+
+          def remove_guardrails(creds, name, deadline=None):
+              """Remove our enforced configuration and guardrail in every region. A region where the enforcement cannot be removed
+              fails the stack delete (codes only), so no block is left behind unseen; retry the delete."""
+              deadline = deadline or time.monotonic() + LIFECYCLE_BUDGET_SECONDS
+              failed = {}
+              for region in guard_regions(creds):
+                  try:
+                      if time.monotonic() > deadline:
+                          raise GuardError("timeout")
+                      remove_in_region(creds, region, name, deadline)
+                  except Exception as e:  # every region is tried, whatever goes wrong in one
+                      failed[code_of(e)] = failed.get(code_of(e), 0) + 1
+              if failed:
+                  raise GuardError("could not remove the Bedrock block in the management account (" + ", ".join(f"{c} x{n}" for c, n in sorted(failed.items())) + "); retry the delete")
+
+
           def handler(event, ctx):
               try:
-                  pid = (event.get("ResourceProperties") or {}).get("PolicyId")
+                  props = event.get("ResourceProperties") or {}
+                  pid = props.get("PolicyId")
                   stable = f"lifecycle-{pid}"
                   if event["RequestType"] == "Delete":
                       # Detach only when the live resource is deleted. A Delete for a replaced physical id (property or
@@ -494,9 +663,17 @@ Resources:
                       if pid and event.get("PhysicalResourceId") == stable:
                           o = boto3.client("organizations", region_name="us-east-1")
                           print(f"detached from {detach_all(o, pid)} targets")
+                          if props.get("GuardrailName"):
+                              c = boto3.Session().get_credentials().get_frozen_credentials()
+                              # Answer CloudFormation before the Lambda times out (it would otherwise wait for about an hour).
+                              left = ctx.get_remaining_time_in_millis() / 1000 - 60 if ctx else LIFECYCLE_BUDGET_SECONDS
+                              remove_guardrails({"AccessKeyId": c.access_key, "SecretAccessKey": c.secret_key, "SessionToken": c.token},
+                                                props["GuardrailName"], time.monotonic() + left)
                   cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {}, physicalResourceId=stable)
               except Exception as e:
-                  cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=str(e).replace('"', "'").replace("\n", " ")[:500])
+                  # Error codes only: a message can carry ARNs or names, and stack events are readable by many people.
+                  why = str(e) if isinstance(e, GuardError) else code_of(e)
+                  cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=why.replace('"', "'").replace("\n", " ")[:500])
 
   # ---------------------------------------------------------------------------
   # Kill switch (I3): policy role here, Lambda and invoke role in the control account through a StackSet (D3, D29)
@@ -546,6 +723,30 @@ Resources:
                   - organizations:DescribeOrganization
                   - organizations:ListTargetsForPolicy
                 Resource: "*"
+        # The management account is never covered by an SCP. The kill switch blocks Bedrock there with an account-level
+        # enforced guardrail that blocks everything, in each region: one guardrail (and version) and one enforced configuration.
+        - PolicyName: BlocksAIControlManagementAccountGuardrail
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateGuardrail
+                  - bedrock:ListGuardrails
+                  - bedrock:ListEnforcedGuardrailsConfiguration
+                  - bedrock:PutEnforcedGuardrailConfiguration
+                  - bedrock:DeleteEnforcedGuardrailConfiguration
+                  - account:ListRegions
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - bedrock:GetGuardrail
+                  - bedrock:CreateGuardrailVersion
+                  - bedrock:TagResource
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+              - Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/global-infrastructure/services/bedrock/regions"
 
   ControlAccountStackSet:
     Type: AWS::CloudFormation::StackSet
@@ -577,6 +778,8 @@ Resources:
           ParameterValue: !Ref KillSwitchPolicy
         - ParameterKey: ManagementAccountId
           ParameterValue: !Ref AWS::AccountId
+        - ParameterKey: GuardrailName
+          ParameterValue: "BlocksAIControlBlockAll-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
         - ParameterKey: TemplateVersion
           ParameterValue: !FindInMap [TemplateConfig, Constants, Version]
       StackInstancesGroup:
@@ -613,6 +816,10 @@ Resources:
           ManagementAccountId:
             Type: String
             AllowedPattern: "^[0-9]{12}$"
+          GuardrailName:
+            Type: String
+            Default: ""
+            AllowedPattern: "^[0-9A-Za-z_-]{0,50}$"
           TemplateVersion:
             Type: String
         Resources:
@@ -653,7 +860,7 @@ Resources:
             Type: AWS::Lambda::Function
             Properties:
               FunctionName: BlocksAIControlKillSwitch
-              Description: "Attaches or detaches the Blocks AI Control deny-Bedrock SCP. Actions: engage, release, dry_run."
+              Description: "Attaches or detaches the Blocks AI Control deny-Bedrock SCP and the account-level Bedrock block in the management account. Actions: engage, release, dry_run."
               Runtime: python3.13
               Architectures: [arm64]
               Handler: index.handler
@@ -667,16 +874,24 @@ Resources:
                   POLICY_ROLE_ARN: !Ref PolicyRoleArn
                   POLICY_ID: !Ref PolicyId
                   MANAGEMENT_ACCOUNT_ID: !Ref ManagementAccountId
+                  GUARDRAIL_NAME: !Ref GuardrailName
                   TEMPLATE_VERSION: !Ref TemplateVersion
               Code:
                 ZipFile: |
                   import json
                   import os
                   import re
+                  import threading
                   import time
+                  import urllib.error
+                  import urllib.request
+                  from concurrent.futures import ThreadPoolExecutor, wait
 
                   import boto3
+                  from botocore.auth import SigV4Auth
+                  from botocore.awsrequest import AWSRequest
                   from botocore.config import Config
+                  from botocore.credentials import Credentials
                   from botocore.exceptions import BotoCoreError, ClientError
 
                   SCHEMA_VERSIONS = (1,)
@@ -712,14 +927,15 @@ Resources:
                       return action, list(dict.fromkeys(targets)), str(event.get("request_id") or "")[:128]
 
 
-                  def _error_name(e):
-                      return e.response["Error"]["Code"] if isinstance(e, ClientError) else type(e).__name__
+                  def policy_role_credentials():
+                      """Credentials of the policy role in the management account (the one hop this Lambda makes)."""
+                      sts = boto3.client("sts", region_name="us-east-1")
+                      return sts.assume_role(RoleArn=os.environ["POLICY_ROLE_ARN"], RoleSessionName="BlocksAIControlKillSwitch")["Credentials"]
 
 
                   def org_client():
-                      """Organizations client on the policy role in the management account (the one hop this Lambda makes)."""
-                      sts = boto3.client("sts", region_name="us-east-1")
-                      c = sts.assume_role(RoleArn=os.environ["POLICY_ROLE_ARN"], RoleSessionName="BlocksAIControlKillSwitch")["Credentials"]
+                      """Organizations client on the policy role."""
+                      c = policy_role_credentials()
                       return boto3.client("organizations", region_name="us-east-1", config=RETRIES, aws_access_key_id=c["AccessKeyId"],
                                           aws_secret_access_key=c["SecretAccessKey"], aws_session_token=c["SessionToken"])
 
@@ -788,7 +1004,7 @@ Resources:
                               else:
                                   o.detach_policy(PolicyId=policy_id, TargetId=t)
                           except (ClientError, BotoCoreError) as e:
-                              code = _error_name(e)
+                              code = code_of(e)
                               if code not in ("DuplicatePolicyAttachmentException", "PolicyNotAttachedException"):
                                   results.append({"target": t, "ok": False, "error": code})
                                   continue
@@ -796,7 +1012,7 @@ Resources:
                               attached = policy_id in scps_on(o, t)
                           except (ClientError, BotoCoreError) as e:
                               # The change is made; keep reporting it, and the targets before it.
-                              results.append({"target": t, "ok": False, "error": "not_verified", "detail": _error_name(e)})
+                              results.append({"target": t, "ok": False, "error": "not_verified", "detail": code_of(e)})
                               continue
                           ok = attached == attach
                           results.append({"target": t, "ok": ok, "attached": attached} if ok else
@@ -822,7 +1038,7 @@ Resources:
                           o = org_client()
                           org = o.describe_organization()["Organization"]
                       except (ClientError, BotoCoreError) as e:
-                          return {"ok": False, "error": "assume_or_read_failed", "detail": _error_name(e)}
+                          return {"ok": False, "error": "assume_or_read_failed", "detail": code_of(e)}
                       if org["MasterAccountId"] != mgmt:
                           return {"ok": False, "error": "management_account_mismatch"}
                       snap = snapshot(o)
@@ -838,8 +1054,272 @@ Resources:
                       return {"ok": not refused and all(r["ok"] for r in results), "results": results, "refused": refused}
 
 
+                  GUARD_REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")
+                  CONFIG_PATH = "/enforcedGuardrailsConfiguration"
+                  REST_TIMEOUT = 20
+                  CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"mode": "standard", "max_attempts": 3})
+
+
+                  class GuardError(Exception):
+                      """A step failed. The message is an error code, never a name, an ARN or a request value."""
+
+
+                  def code_of(e):
+                      if isinstance(e, ClientError):
+                          return e.response["Error"]["Code"]
+                      return str(e) if isinstance(e, GuardError) else type(e).__name__
+
+
+                  def creds_client(creds, service, region="us-east-1"):
+                      # A new session per call: the default session is not safe to share between threads.
+                      return boto3.session.Session().client(service, region_name=region, config=CLIENT_CONFIG, aws_access_key_id=creds["AccessKeyId"],
+                                                            aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
+
+
+                  def control_plane(creds, region):
+                      """A function (method, path, body=None) that makes SigV4-signed calls to the Bedrock control plane of this region, for the
+                      account-level enforcement operations only.
+                      Why not boto3: the SDK that Lambda bundles changes with runtime updates and region, and may not know these operations
+                      or their current shape (selectiveContentGuarding, modelEnforcement)."""
+                      credentials = Credentials(creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"])
+
+                      def call(method, path, body=None):
+                          url = f"https://bedrock.{region}.amazonaws.com{path}"
+                          data = json.dumps(body).encode() if body is not None else None
+                          req = AWSRequest(method=method, url=url, data=data, headers={"Content-Type": "application/json"} if data else {})
+                          SigV4Auth(credentials, "bedrock", region).add_auth(req)
+                          try:
+                              with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
+                                  raw = r.read()
+                          except urllib.error.HTTPError as e:
+                              raise GuardError((e.headers.get("x-amzn-ErrorType") or "").split(":")[0] or f"HTTP{e.code}") from None
+                          except (urllib.error.URLError, OSError):
+                              raise GuardError("ConnectionError") from None
+                          return json.loads(raw) if raw else {}
+
+                      return call
+
+
+                  def all_items(client, op, key, **kw):
+                      for page in client.get_paginator(op).paginate(**kw):
+                          yield from page[key]
+
+
+                  def guard_regions(creds):
+                      """Regions to cover: every Bedrock region the SDK or AWS (public SSM parameters) lists that the account has enabled.
+                      The union means a Bedrock region that is new to an old SDK is still covered."""
+                      known = set(boto3.session.Session().get_available_regions("bedrock"))
+                      try:
+                          for page in creds_client(creds, "ssm").get_paginator("get_parameters_by_path").paginate(
+                                  Path="/aws/service/global-infrastructure/services/bedrock/regions"):
+                              known |= {p["Value"] for p in page["Parameters"]}
+                      except (ClientError, BotoCoreError):
+                          pass  # the SDK list alone still covers every region it knows
+                      on = ["ENABLED", "ENABLED_BY_DEFAULT"]
+                      enabled = {r["RegionName"] for r in all_items(creds_client(creds, "account"), "list_regions", "Regions", RegionOptStatusContains=on)}
+                      return sorted(r for r in known & enabled if GUARD_REGION_RE.match(r))
+
+
+                  def find_guardrail(bc, name):
+                      """The DRAFT summary (id, arn) of the guardrail with this name, or None."""
+                      for g in all_items(bc, "list_guardrails", "guardrails"):
+                          if g["name"] == name:
+                              return g
+                      return None
+
+
+                  def cfg_guardrail_id(cfg):
+                      """The guardrail id of an enforced configuration (the id, or the last part of the ARN)."""
+                      return cfg.get("guardrailId") or (cfg.get("guardrailArn") or "").rsplit("/", 1)[-1]
+
+
+                  def owns(cfg, g):
+                      """True when this enforced configuration points to our guardrail (g: its summary from list_guardrails, or None)."""
+                      return bool(cfg and g and cfg_guardrail_id(cfg) == g["id"])
+
+
+                  def enforced_config(call):
+                      """The account-level enforced configuration of this region, or None. A region can have at most one."""
+                      configs = call("GET", CONFIG_PATH).get("guardrailsConfig") or []
+                      return configs[0] if configs else None
+
+
+                  def remove_enforcement(call, cfg):
+                      """Delete this enforced configuration. The caller has checked that it points to our guardrail."""
+                      if not re.fullmatch(r"[a-z0-9]+", str(cfg.get("configId"))):
+                          raise GuardError("InvalidConfigId")
+                      call("DELETE", f"{CONFIG_PATH}/{cfg['configId']}")
+
+
+                  # --- Management account: SCPs never apply there, so an account-level enforced guardrail that blocks everything does the job ---
+                  GUARD_BUDGET_SECONDS = 100  # from the start of the request: the executor waits about 150 s for the answer
+                  GUARD_GRACE_SECONDS = 12  # a call in flight is bounded by the client timeouts
+                  GUARD_POLL_SECONDS = 2
+                  MAX_REGION_WORKERS = 12
+                  BLOCK_ALL_PATTERN = "[\\s\\S]"
+                  BLOCKED_MESSAGE = "Blocked by the Blocks AI Control kill switch."
+                  COMPREHENSIVE = {"system": "COMPREHENSIVE", "messages": "COMPREHENSIVE"}
+                  ALL_MODELS = {"includedModels": ["ALL"], "excludedModels": []}
+
+
+                  class Budget:
+                      """The time left for the regions, and a flag that stops a thread that is still running after the answer was sent
+                      (it would otherwise resume in the next invocation and change something the platform no longer expects)."""
+
+                      def __init__(self, deadline):
+                          self.deadline, self.cancel = deadline, threading.Event()
+
+
+                  def check_time(budget):
+                      """Called before every write."""
+                      if budget.cancel.is_set() or time.monotonic() > budget.deadline:
+                          raise GuardError("timeout")
+
+
+                  def blocks_everything(g):
+                      """True when this guardrail version still blocks all input and output (a regex that matches any text, action BLOCK)."""
+                      for r in (g.get("sensitiveInformationPolicy") or {}).get("regexes", []):
+                          both = all(r.get(k, r.get("action")) == "BLOCK" for k in ("inputAction", "outputAction"))
+                          if r.get("pattern") == BLOCK_ALL_PATTERN and both and r.get("inputEnabled", True) and r.get("outputEnabled", True):
+                              return True
+                      return False
+
+
+                  def wait_ready(bc, gid, version, budget):
+                      while True:
+                          g = bc.get_guardrail(guardrailIdentifier=gid, guardrailVersion=version)
+                          if g["status"] == "READY":
+                              return g
+                          if g["status"] not in ("CREATING", "UPDATING", "VERSIONING"):
+                              raise GuardError(f"guardrail_{g['status'].lower()}")
+                          check_time(budget)
+                          time.sleep(GUARD_POLL_SECONDS)
+
+
+                  def newest_version(bc, gid):
+                      numbers = [int(v["version"]) for v in all_items(bc, "list_guardrails", "guardrails", guardrailIdentifier=gid) if v["version"].isdigit()]
+                      return str(max(numbers)) if numbers else None
+
+
+                  def ensure_guardrail(bc, name, budget, g):
+                      """(guardrail id, newest numeric version that blocks everything). Creates the guardrail and the version when missing.
+                      g is the summary of the existing guardrail, or None."""
+                      if g is None:
+                          check_time(budget)
+                          g = bc.create_guardrail(
+                              name=name, description="Blocks AI Control kill switch: blocks all Bedrock input and output while enforced.",
+                              sensitiveInformationPolicyConfig={"regexesConfig": [{"name": "block-everything", "description": "Matches any text",
+                                                                                   "pattern": BLOCK_ALL_PATTERN, "action": "BLOCK"}]},
+                              blockedInputMessaging=BLOCKED_MESSAGE, blockedOutputsMessaging=BLOCKED_MESSAGE, tags=[{"key": "OwnedBy", "value": "Blocks.cloud"}])
+                          gid = g["guardrailId"]
+                      else:
+                          gid = g["id"]
+                      newest = newest_version(bc, gid)
+                      if newest and blocks_everything(wait_ready(bc, gid, newest, budget)):
+                          return gid, newest
+                      if not blocks_everything(wait_ready(bc, gid, "DRAFT", budget)):
+                          raise GuardError("guardrail_changed")  # we cannot update it (no permission): refuse rather than enforce something weaker
+                      check_time(budget)
+                      version = bc.create_guardrail_version(guardrailIdentifier=gid, description="Blocks AI Control kill switch")["version"]
+                      if not blocks_everything(wait_ready(bc, gid, version, budget)):
+                          raise GuardError("guardrail_changed")
+                      return gid, version
+
+
+                  def is_current(cfg, gid, version):
+                      models = cfg.get("modelEnforcement") or {}
+                      return (cfg_guardrail_id(cfg) == gid and cfg.get("guardrailVersion") == version and cfg.get("selectiveContentGuarding") == COMPREHENSIVE
+                              and models.get("includedModels") == ["ALL"] and not models.get("excludedModels"))
+
+
+                  def engage_region(creds, region, name, budget):
+                      bc, call = creds_client(creds, "bedrock", region), control_plane(creds, region)
+                      g, cfg = find_guardrail(bc, name), enforced_config(call)
+                      if cfg and not owns(cfg, g):
+                          # The customer's own configuration: never overwritten. Checked first, so nothing is created that cannot be enforced.
+                          return {"region": region, "ok": False, "enforced": False, "conflict": True}
+                      gid, version = ensure_guardrail(bc, name, budget, g)
+                      changed = not (cfg and is_current(cfg, gid, version))
+                      if changed:
+                          check_time(budget)
+                          body = {"guardrailInferenceConfig": {"guardrailIdentifier": gid, "guardrailVersion": version,
+                                                               "selectiveContentGuarding": COMPREHENSIVE, "modelEnforcement": ALL_MODELS}}
+                          if cfg:
+                              body["configId"] = cfg["configId"]
+                          call("PUT", CONFIG_PATH, body)
+                          now = enforced_config(call)
+                          if not (now and is_current(now, gid, version)):
+                              raise GuardError("not_verified")
+                      return {"region": region, "ok": True, "enforced": True, "changed": changed, "guardrail_id": gid, "guardrail_version": version}
+
+
+                  def release_region(creds, region, name, budget):
+                      """Delete our enforced configuration only. The guardrail stays (a later engage reuses it)."""
+                      g, call = find_guardrail(creds_client(creds, "bedrock", region), name), control_plane(creds, region)
+                      cfg = enforced_config(call)
+                      ours = owns(cfg, g)
+                      if ours:
+                          check_time(budget)
+                          remove_enforcement(call, cfg)
+                          if owns(enforced_config(call), g):
+                              raise GuardError("not_verified")
+                      return {"region": region, "ok": True, "enforced": False, "changed": ours, "other_config": bool(cfg) and not ours}
+
+
+                  def dry_run_region(creds, region, name, budget):
+                      """Changes nothing: is our guardrail there, is it enforced, is something else enforced."""
+                      bc = creds_client(creds, "bedrock", region)
+                      g, cfg = find_guardrail(bc, name), enforced_config(control_plane(creds, region))
+                      ours = owns(cfg, g)
+                      newest = newest_version(bc, g["id"]) if g else None
+                      ready = bool(newest and blocks_everything(bc.get_guardrail(guardrailIdentifier=g["id"], guardrailVersion=newest)))
+                      conflict = bool(cfg) and not ours
+                      out = {"region": region, "ok": not conflict, "guardrail": bool(g), "guardrail_ready": ready, "enforced": ours, "conflict": conflict}
+                      if ours:
+                          out["enforced_version"] = cfg.get("guardrailVersion")
+                      return out
+
+
+                  GUARD_TASKS = {"engage": engage_region, "release": release_region, "dry_run": dry_run_region}
+
+
+                  def run_region(creds, action, region, name, budget):
+                      try:
+                          return GUARD_TASKS[action](creds, region, name, budget)
+                      except Exception as e:  # one region must never take the answer down
+                          return {"region": region, "ok": False, "error": code_of(e)}
+
+
+                  def guard_run(creds, action, name, deadline):
+                      budget, pool = Budget(deadline), ThreadPoolExecutor(max_workers=MAX_REGION_WORKERS)
+                      futures = {pool.submit(run_region, creds, action, region, name, budget): region for region in guard_regions(creds)}
+                      done, late = wait(futures, timeout=max(0, deadline - time.monotonic()) + GUARD_GRACE_SECONDS)
+                      budget.cancel.set()
+                      pool.shutdown(wait=False, cancel_futures=True)
+                      results = [f.result() for f in done] + [{"region": futures[f], "ok": False, "error": "timeout"} for f in late]
+                      results.sort(key=lambda r: r["region"])
+                      errors = {}
+                      for r in results:
+                          if r.get("error"):
+                              errors[r["error"]] = errors.get(r["error"], 0) + 1
+                      return {"ok": all(r["ok"] for r in results), "regions": results, "enforced_regions": sum(1 for r in results if r.get("enforced")),
+                              "conflicts": [r["region"] for r in results if r.get("conflict")], "errors": errors}
+
+
+                  def management_guard(action, started):
+                      """The management account part of an answer. Needs the policy role; an empty name means an older stack instance.
+                      started: time.monotonic() at the start of the request, so the SCP part counts against the budget."""
+                      name = os.environ.get("GUARDRAIL_NAME", "")
+                      if not name:
+                          return {"enabled": False}
+                      try:
+                          return {"enabled": True, **guard_run(policy_role_credentials(), action, name, started + GUARD_BUDGET_SECONDS)}
+                      except Exception as e:  # the SCP part of the answer must still go out
+                          return {"enabled": True, "ok": False, "error": "management_account_failed", "detail": code_of(e)}
+
+
                   def handler(event, ctx):
-                      t0 = time.time()
+                      t0, started = time.time(), time.monotonic()
                       control = ctx.invoked_function_arn.split(":")[4]
                       try:
                           action, targets, request_id = parse(event)
@@ -849,12 +1329,16 @@ Resources:
                           out = run(action, targets, control)
                       except (ClientError, BotoCoreError) as e:
                           # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
-                          out = {"ok": False, "error": "organizations_call_failed", "detail": _error_name(e)}
+                          out = {"ok": False, "error": "organizations_call_failed", "detail": code_of(e)}
+                      if out.get("error") != "management_account_mismatch":
+                          out["management_account"] = management_guard(action, started)
                       out.update({"schema_version": 1, "action": action, "request_id": request_id, "policy_id": os.environ["POLICY_ID"],
                                   "template_version": os.environ.get("TEMPLATE_VERSION", ""), "duration_ms": int((time.time() - t0) * 1000)})
-                      # Ids only in the log: no account or OU names.
+                      # Ids, regions and counts only in the log: no account, OU or guardrail names.
+                      m = out.get("management_account", {})
                       print(json.dumps({"request_id": request_id, "action": action, "ok": out["ok"], "error": out.get("error"),
-                                        "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"]}))
+                                        "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"],
+                                        "management_account": {k: m.get(k) for k in ("enabled", "ok", "error", "detail", "enforced_regions", "conflicts", "errors")}}))
                       return out
           InvokeRole:
             Type: AWS::IAM::Role

@@ -4,6 +4,22 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.1 (2026-10-16)
+
+### Permissions
+- Management account: the policy role `BlocksAIControlPolicyRole-<id>` (assumed only by the kill switch Lambda in the control account) now also has `bedrock:CreateGuardrail`, `bedrock:ListGuardrails`, `bedrock:ListEnforcedGuardrailsConfiguration`, `bedrock:PutEnforcedGuardrailConfiguration`, `bedrock:DeleteEnforcedGuardrailConfiguration` and `account:ListRegions`; `bedrock:GetGuardrail`, `bedrock:CreateGuardrailVersion` and `bedrock:TagResource` on guardrails in your management account only; and `ssm:GetParametersByPath` on the public AWS parameter that lists Bedrock regions.
+- Management account: the lifecycle role `BlocksAIControlLifecycleRole-<id>` now also has `bedrock:ListGuardrails`, `bedrock:ListEnforcedGuardrailsConfiguration`, `bedrock:DeleteEnforcedGuardrailConfiguration` and `account:ListRegions`; `bedrock:DeleteGuardrail` on guardrails in your management account only; and `ssm:GetParametersByPath` on the public Bedrock region list. It uses them only when the stack is deleted.
+
+### Added
+- Service control policies never apply to the management account, so the kill switch now also blocks Bedrock there. This is always on, with no parameter. When Blocks engages the kill switch, it does this in every Bedrock region your management account has enabled: it creates the guardrail `BlocksAIControlBlockAll-<id>` (tagged `OwnedBy: Blocks.cloud`) and a published version if they do not exist yet. The guardrail blocks all input and output. It then enforces that guardrail at account level for all models.
+- If a region already has an account-level enforced guardrail of your own, the kill switch reports it as a conflict and never overwrites or removes it. Nothing is created in that region.
+- Releasing removes only the kill switch's own enforcement and keeps the guardrails, so a later engage reuses them. A dry run changes nothing and reports, per region, whether the guardrail exists, whether it is enforced and whether there is a conflict.
+- A region that fails does not stop the other regions. The answer to Blocks now has a separate per-region section for the management account. The kill switch logs contain only IDs, regions and counts, never guardrail, account or OU names.
+- Deleting the stack now also removes the kill switch's enforcement and its guardrails in every region of the management account. If the block cannot be removed in a region, the stack delete fails and can be retried, so no block is left behind without you knowing.
+
+### Changed
+- When the stack cleanup step fails on delete, the CloudFormation stack events now show error codes only, never names or ARNs.
+
 ## v0.2.0 (2026-10-15)
 
 ### Permissions
