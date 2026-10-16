@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.1" # x-release-please-version
+  TemplateVersion: "0.2.2" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.1" # x-release-please-version
+      Version: "0.2.2" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -183,6 +183,12 @@ Resources:
                 Resource: "*"
               - Effect: Allow
                 Action: bedrock:DeleteGuardrail
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/OwnedBy": Blocks.cloud
+              - Effect: Allow
+                Action: bedrock:ListTagsForResource
                 Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
               - Effect: Allow
                 Action: ssm:GetParametersByPath
@@ -513,6 +519,7 @@ Resources:
 
 
           GUARD_REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")
+          OWNER_TAG = {"key": "OwnedBy", "value": "Blocks.cloud"}
           CONFIG_PATH = "/enforcedGuardrailsConfiguration"
           REST_TIMEOUT = 20
           CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"mode": "standard", "max_attempts": 3})
@@ -526,6 +533,14 @@ Resources:
               if isinstance(e, ClientError):
                   return e.response["Error"]["Code"]
               return str(e) if isinstance(e, GuardError) else type(e).__name__
+
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None  # a redirect would resend the signed headers, including the session token, somewhere else
+
+
+          OPENER = urllib.request.build_opener(NoRedirect)
 
 
           def creds_client(creds, service, region="us-east-1"):
@@ -542,18 +557,26 @@ Resources:
               credentials = Credentials(creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"])
 
               def call(method, path, body=None):
+                  # amazonaws.com: this add-on is for the commercial partition (us-east-1 only, see the Rules).
                   url = f"https://bedrock.{region}.amazonaws.com{path}"
                   data = json.dumps(body).encode() if body is not None else None
                   req = AWSRequest(method=method, url=url, data=data, headers={"Content-Type": "application/json"} if data else {})
                   SigV4Auth(credentials, "bedrock", region).add_auth(req)
                   try:
-                      with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
+                      with OPENER.open(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
                           raw = r.read()
                   except urllib.error.HTTPError as e:
-                      raise GuardError((e.headers.get("x-amzn-ErrorType") or "").split(":")[0] or f"HTTP{e.code}") from None
+                      # The error type becomes an error code in answers and stack events: letters and digits only.
+                      raise GuardError(re.sub(r"[^A-Za-z0-9]", "", (e.headers.get("x-amzn-ErrorType") or "").split(":")[0])[:64] or f"HTTP{e.code}") from None
                   except (urllib.error.URLError, OSError):
                       raise GuardError("ConnectionError") from None
-                  return json.loads(raw) if raw else {}
+                  try:
+                      answer = json.loads(raw) if raw else {}
+                  except ValueError:
+                      raise GuardError("BadResponse") from None
+                  if not isinstance(answer, dict):
+                      raise GuardError("BadResponse")
+                  return answer
 
               return call
 
@@ -579,27 +602,40 @@ Resources:
 
 
           def find_guardrail(bc, name):
-              """The DRAFT summary (id, arn) of the guardrail with this name, or None."""
+              """The DRAFT summary of the guardrail with this name, or None. "owned" is True only when it carries our OwnedBy tag:
+              the name can be guessed, so a guardrail without the tag is somebody else's and is never adopted, changed or deleted.
+              Ownership is the name and the tag together (the tag alone is on every Blocks resource)."""
               for g in all_items(bc, "list_guardrails", "guardrails"):
                   if g["name"] == name:
-                      return g
+                      tags = bc.list_tags_for_resource(resourceARN=g["arn"]).get("tags") or []
+                      return {**g, "owned": OWNER_TAG in [{"key": t.get("key"), "value": t.get("value")} for t in tags]}
               return None
 
 
           def cfg_guardrail_id(cfg):
-              """The guardrail id of an enforced configuration (the id, or the last part of the ARN)."""
-              return cfg.get("guardrailId") or (cfg.get("guardrailArn") or "").rsplit("/", 1)[-1]
+              """The guardrail id of an enforced configuration (the id, or the last part of the ARN); "" when it has neither as a string."""
+              gid, arn = cfg.get("guardrailId"), cfg.get("guardrailArn")
+              return gid if isinstance(gid, str) and gid else (arn.rsplit("/", 1)[-1] if isinstance(arn, str) else "")
 
 
           def owns(cfg, g):
-              """True when this enforced configuration points to our guardrail (g: its summary from list_guardrails, or None)."""
-              return bool(cfg and g and cfg_guardrail_id(cfg) == g["id"])
+              """True when this enforced configuration points to our guardrail (g: its summary from find_guardrail, or None)."""
+              return bool(cfg and g and g["owned"] and cfg_guardrail_id(cfg) == g["id"])
 
 
-          def enforced_config(call):
-              """The account-level enforced configuration of this region, or None. A region can have at most one."""
-              configs = call("GET", CONFIG_PATH).get("guardrailsConfig") or []
-              return configs[0] if configs else None
+          def enforced_configs(call):
+              """Every account-level enforced configuration of this region. The API lists at most one, but that is never assumed.
+              The answer must be a list of objects, not an empty list by default. An entry of an odd shape is not ours (it names no
+              guardrail of ours): it counts as somebody else's, so it can never keep our own block from being released."""
+              configs = call("GET", CONFIG_PATH).get("guardrailsConfig")
+              if not isinstance(configs, list) or not all(isinstance(c, dict) for c in configs):
+                  raise GuardError("BadResponse")
+              return configs
+
+
+          def split_configs(configs, g):
+              """(ours, others): the configurations that point to our guardrail, and all the rest (the customer's, never touched)."""
+              return [c for c in configs if owns(c, g)], [c for c in configs if not owns(c, g)]
 
 
           def remove_enforcement(call, cfg):
@@ -615,25 +651,26 @@ Resources:
           def remove_in_region(creds, region, name, deadline):
               """Remove our enforced configuration (if it is ours) and then our guardrail. Reading the enforcement comes first, so
               nothing is deleted before we know whether it is enforced. A read that fails is not fatal by itself (a region may have no
-              enforcement API): the guardrail delete then decides, because AWS refuses to delete an enforced guardrail."""
+              enforcement API): the guardrail delete then decides, because AWS refuses to delete an enforced guardrail.
+              A guardrail without our OwnedBy tag is not ours and is left alone."""
               if time.monotonic() > deadline:
                   raise GuardError("timeout")  # before anything is deleted: a retry still finds the guardrail and so our enforcement
               bc = creds_client(creds, "bedrock", region)
               g = find_guardrail(bc, name)
-              if g is None:
+              if g is None or not g["owned"]:
                   return
-              call, read_error = control_plane(creds, region), None
+              call, ours = control_plane(creds, region), []
               try:
-                  cfg = enforced_config(call)
-              except (ClientError, BotoCoreError, GuardError) as e:
-                  cfg, read_error = None, e
-              if owns(cfg, g):
+                  ours = split_configs(enforced_configs(call), g)[0]
+              except (ClientError, BotoCoreError, GuardError):
+                  pass  # unreadable (no enforcement API here?): the guardrail delete below decides, AWS refuses it while enforced
+              for cfg in ours:
                   remove_enforcement(call, cfg)
               try:
                   bc.delete_guardrail(guardrailIdentifier=g["id"])
-              except ClientError:
-                  if read_error:
-                      raise read_error  # enforcement unreadable and the guardrail is kept: fail so the delete can be retried
+              except ClientError as e:
+                  if code_of(e) != "ResourceNotFoundException":
+                      raise e  # a guardrail that stays fails the delete, which can be retried (its own code says most)
 
 
           def remove_guardrails(creds, name, deadline=None):
@@ -738,12 +775,27 @@ Resources:
                   - bedrock:DeleteEnforcedGuardrailConfiguration
                   - account:ListRegions
                 Resource: "*"
+              # Only guardrails that carry our tag: a customer's own guardrails cannot be read, versioned or retagged.
               - Effect: Allow
                 Action:
                   - bedrock:GetGuardrail
                   - bedrock:CreateGuardrailVersion
-                  - bedrock:TagResource
                 Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/OwnedBy": Blocks.cloud
+              # Needed to see whether a guardrail with our name is ours (it cannot be conditioned on the tag it reads).
+              - Effect: Allow
+                Action: bedrock:ListTagsForResource
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+              - Effect: Allow
+                Action: bedrock:TagResource
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:guardrail/*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestTag/OwnedBy": Blocks.cloud
+                  ForAllValues:StringEquals:
+                    "aws:TagKeys": [OwnedBy]
               - Effect: Allow
                 Action: ssm:GetParametersByPath
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*::parameter/aws/service/global-infrastructure/services/bedrock/regions"
@@ -1055,6 +1107,7 @@ Resources:
 
 
                   GUARD_REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")
+                  OWNER_TAG = {"key": "OwnedBy", "value": "Blocks.cloud"}
                   CONFIG_PATH = "/enforcedGuardrailsConfiguration"
                   REST_TIMEOUT = 20
                   CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"mode": "standard", "max_attempts": 3})
@@ -1068,6 +1121,14 @@ Resources:
                       if isinstance(e, ClientError):
                           return e.response["Error"]["Code"]
                       return str(e) if isinstance(e, GuardError) else type(e).__name__
+
+
+                  class NoRedirect(urllib.request.HTTPRedirectHandler):
+                      def redirect_request(self, *args, **kwargs):
+                          return None  # a redirect would resend the signed headers, including the session token, somewhere else
+
+
+                  OPENER = urllib.request.build_opener(NoRedirect)
 
 
                   def creds_client(creds, service, region="us-east-1"):
@@ -1084,18 +1145,26 @@ Resources:
                       credentials = Credentials(creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"])
 
                       def call(method, path, body=None):
+                          # amazonaws.com: this add-on is for the commercial partition (us-east-1 only, see the Rules).
                           url = f"https://bedrock.{region}.amazonaws.com{path}"
                           data = json.dumps(body).encode() if body is not None else None
                           req = AWSRequest(method=method, url=url, data=data, headers={"Content-Type": "application/json"} if data else {})
                           SigV4Auth(credentials, "bedrock", region).add_auth(req)
                           try:
-                              with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
+                              with OPENER.open(urllib.request.Request(url, data=data, method=method, headers=dict(req.headers)), timeout=REST_TIMEOUT) as r:
                                   raw = r.read()
                           except urllib.error.HTTPError as e:
-                              raise GuardError((e.headers.get("x-amzn-ErrorType") or "").split(":")[0] or f"HTTP{e.code}") from None
+                              # The error type becomes an error code in answers and stack events: letters and digits only.
+                              raise GuardError(re.sub(r"[^A-Za-z0-9]", "", (e.headers.get("x-amzn-ErrorType") or "").split(":")[0])[:64] or f"HTTP{e.code}") from None
                           except (urllib.error.URLError, OSError):
                               raise GuardError("ConnectionError") from None
-                          return json.loads(raw) if raw else {}
+                          try:
+                              answer = json.loads(raw) if raw else {}
+                          except ValueError:
+                              raise GuardError("BadResponse") from None
+                          if not isinstance(answer, dict):
+                              raise GuardError("BadResponse")
+                          return answer
 
                       return call
 
@@ -1121,27 +1190,40 @@ Resources:
 
 
                   def find_guardrail(bc, name):
-                      """The DRAFT summary (id, arn) of the guardrail with this name, or None."""
+                      """The DRAFT summary of the guardrail with this name, or None. "owned" is True only when it carries our OwnedBy tag:
+                      the name can be guessed, so a guardrail without the tag is somebody else's and is never adopted, changed or deleted.
+                      Ownership is the name and the tag together (the tag alone is on every Blocks resource)."""
                       for g in all_items(bc, "list_guardrails", "guardrails"):
                           if g["name"] == name:
-                              return g
+                              tags = bc.list_tags_for_resource(resourceARN=g["arn"]).get("tags") or []
+                              return {**g, "owned": OWNER_TAG in [{"key": t.get("key"), "value": t.get("value")} for t in tags]}
                       return None
 
 
                   def cfg_guardrail_id(cfg):
-                      """The guardrail id of an enforced configuration (the id, or the last part of the ARN)."""
-                      return cfg.get("guardrailId") or (cfg.get("guardrailArn") or "").rsplit("/", 1)[-1]
+                      """The guardrail id of an enforced configuration (the id, or the last part of the ARN); "" when it has neither as a string."""
+                      gid, arn = cfg.get("guardrailId"), cfg.get("guardrailArn")
+                      return gid if isinstance(gid, str) and gid else (arn.rsplit("/", 1)[-1] if isinstance(arn, str) else "")
 
 
                   def owns(cfg, g):
-                      """True when this enforced configuration points to our guardrail (g: its summary from list_guardrails, or None)."""
-                      return bool(cfg and g and cfg_guardrail_id(cfg) == g["id"])
+                      """True when this enforced configuration points to our guardrail (g: its summary from find_guardrail, or None)."""
+                      return bool(cfg and g and g["owned"] and cfg_guardrail_id(cfg) == g["id"])
 
 
-                  def enforced_config(call):
-                      """The account-level enforced configuration of this region, or None. A region can have at most one."""
-                      configs = call("GET", CONFIG_PATH).get("guardrailsConfig") or []
-                      return configs[0] if configs else None
+                  def enforced_configs(call):
+                      """Every account-level enforced configuration of this region. The API lists at most one, but that is never assumed.
+                      The answer must be a list of objects, not an empty list by default. An entry of an odd shape is not ours (it names no
+                      guardrail of ours): it counts as somebody else's, so it can never keep our own block from being released."""
+                      configs = call("GET", CONFIG_PATH).get("guardrailsConfig")
+                      if not isinstance(configs, list) or not all(isinstance(c, dict) for c in configs):
+                          raise GuardError("BadResponse")
+                      return configs
+
+
+                  def split_configs(configs, g):
+                      """(ours, others): the configurations that point to our guardrail, and all the rest (the customer's, never touched)."""
+                      return [c for c in configs if owns(c, g)], [c for c in configs if not owns(c, g)]
 
 
                   def remove_enforcement(call, cfg):
@@ -1204,13 +1286,15 @@ Resources:
                   def ensure_guardrail(bc, name, budget, g):
                       """(guardrail id, newest numeric version that blocks everything). Creates the guardrail and the version when missing.
                       g is the summary of the existing guardrail, or None."""
+                      if g is not None and not g["owned"]:
+                          raise GuardError("guardrail_name_taken")  # a guardrail with our name but not our tag: never adopted
                       if g is None:
                           check_time(budget)
                           g = bc.create_guardrail(
                               name=name, description="Blocks AI Control kill switch: blocks all Bedrock input and output while enforced.",
                               sensitiveInformationPolicyConfig={"regexesConfig": [{"name": "block-everything", "description": "Matches any text",
                                                                                    "pattern": BLOCK_ALL_PATTERN, "action": "BLOCK"}]},
-                              blockedInputMessaging=BLOCKED_MESSAGE, blockedOutputsMessaging=BLOCKED_MESSAGE, tags=[{"key": "OwnedBy", "value": "Blocks.cloud"}])
+                              blockedInputMessaging=BLOCKED_MESSAGE, blockedOutputsMessaging=BLOCKED_MESSAGE, tags=[OWNER_TAG])
                           gid = g["guardrailId"]
                       else:
                           gid = g["id"]
@@ -1234,11 +1318,13 @@ Resources:
 
                   def engage_region(creds, region, name, budget):
                       bc, call = creds_client(creds, "bedrock", region), control_plane(creds, region)
-                      g, cfg = find_guardrail(bc, name), enforced_config(call)
-                      if cfg and not owns(cfg, g):
-                          # The customer's own configuration: never overwritten. Checked first, so nothing is created that cannot be enforced.
-                          return {"region": region, "ok": False, "enforced": False, "conflict": True}
+                      g = find_guardrail(bc, name)
+                      ours, others = split_configs(enforced_configs(call), g)
+                      # A configuration that is not ours is information only: it is never changed, and ours is put next to it.
                       gid, version = ensure_guardrail(bc, name, budget, g)
+                      cfg = ours[0] if ours else None
+                      if cfg and not cfg.get("configId"):
+                          raise GuardError("BadResponse")
                       changed = not (cfg and is_current(cfg, gid, version))
                       if changed:
                           check_time(budget)
@@ -1247,36 +1333,37 @@ Resources:
                           if cfg:
                               body["configId"] = cfg["configId"]
                           call("PUT", CONFIG_PATH, body)
-                          now = enforced_config(call)
-                          if not (now and is_current(now, gid, version)):
+                          now = split_configs(enforced_configs(call), g or {"id": gid, "owned": True})[0]
+                          if not (len(now) == 1 and is_current(now[0], gid, version)):
                               raise GuardError("not_verified")
-                      return {"region": region, "ok": True, "enforced": True, "changed": changed, "guardrail_id": gid, "guardrail_version": version}
+                      return {"region": region, "ok": True, "enforced": True, "changed": changed, "guardrail_id": gid, "guardrail_version": version,
+                              "other_config": bool(others)}
 
 
                   def release_region(creds, region, name, budget):
                       """Delete our enforced configuration only. The guardrail stays (a later engage reuses it)."""
                       g, call = find_guardrail(creds_client(creds, "bedrock", region), name), control_plane(creds, region)
-                      cfg = enforced_config(call)
-                      ours = owns(cfg, g)
-                      if ours:
+                      ours, others = split_configs(enforced_configs(call), g)
+                      for cfg in ours:
                           check_time(budget)
                           remove_enforcement(call, cfg)
-                          if owns(enforced_config(call), g):
-                              raise GuardError("not_verified")
-                      return {"region": region, "ok": True, "enforced": False, "changed": ours, "other_config": bool(cfg) and not ours}
+                      if ours and split_configs(enforced_configs(call), g)[0]:
+                          raise GuardError("not_verified")
+                      return {"region": region, "ok": True, "enforced": False, "changed": bool(ours), "other_config": bool(others)}
 
 
                   def dry_run_region(creds, region, name, budget):
                       """Changes nothing: is our guardrail there, is it enforced, is something else enforced."""
                       bc = creds_client(creds, "bedrock", region)
-                      g, cfg = find_guardrail(bc, name), enforced_config(control_plane(creds, region))
-                      ours = owns(cfg, g)
-                      newest = newest_version(bc, g["id"]) if g else None
+                      g = find_guardrail(bc, name)
+                      ours, others = split_configs(enforced_configs(control_plane(creds, region)), g)
+                      taken = bool(g) and not g["owned"]
+                      newest = newest_version(bc, g["id"]) if g and g["owned"] else None
                       ready = bool(newest and blocks_everything(bc.get_guardrail(guardrailIdentifier=g["id"], guardrailVersion=newest)))
-                      conflict = bool(cfg) and not ours
-                      out = {"region": region, "ok": not conflict, "guardrail": bool(g), "guardrail_ready": ready, "enforced": ours, "conflict": conflict}
+                      out = {"region": region, "ok": not taken, "guardrail": bool(g) and g["owned"], "guardrail_ready": ready,
+                             "enforced": bool(ours), "other_config": bool(others), "name_taken": taken}
                       if ours:
-                          out["enforced_version"] = cfg.get("guardrailVersion")
+                          out["enforced_version"] = ours[0].get("guardrailVersion")
                       return out
 
 
@@ -1303,15 +1390,32 @@ Resources:
                           if r.get("error"):
                               errors[r["error"]] = errors.get(r["error"], 0) + 1
                       return {"ok": all(r["ok"] for r in results), "regions": results, "enforced_regions": sum(1 for r in results if r.get("enforced")),
-                              "conflicts": [r["region"] for r in results if r.get("conflict")], "errors": errors}
+                              "other_config_regions": [r["region"] for r in results if r.get("other_config")], "errors": errors}
 
 
-                  def management_guard(action, started):
+                  def skip_reason(action, targets):
+                      """Why the management account part does not run. It belongs to the organization root: an engage that targets the management
+                      account itself (the SCP part refuses it), or names no root, and a release of single targets leave it alone. The rule reads
+                      the request only, so it gives the same answer whether or not the SCP part got far enough to compute its refusals.
+                      dry_run always reports."""
+                      if action == "dry_run":
+                          return None
+                      if action == "engage" and os.environ.get("MANAGEMENT_ACCOUNT_ID") in targets:
+                          return "management_account_targeted"
+                      if targets and not any(t.startswith("r-") for t in targets):
+                          return "targets_do_not_include_the_root"
+                      return None
+
+
+                  def management_guard(action, started, targets):
                       """The management account part of an answer. Needs the policy role; an empty name means an older stack instance.
                       started: time.monotonic() at the start of the request, so the SCP part counts against the budget."""
                       name = os.environ.get("GUARDRAIL_NAME", "")
                       if not name:
                           return {"enabled": False}
+                      skipped = skip_reason(action, targets)
+                      if skipped:
+                          return {"enabled": True, "skipped": skipped}
                       try:
                           return {"enabled": True, **guard_run(policy_role_credentials(), action, name, started + GUARD_BUDGET_SECONDS)}
                       except Exception as e:  # the SCP part of the answer must still go out
@@ -1331,14 +1435,20 @@ Resources:
                           # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
                           out = {"ok": False, "error": "organizations_call_failed", "detail": code_of(e)}
                       if out.get("error") != "management_account_mismatch":
-                          out["management_account"] = management_guard(action, started)
+                          ma = out["management_account"] = management_guard(action, started, targets)
+                          if ma.get("enabled") and not ma.get("skipped"):
+                              # ok covers both parts: the SCP part alone is scp_ok.
+                              out["scp_ok"], out["ok"] = out["ok"], bool(out["ok"] and ma.get("ok"))
+                              if out["scp_ok"] and not ma.get("ok") and not out.get("error"):
+                                  # Without a code the executor reports a partial answer with no reason.
+                                  out["error"] = "management_account_incomplete"
                       out.update({"schema_version": 1, "action": action, "request_id": request_id, "policy_id": os.environ["POLICY_ID"],
                                   "template_version": os.environ.get("TEMPLATE_VERSION", ""), "duration_ms": int((time.time() - t0) * 1000)})
                       # Ids, regions and counts only in the log: no account, OU or guardrail names.
                       m = out.get("management_account", {})
                       print(json.dumps({"request_id": request_id, "action": action, "ok": out["ok"], "error": out.get("error"),
                                         "targets": targets, "refused": out.get("refused"), "duration_ms": out["duration_ms"],
-                                        "management_account": {k: m.get(k) for k in ("enabled", "ok", "error", "detail", "enforced_regions", "conflicts", "errors")}}))
+                                        "management_account": {k: m.get(k) for k in ("enabled", "skipped", "ok", "error", "detail", "enforced_regions", "other_config_regions", "errors")}}))
                       return out
           InvokeRole:
             Type: AWS::IAM::Role

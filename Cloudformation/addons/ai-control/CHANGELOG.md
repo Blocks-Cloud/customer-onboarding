@@ -4,6 +4,23 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.2 (2026-10-16)
+
+### Permissions
+- Management account: on the policy role `BlocksAIControlPolicyRole-<id>`, `bedrock:GetGuardrail` and `bedrock:CreateGuardrailVersion` now apply only to guardrails tagged `OwnedBy: Blocks.cloud`, and `bedrock:TagResource` may now only set the `OwnedBy: Blocks.cloud` tag and no other tag. New: `bedrock:ListTagsForResource` on guardrails in your management account, to check that tag.
+- Management account: on the lifecycle role `BlocksAIControlLifecycleRole-<id>`, `bedrock:DeleteGuardrail` now applies only to guardrails tagged `OwnedBy: Blocks.cloud`. New: `bedrock:ListTagsForResource` on guardrails in your management account, to check that tag.
+
+### Changed
+- The kill switch now treats a guardrail as its own only when it has both the name `BlocksAIControlBlockAll-<id>` and the tag `OwnedBy: Blocks.cloud`. A guardrail with that name but without the tag is never used, changed or deleted: engaging fails for that region with `guardrail_name_taken`, and a dry run reports the name as taken.
+- The management account block is now left alone when an engage targets the management account itself or names no organization root, and when a release names only OUs or accounts. The answer to Blocks says why it was skipped.
+- The overall result of an answer to Blocks now covers both the service control policy part and the management account part. When only the management account part is incomplete, the answer carries the error code `management_account_incomplete`.
+- The kill switch now checks every account-level enforced guardrail configuration a region lists, not only the first, and treats an unexpected answer from AWS as an error instead of guessing.
+- Deleting the stack now fails, so it can be retried, whenever the kill switch's guardrail in a region cannot be deleted (unless it is already gone). Guardrails without the `OwnedBy: Blocks.cloud` tag are left in place.
+- Calls to the Bedrock enforcement API no longer follow redirects, and error codes taken from AWS answers contain only letters and digits.
+
+### Fixed
+- If a region already has an account-level enforced guardrail of your own, engaging now puts the kill switch's enforcement next to it as intended, instead of stopping that region with a conflict. Your configuration is never changed and is reported for information only, on engage, release and dry run.
+
 ## v0.2.1 (2026-10-16)
 
 ### Permissions
@@ -12,7 +29,7 @@
 
 ### Added
 - Service control policies never apply to the management account, so the kill switch now also blocks Bedrock there. This is always on, with no parameter. When Blocks engages the kill switch, it does this in every Bedrock region your management account has enabled: it creates the guardrail `BlocksAIControlBlockAll-<id>` (tagged `OwnedBy: Blocks.cloud`) and a published version if they do not exist yet. The guardrail blocks all input and output. It then enforces that guardrail at account level for all models.
-- If a region already has an account-level enforced guardrail of your own, the kill switch reports it as a conflict and never overwrites or removes it. Nothing is created in that region.
+- If a region already has an account-level enforced guardrail of your own, the kill switch reports it for information, never changes or removes it, and puts its own enforcement next to it.
 - Releasing removes only the kill switch's own enforcement and keeps the guardrails, so a later engage reuses them. A dry run changes nothing and reports, per region, whether the guardrail exists, whether it is enforced and whether there is a conflict.
 - A region that fails does not stop the other regions. The answer to Blocks now has a separate per-region section for the management account. The kill switch logs contain only IDs, regions and counts, never guardrail, account or OU names.
 - Deleting the stack now also removes the kill switch's enforcement and its guardrails in every region of the management account. If the block cannot be removed in a region, the stack delete fails and can be retried, so no block is left behind without you knowing.
