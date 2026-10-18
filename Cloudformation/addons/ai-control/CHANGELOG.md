@@ -4,6 +4,17 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.4 (2026-10-18)
+
+### Changed
+- An engage now blocks Bedrock in the management account only after the kill switch confirms that the deny-Bedrock service control policy is attached to the organization root. Otherwise the management account part is skipped and the answer to Blocks gives the reason `scp_not_attached`, so the management account is never blocked while the rest of the organization is not.
+- A release now removes the management account block first, before it detaches the service control policy, and that step gets its full time budget counted from its own start.
+
+### Fixed
+- A slow detach of the service control policy during a release can no longer use up the time for the management account and leave its guardrail enforced.
+- If the first read of your organization fails during a release, the management account block is still removed, and the organization is read again before the policy is detached. If the organization's management account is not the one the stack was deployed in, the release still stops before it changes anything.
+- A release always sends an answer to Blocks before the kill switch Lambda times out. If less than 60 seconds are left after the management account part, the policy detach is skipped and reported as `organizations_call_failed` with `timeout`. During a detach, no new target is started in the last 15 seconds, and the targets not tried are reported with `timeout`. The policy stays attached to those targets, and the release can be retried.
+
 ## v0.2.3 (2026-10-16)
 
 ### Added

@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.3" # x-release-please-version
+  TemplateVersion: "0.2.4" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.3" # x-release-please-version
+      Version: "0.2.4" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -1048,10 +1048,14 @@ Resources:
                       return refused
 
 
-                  def change(o, policy_id, targets, attach):
-                      """Attach or detach on each target (idempotent), paced, then read back."""
+                  def change(o, policy_id, targets, attach, deadline=None):
+                      """Attach or detach on each target (idempotent), paced, then read back. deadline: time.monotonic() value; no new call
+                      starts within DETACH_MARGIN_SECONDS of it, and the targets not tried are reported as a timeout."""
                       results = []
                       for i, t in enumerate(targets):
+                          if deadline is not None and time.monotonic() >= deadline - DETACH_MARGIN_SECONDS:
+                              results.append({"target": t, "ok": False, "error": "timeout"})
+                              continue
                           if i:
                               time.sleep(PACE_SECONDS)
                           try:
@@ -1088,15 +1092,26 @@ Resources:
                       return {"ok": ok, "scp_problem": problem, "targets": checked, "attached_targets": attached_to, "snapshot": snap}
 
 
-                  def run(action, targets, control):
-                      policy_id, mgmt = os.environ["POLICY_ID"], os.environ["MANAGEMENT_ACCOUNT_ID"]
+                  def connect():
+                      """(Organizations client, organization, None), or (None, None, error answer) when the policy role or the organization
+                      cannot be read, or the organization's management account is not the stack's. Nothing is changed before this check."""
                       try:
                           o = org_client()
                           org = o.describe_organization()["Organization"]
                       except (ClientError, BotoCoreError) as e:
-                          return {"ok": False, "error": "assume_or_read_failed", "detail": code_of(e)}
-                      if org["MasterAccountId"] != mgmt:
-                          return {"ok": False, "error": "management_account_mismatch"}
+                          return None, None, {"ok": False, "error": "assume_or_read_failed", "detail": code_of(e)}
+                      if org["MasterAccountId"] != os.environ["MANAGEMENT_ACCOUNT_ID"]:
+                          return None, None, {"ok": False, "error": "management_account_mismatch"}
+                      return o, org, None
+
+
+                  def run(action, targets, control, connected=None, deadline=None):
+                      """The SCP part. connected: the answer of connect() when the caller already has it (release checks first).
+                      deadline: see change()."""
+                      policy_id, mgmt = os.environ["POLICY_ID"], os.environ["MANAGEMENT_ACCOUNT_ID"]
+                      o, org, failed = connected or connect()
+                      if failed:
+                          return failed
                       snap = snapshot(o)
                       snap.update({"organization_id": org["Id"], "management_account_id": mgmt, "control_account_id": control})
                       # Detaching can never lock anyone out, so release refuses nothing; engage and dry_run refuse what they must not touch.
@@ -1106,7 +1121,7 @@ Resources:
                           return {**dry_run(o, policy_id, allowed, snap), "refused": refused}
                       if action == "release" and not targets:
                           allowed = [x["TargetId"] for x in pages(o, "list_targets_for_policy", "Targets", PolicyId=policy_id)]
-                      results = change(o, policy_id, allowed, attach=action == "engage")
+                      results = change(o, policy_id, allowed, attach=action == "engage", deadline=deadline)
                       return {"ok": not refused and all(r["ok"] for r in results), "results": results, "refused": refused}
 
 
@@ -1243,8 +1258,12 @@ Resources:
 
 
                   # --- Management account: SCPs never apply there, so an account-level enforced guardrail that blocks everything does the job ---
-                  GUARD_BUDGET_SECONDS = 100  # from the start of the request: the executor waits about 150 s for the answer
+                  # engage and dry_run: from the start of the request (the SCP part runs first; the platform's dry-run read waits 150 s).
+                  # release: from the start of the management account part, which runs first (the platform waits 320 s; Lambda timeout 300 s).
+                  GUARD_BUDGET_SECONDS = 100
                   GUARD_GRACE_SECONDS = 12  # a call in flight is bounded by the client timeouts
+                  SCP_RESERVE_SECONDS = 60  # least Lambda time a release needs for the SCP part (connect, snapshot, first detaches), or it is skipped
+                  DETACH_MARGIN_SECONDS = 15  # no new detach starts this close to the Lambda deadline, so the answer can still go out
                   GUARD_POLL_SECONDS = 2
                   MAX_REGION_WORKERS = 12  # each worker holds only its region's client; the Session and its botocore data are shared
                   BLOCK_ALL_PATTERN = "[\\s\\S]"
@@ -1430,7 +1449,8 @@ Resources:
 
                   def management_guard(action, started, targets, scp_only=False):
                       """The management account part of an answer. Needs the policy role; an empty name means an older stack instance.
-                      started: time.monotonic() at the start of the request, so the SCP part counts against the budget."""
+                      started: time.monotonic() at the start of the request for engage and dry_run, so the SCP part counts against the budget;
+                      for release the start of this part, which runs first."""
                       name = os.environ.get("GUARDRAIL_NAME", "")
                       if not name:
                           return {"enabled": False}
@@ -1445,26 +1465,84 @@ Resources:
                           return {"enabled": True, "ok": False, "error": "management_account_failed", "detail": code_of(e)}
 
 
+                  def root_attached(scp):
+                      """True when the SCP part verified our SCP as attached on the organization root: a result for an r- target with ok and
+                      attached both true (an attach that was already there counts). A failed assume or read, an Organizations error mid-run,
+                      a refused root, a failed attach (for example ConstraintViolationException at the SCP limit) or an attach the read-back
+                      did not confirm is not."""
+                      return any(isinstance(r, dict) and str(r.get("target", "")).startswith("r-") and r.get("ok") is True and r.get("attached") is True
+                                 for r in scp.get("results") or [])
+
+
+                  def engage_guard(started, targets, scp):
+                      """The management account part of an engage, after the SCP part. It runs only when the SCP blocks the rest of the
+                      organization from the root: otherwise the platform, which reads the SCP back, sees an idle stack and offers no Release
+                      while the management account has no Bedrock in any region. A skip reason of the request comes first."""
+                      if os.environ.get("GUARDRAIL_NAME") and not skip_reason("engage", targets) and not root_attached(scp):
+                          return {"enabled": True, "skipped": "scp_not_attached"}
+                      return management_guard("engage", started, targets)
+
+
+                  def scp_part(action, targets, control, connected=None, deadline=None):
+                      try:
+                          return run(action, targets, control, connected, deadline)
+                      except (ClientError, BotoCoreError) as e:
+                          # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
+                          return {"ok": False, "error": "organizations_call_failed", "detail": code_of(e)}
+
+
+                  def release_parts(targets, control, lambda_deadline):
+                      """(SCP answer, management account part). A release lifts the management account block first, with the whole budget
+                      from its own start, so a slow SCP detach cannot use up its time and leave the guardrail enforced. The organization is
+                      checked first, so a wrong account never reaches Bedrock. A read that fails does not stop the guard part; the SCP part
+                      reads again after it. The SCP part is skipped with organizations_call_failed/timeout when less than SCP_RESERVE_SECONDS
+                      of Lambda time is left (lambda_deadline: time.monotonic() value); the SCP then stays attached and the release can be retried."""
+                      connected = connect()
+                      _, _, failed = connected
+                      if failed and failed["error"] == "management_account_mismatch":
+                          return failed, None
+                      ma = management_guard("release", time.monotonic(), targets)
+                      # A failed read (for example a throttle) is tried again after the guard part, which takes time; run() checks the account.
+                      if time.monotonic() > lambda_deadline - SCP_RESERVE_SECONDS:
+                          return {"ok": False, "error": "organizations_call_failed", "detail": "timeout"}, ma
+                      return scp_part("release", targets, control, None if failed else connected, lambda_deadline), ma
+
+
+                  def scp_first_parts(action, started, targets, scp_only, control):
+                      """(SCP answer, management account part or None) for engage and dry_run: the SCP part first."""
+                      out = scp_part(action, targets, control)
+                      if out.get("error") == "management_account_mismatch":
+                          return out, None
+                      if action == "engage":
+                          return out, engage_guard(started, targets, out)
+                      return out, management_guard(action, started, targets, scp_only)
+
+
+                  def with_management_part(out, ma):
+                      if ma is None:
+                          return out
+                      out["management_account"] = ma
+                      if ma.get("enabled") and not ma.get("skipped"):
+                          # ok covers both parts: the SCP part alone is scp_ok.
+                          out["scp_ok"], out["ok"] = out["ok"], bool(out["ok"] and ma.get("ok"))
+                          if out["scp_ok"] and not ma.get("ok") and not out.get("error"):
+                              # Without a code the executor reports a partial answer with no reason.
+                              out["error"] = "management_account_incomplete"
+                      return out
+
+
                   def handler(event, ctx):
                       t0, started = time.time(), time.monotonic()
+                      lambda_deadline = started + ctx.get_remaining_time_in_millis() / 1000
                       control = ctx.invoked_function_arn.split(":")[4]
                       try:
                           action, targets, request_id, scp_only = parse(event)
                       except InputError as e:
                           return {"schema_version": 1, "ok": False, "error": "invalid_input", "detail": str(e)}
-                      try:
-                          out = run(action, targets, control)
-                      except (ClientError, BotoCoreError) as e:
-                          # Throttling, a missing permission or a connection error mid-run: still an answer the executor can read.
-                          out = {"ok": False, "error": "organizations_call_failed", "detail": code_of(e)}
-                      if out.get("error") != "management_account_mismatch":
-                          ma = out["management_account"] = management_guard(action, started, targets, scp_only)
-                          if ma.get("enabled") and not ma.get("skipped"):
-                              # ok covers both parts: the SCP part alone is scp_ok.
-                              out["scp_ok"], out["ok"] = out["ok"], bool(out["ok"] and ma.get("ok"))
-                              if out["scp_ok"] and not ma.get("ok") and not out.get("error"):
-                                  # Without a code the executor reports a partial answer with no reason.
-                                  out["error"] = "management_account_incomplete"
+                      if action == "release":
+                          out = with_management_part(*release_parts(targets, control, lambda_deadline))
+                      else:
+                          out = with_management_part(*scp_first_parts(action, started, targets, scp_only, control))
                       out.update({"schema_version": 1, "action": action, "request_id": request_id, "policy_id": os.environ["POLICY_ID"],
                                   "template_version": os.environ.get("TEMPLATE_VERSION", ""), "sdk_version": botocore.__version__,
                                   "duration_ms": int((time.time() - t0) * 1000)})
