@@ -8,7 +8,7 @@ Description: >
   1. Enables AWS Organizations trusted access for Cost Optimization Hub and Compute Optimizer via Lambda function.
   2. Deploys BlocksExecutionRole to all member accounts via StackSet for organization-wide optimization.
   3. Creates BlocksExecutionRole in management account with permissions for Savings Plans/RIs, Budgets, EventBridge, CloudWatch, Cost Optimization Hub, and AWS Organizations management.
-  4. Creates 4 empty member accounts in the locked-down BlocksOptimization OU where Blocks buys Savings Plans for you. Root email: your management root email +bc1-<id>/+bc2-<id>/+bc3-<id>/+bd1-<id>; you own root.
+  4. Creates 4 empty member accounts in the locked-down BlocksOptimization OU where Blocks buys Savings Plans for you. Root email: your management root email +bc1-<id6>/+bc2-<id6>/+bc3-<id6>/+bd1-<id6>; you own root.
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
@@ -788,8 +788,8 @@ Resources:
                   check_headroom(orgs, len(missing))
                   mgmt_id = orgs.describe_organization()["Organization"]["MasterAccountId"]
                   local, domain = root_email(orgs, mgmt_id) if missing else (None, None)
-                  # +<slug>-<resource id> keeps the email unique per deployment (AWS reserves account emails for 90 days after closure).
-                  emails = {a["name"]: f"{local}+{a['email_slug']}-{RESOURCE_ID.lower()}@{domain}" for a in missing}
+                  # Last 6 chars of the resource id keep the email unique per deployment (AWS reserves closed-account emails for 90 days); the full id stays in the account name.
+                  emails = {a["name"]: f"{local}+{a['email_slug']}-{RESOURCE_ID.lower()[-6:]}@{domain}" for a in missing}
                   too_long = [e for e in emails.values() if len(e) > MAX_EMAIL_LENGTH]
                   if too_long:
                       raise Exception(
