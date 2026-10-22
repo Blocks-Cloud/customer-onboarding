@@ -16,7 +16,7 @@
 # Safety comes from granting ONLY the narrow roles below.
 
 # Single custom role replacing roles/compute.viewer + roles/monitoring.viewer + the former blocksRecommenderRead: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md). Renamed from blocksRecommenderRead 2026-08-26 (no GCP customers live yet, so no migration constraint).
-# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata), Cloud Asset Inventory (search), Cloud SQL (instance metadata)
+# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata)
 resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
   count       = var.scope == "project" ? 1 : 0
   project     = var.project_id
@@ -45,11 +45,9 @@ resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
     "recommender.computeDiskIdleResourceRecommendations.list",
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
+    "recommender.spendBasedCommitmentRecommendations.list",
     "logging.logEntries.list",
     "storage.buckets.list",
-    "cloudasset.assets.searchAllResources",
-    "cloudsql.instances.list",
-    "cloudsql.instances.get",
   ]
 }
 
@@ -81,11 +79,9 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "recommender.computeDiskIdleResourceRecommendations.list",
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
+    "recommender.spendBasedCommitmentRecommendations.list",
     "logging.logEntries.list",
     "storage.buckets.list",
-    "cloudasset.assets.searchAllResources",
-    "cloudsql.instances.list",
-    "cloudsql.instances.get",
     "billing.accounts.get",
     "billing.accounts.list",
     "billing.resourceAssociations.list",

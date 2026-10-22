@@ -1,55 +1,47 @@
 # Blocks Customer Onboarding
 
-Infrastructure-as-code templates for onboarding to **Blocks** ([Blocks.cloud](https://blocks.cloud)).
+Infrastructure-as-code templates for onboarding to **Blocks** ([blocks.cloud](https://blocks.cloud)).
+
+See [CHANGELOG.md](CHANGELOG.md) for what each release changes, permissions first.
 
 ## Overview
 
-This repository provides a 2-step onboarding process:
+Onboarding takes 2 steps:
 
-| Step | Module | Access Level | Purpose |
-|------|--------|--------------|---------|
-| 1 | Cost Estimations | Read-only | Cost analysis and visibility |
-| 2 | Cost Optimization | Read + Write | Active cost optimization |
+| Step | Name | Access level | Where it runs |
+|------|--------|--------------|---------------|
+| 1 | Savings estimation | Read-only | Management, member or standalone account |
+| 2 | Blocks membership | Read + write | Organization management account only |
+
+> [!IMPORTANT]
+> Step 1 access expires. Blocks can assume the Step 1 read roles only until 90 days after you create the
+> Step 1 stack. Updating the stack doesn't change that date. Upgrade to Step 2 before then to keep access. The
+> `AccessExpiresAt` stack output shows the date in UTC.
+
+Step 2 removes the Step 1 stack when it deploys.
 
 ## Prerequisites
 
-- AWS Organizations with **All Features** enabled
-- Access to the **Organization Management Account**
-- Region: **us-east-1**
-- **Contact Blocks** to receive your configuration values
+- Region: **us-east-1**. The templates you deploy refuse any other region.
+- Step 1: any AWS account. In an organization's management account, it also deploys the read role
+  to member accounts through a StackSet, and AWS Organizations **All Features** must be enabled.
+- Step 2: the **organization management account**, with AWS Organizations **All Features** enabled.
+- **Contact Blocks** to receive your configuration values.
 
-## Deployment Options
+## Deployment
 
-### CloudFormation
+Templates are in `Cloudformation/`:
 
-Templates are located in `Cloudformation/`:
-- **Step 1:** `01_step/Blocks-CostEstimations.yaml`
-- **Step 2:** `02_step/Blocks-CostOptimization.yaml`
+| Step | Template | Deployed to |
+|------|----------|-------------|
+| 1 | `01_step/Blocks-CostEstimations.yaml` | The account you deploy in |
+| 1 | `01_step/Blocks-CostEstimations-SubAccounts.yaml` | Member accounts, through the Step 1 StackSet |
+| 2 | `02_step/Blocks-CostOptimization.yaml` | Management account |
+| 2 | `02_step/Blocks-CostOptimization-SubAccounts.yaml` | Member accounts, through the Step 2 StackSet |
+| 2 | `02_step/Blocks-EventForwarding.yaml` | All accounts, in 17 regions, through two StackSets |
 
-### Terraform
+You deploy only the top-level template for each step. The others are deployed for you.
 
-**Step 1 - Cost Estimations:**
-```hcl
-module "blocks_cost_estimations" {
-  source = "github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_cost_estimations?ref=v0.1.1"
+## Support
 
-  customer_id           = "<provided by Blocks>"
-  external_id           = "<provided by Blocks>"
-  blocks_account_id     = "<provided by Blocks>"
-  stackset_template_url = "<provided by Blocks>"
-}
-```
-
-**Step 2 - Cost Optimization:**
-```hcl
-module "blocks_cost_optimization" {
-  source = "github.com/Blocks-Cloud/customer-onboarding.git//Terraform/modules/blocks_cost_optimization?ref=v0.1.1"
-
-  customer_id           = "<provided by Blocks>"
-  external_id           = "<provided by Blocks>"
-  blocks_account_id     = "<provided by Blocks>"
-  stackset_template_url = "<provided by Blocks>"
-}
-```
-
-See `Terraform/examples/` for complete usage examples.
+Email support@blocks.cloud.

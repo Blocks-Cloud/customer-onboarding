@@ -4,6 +4,12 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.8 (2026-10-22)
+
+### Permissions
+- Step 1: Savings estimation, management and member accounts: `BlocksEstimationsReadRole` now denies `elasticbeanstalk:DescribeConfigurationSettings`, `elasticbeanstalk:RequestEnvironmentInfo`, `elasticbeanstalk:RetrieveEnvironmentInfo`, `amplify:*`, `codebuild:BatchGet*` and `lambda:GetLayerVersion`. These calls can return environment variables, build specs, layer code links or instance logs, which may contain secrets. Blocks can still list your resources through calls such as `ec2:DescribeInstances`, `autoscaling:Describe*`, `elasticbeanstalk:DescribeEnvironments` and `codebuild:ListProjects`.
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the data protection policies now deny `rds-data:*` instead of six separate `rds-data:` actions (`ExecuteStatement`, `BatchExecuteStatement`, `ExecuteSql`, `BeginTransaction`, `CommitTransaction`, `RollbackTransaction`). Those six actions already covered the whole RDS Data API, so what Blocks can do does not change. The shorter form keeps the Step 1 policy under the IAM size limit.
+
 ## v0.2.7 (2026-10-15)
 
 ### Permissions

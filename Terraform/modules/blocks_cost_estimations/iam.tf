@@ -384,12 +384,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "dynamodb:GetShardIterator",
       "rds:DownloadDBLogFilePortion",
       "rds:DownloadCompleteDBLogFile",
-      "rds-data:ExecuteStatement",
-      "rds-data:BatchExecuteStatement",
-      "rds-data:ExecuteSql",
-      "rds-data:BeginTransaction",
-      "rds-data:CommitTransaction",
-      "rds-data:RollbackTransaction",
+      "rds-data:*",
       "redshift-data:ExecuteStatement",
       "redshift-data:BatchExecuteStatement",
       "redshift-data:GetStatementResult",
@@ -560,6 +555,23 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "lambda:ListFunctions",
       "lambda:ListVersionsByFunction",
       "cloudformation:GetTemplate",
+    ]
+    resources = [
+      "*",
+    ]
+  }
+
+  # TIER 9: Deployment configuration - same reason as the Lambda denies in DenyCodeAccess: these calls return environment variables, build specs, layer code links or instance logs, which can carry secrets. Inventory stays readable through ec2:DescribeInstances, autoscaling:Describe*, elasticbeanstalk:DescribeEnvironments and codebuild:ListProjects.
+  statement {
+    sid    = "DenyDeploymentConfigSecrets"
+    effect = "Deny"
+    actions = [
+      "elasticbeanstalk:DescribeConfigurationSettings",
+      "elasticbeanstalk:RequestEnvironmentInfo",
+      "elasticbeanstalk:RetrieveEnvironmentInfo",
+      "amplify:*",
+      "codebuild:BatchGet*",
+      "lambda:GetLayerVersion",
     ]
     resources = [
       "*",
