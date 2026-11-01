@@ -4,7 +4,25 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
-## v0.2.5 (2026-10-31)
+## v0.2.6 (2026-11-01)
+
+### Permissions
+- Control account: the role `BlocksAIControlInvokeRole` that Blocks assumes now also has `lambda:InvokeFunction` on the AI Control provider Lambdas `BlocksAIControlProvider-*` in the control account (us-east-1). It is explicitly denied `lambda:InvokeFunction` on their `intake` alias and denied all `kms:*` and `secretsmanager:*` actions, so Blocks can never read the provider admin keys you store.
+- Control account: new Lambda execution role `BlocksAIControlProviderAnthropicRole` with `logs:CreateLogStream` and `logs:PutLogEvents` on its own log group; `secretsmanager:CreateSecret`, `secretsmanager:UpdateSecret`, `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:DeleteSecret`, `secretsmanager:RestoreSecret` and `secretsmanager:TagResource` on secrets named `blocks/ai-control/anthropic/*` only; `secretsmanager:ListSecrets` (this action cannot be limited to resources); `cloudformation:DescribeStackResource` on its own stack only; and `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` and `kms:DescribeKey` on the provider key below only.
+- Control account: new KMS key `alias/BlocksAIControlProviderKeys` (yearly rotation on) that encrypts the stored provider admin keys. Its key policy lets the control account administer the key but not use it; only `BlocksAIControlProviderAnthropicRole` can use it, and only through Secrets Manager.
+- Control account: API Gateway may invoke the Anthropic provider Lambda only through its `intake` alias and only from the key intake route `POST /providers/anthropic/credentials`.
+
+### Added
+- A new service-managed StackSet `BlocksAIControlProviders-<id>` deploys the AI Control provider resources into the control account only (us-east-1). It creates no account, OU or policy in your organization. The Anthropic resources below are created only when Blocks has enabled the Anthropic provider for your stack; otherwise the StackSet's stack is empty.
+- New Lambda `BlocksAIControlProvider-Anthropic` in the control account, with its log group kept for 365 days. It calls only `api.anthropic.com`.
+- New key intake HTTP API `BlocksAIControlIntake` in the control account. Your browser sends your Anthropic admin key straight to this API in your own account, never to Blocks. It accepts only a Blocks token issued for your control account and your Blocks customer, with the `ai-control:store-key` scope and a lifetime of at most 10 minutes, from the one Blocks web origin. Requests are throttled (5 per second, bursts of 10), and its access log, kept for 365 days, never holds the key.
+- Before storing a key, the intake checks that it is an Anthropic admin key and that it can read your Anthropic organization, its API keys and its usage. Adding a key never overwrites a stored key that still works; replacing one requires a key from the same Anthropic organization.
+- The admin key is kept only in Secrets Manager in the control account, encrypted with the provider KMS key. Logs and answers to Blocks contain at most its last 4 characters.
+- Through `BlocksAIControlInvokeRole`, Blocks can ask the provider Lambda to test the stored key, list your Anthropic API keys (and which one is the stored admin key), read token usage (1-minute buckets for up to 24 hours, or 1-hour buckets for up to 7 days) and daily cost (up to 31 days per request), and delete the stored key (kept recoverable for 7 days).
+- Through the same role, Blocks can deactivate (engage) or reactivate (release) up to 50 Anthropic API keys per request. Only the keys named are changed; archived and expired keys are always skipped, and an engage never deactivates the stored admin key itself. A request stops at the first rate limit from Anthropic or when its time runs out, and the keys not tried are reported as not attempted.
+- Daily cost is read from Anthropic's Analytics cost API, and falls back to Anthropic's older cost report when that API is not available for your organization, does not cover the requested days, or no longer accepts the beta version the add-on sends.
+- Deleting the stack schedules every stored provider admin key for deletion (recoverable for 7 days). A failure of this cleanup is logged and never blocks the stack delete.
+
 
 ### Permissions
 - Management account: on the setup check role `BlocksAIControlOrgInfoRole-<id>`, `organizations:EnableAWSServiceAccess` now applies only to the service principals `stacksets.cloudformation.amazonaws.com` and `member.org.stacksets.cloudformation.amazonaws.com`, and `iam:CreateServiceLinkedRole` only to those same two service names. The role can no longer turn on trusted access or create service-linked roles for any other AWS service.
