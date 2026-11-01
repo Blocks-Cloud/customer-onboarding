@@ -4,6 +4,21 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.5 (2026-10-31)
+
+### Permissions
+- Management account: on the setup check role `BlocksAIControlOrgInfoRole-<id>`, `organizations:EnableAWSServiceAccess` now applies only to the service principals `stacksets.cloudformation.amazonaws.com` and `member.org.stacksets.cloudformation.amazonaws.com`, and `iam:CreateServiceLinkedRole` only to those same two service names. The role can no longer turn on trusted access or create service-linked roles for any other AWS service.
+- Management account: the control account role `BlocksAIControlAccountRole-<id>` now also has `organizations:ListTagsForResource` and `organizations:DescribeAccount`, used to check the Blocks tags on the control account and to check that it is still in your organization.
+
+### Changed
+- On a new deployment, the stack now reuses an existing account named "Blocks AI Control <id>" only if it carries the tags `OwnedBy: Blocks.cloud` and `Purpose: BlocksAIControl` that the stack sets when it creates the account. An account with that name but without both tags is never adopted, moved or changed. If more than one active account carries those tags, the stack fails and asks you to contact support.
+- Stack updates and deletes now act only on the control account the stack already recorded, and never look it up by name again, so another account with the same name can never be moved into or out of the `BlocksAIControlOU-<id>` OU.
+- Deleting the stack now fails, with the real reason, when the control account cannot be moved out of the OU back to the organization root, instead of failing later with a less clear error when the OU is deleted. The delete can be retried.
+
+### Fixed
+- Deleting the stack now also moves a closed control account out of the OU back to the organization root, so the OU can be deleted. The account is still never closed by the stack.
+- Deleting the stack now detaches the deny-Bedrock service control policy from every root, OU and account it is attached to. Before, only the first 20 targets were detached when the policy was attached to more.
+
 ## v0.2.4 (2026-10-18)
 
 ### Changed

@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.4" # x-release-please-version
+  TemplateVersion: "0.2.5" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.4" # x-release-please-version
+      Version: "0.2.5" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -88,15 +88,30 @@ Resources:
               - Effect: Allow
                 Action: organizations:EnablePolicyType
                 Resource: !Sub "arn:${AWS::Partition}:organizations::${AWS::AccountId}:root/o-*/r-*"
-              # Service-managed StackSets need trusted access (same grants as Step 2 EnableOrgServices)
+              # Service-managed StackSets need trusted access
               - Effect: Allow
                 Action:
                   - cloudformation:DescribeOrganizationsAccess
                   - cloudformation:ActivateOrganizationsAccess
-                  - organizations:EnableAWSServiceAccess
                   - iam:GetRole
-                  - iam:CreateServiceLinkedRole
                 Resource: "*"
+              # AWS documents both StackSets principals for trusted access; allow those two only.
+              - Effect: Allow
+                Action: organizations:EnableAWSServiceAccess
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "organizations:ServicePrincipal":
+                      - stacksets.cloudformation.amazonaws.com
+                      - member.org.stacksets.cloudformation.amazonaws.com
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "iam:AWSServiceName":
+                      - stacksets.cloudformation.amazonaws.com
+                      - member.org.stacksets.cloudformation.amazonaws.com
 
   ControlAccountRole:
     Type: AWS::IAM::Role
@@ -127,6 +142,8 @@ Resources:
                   - organizations:DescribeCreateAccountStatus
                   - organizations:ListAccounts
                   - organizations:ListParents
+                  - organizations:ListTagsForResource
+                  - organizations:DescribeAccount
                 Resource: "*"
               - Effect: Allow
                 Action: organizations:MoveAccount
@@ -332,12 +349,15 @@ Resources:
       Role: !GetAtt ControlAccountRole.Arn
       Code:
         ZipFile: |
+          import re
           import time
           import boto3
           import cfnresponse
           from botocore.exceptions import ClientError
 
           RETRYABLE = ("ConcurrentModificationException", "TooManyRequestsException")
+          ACCOUNT_ID_RE = re.compile(r"^[0-9]{12}$")
+          OWNER_TAGS = {"OwnedBy": "Blocks.cloud", "Purpose": "BlocksAIControl"}
           MOCK_NO_ACCOUNT = False  # CI only: blocks_cli --mock-control-account sets this to True (no real account)
 
 
@@ -353,15 +373,37 @@ Resources:
                       delay = min(delay * 2, 60)
 
 
+          def owned(o, acct_id):
+              tags = {t["Key"]: t["Value"] for page in o.get_paginator("list_tags_for_resource").paginate(ResourceId=acct_id)
+                      for t in page["Tags"]}
+              return all(tags.get(k) == v for k, v in OWNER_TAGS.items())
+
+
           def find_account(o, name):
-              found = None
-              for page in o.get_paginator("list_accounts").paginate():
-                  for a in page["Accounts"]:
-                      if a["Name"] == name:
-                          if a["Status"] == "ACTIVE":
-                              return a
-                          found = found or a
-              return found
+              """The control account this stack created: matched by name and the Blocks ownership tags."""
+              found = [a for page in o.get_paginator("list_accounts").paginate() for a in page["Accounts"]
+                       if a["Name"] == name and owned(o, a["Id"])]
+              active = [a for a in found if a["Status"] == "ACTIVE"]
+              if len(active) > 1:
+                  raise RuntimeError("more than one active control account carries the Blocks tags; contact support@blocks.cloud")
+              return active[0] if active else (found[0] if found else None)
+
+
+          def stored_account(event):
+              """The account id this resource already answered, or None (no account yet, or none-<rid>)."""
+              phys = event.get("PhysicalResourceId", "")
+              return phys if ACCOUNT_ID_RE.match(phys) else None
+
+
+          def in_org(o, ctx, acct_id):
+              """True while the account is in the organization. A closed (SUSPENDED) account stays in its OU for up to 90 days."""
+              try:
+                  retry(o.describe_account, ctx, AccountId=acct_id)
+                  return True
+              except ClientError as e:
+                  if e.response["Error"]["Code"] == "AccountNotFoundException":
+                      return False
+                  raise
 
 
           def email_for(root_email, rid):
@@ -409,19 +451,21 @@ Resources:
                       cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": "", "AccountError": ""},
                                        physicalResourceId=f"none-{p['ResourceId']}")
                       return
+                  stored = stored_account(event)
                   if event["RequestType"] == "Delete":
-                      phys = event.get("PhysicalResourceId", "")
-                      a = find_account(o, name)
-                      # Only the Delete issued for the live account acts. A Delete for a replaced physical id (for example
-                      # none-<rid> after a failed first run) must not move the account the stack just put in the OU.
-                      if a and a["Status"] == "ACTIVE" and a["Id"] == phys:
-                          move(o, ctx, a["Id"], p["RootId"])  # never close; free the OU for deletion
+                      # Act only on the account this resource answered, never on a name lookup. A Delete for none-<rid>
+                      # (after a failed first run) does nothing.
+                      if stored and in_org(o, ctx, stored):
+                          move(o, ctx, stored, p["RootId"])  # never close; free the OU for deletion
                       cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {})
                       return
-                  a = find_account(o, name)
-                  if a and a["Status"] != "ACTIVE":
-                      raise RuntimeError("the control account exists but is closed; its root email stays reserved for 90 days, contact support@blocks.cloud")
-                  acct_id = a["Id"] if a else create(o, ctx, email_for(p["RootEmail"], p["ResourceId"]), name)
+                  if stored:
+                      acct_id = stored  # Update: keep the account; a lookup again could pick another account
+                  else:
+                      a = find_account(o, name)
+                      if a and a["Status"] != "ACTIVE":
+                          raise RuntimeError("the control account exists but is closed; its root email stays reserved for 90 days, contact support@blocks.cloud")
+                      acct_id = a["Id"] if a else create(o, ctx, email_for(p["RootEmail"], p["ResourceId"]), name)
                   move(o, ctx, acct_id, p["OrganizationalUnitId"])
                   cfnresponse.send(event, ctx, cfnresponse.SUCCESS, {"AccountId": acct_id, "AccountError": ""},
                                    physicalResourceId=acct_id)
@@ -431,6 +475,10 @@ Resources:
                   # Keep the existing physical id on Update: a changed id is a replacement, and the cleanup Delete would
                   # move the live account back to the root.
                   phys = event.get("PhysicalResourceId") or ""
+                  if event["RequestType"] == "Delete":
+                      # The account is still in the OU, so the OU delete would fail next. Fail here with the real reason.
+                      cfnresponse.send(event, ctx, cfnresponse.FAILED, {}, reason=msg, physicalResourceId=phys)
+                      return
                   kept = "" if (not phys or phys.startswith("none-")) else phys  # report the account that still exists
                   if not kept and event["RequestType"] != "Delete" and p.get("RequireAccount") == "true":
                       # v0.2 cannot work without the account: an empty id would reach the policy role principal and fail
@@ -501,7 +549,9 @@ Resources:
 
           def detach_all(o, policy_id):
               try:
-                  targets = o.list_targets_for_policy(PolicyId=policy_id)["Targets"]
+                  # Read every page before the first detach: a page holds at most 20 targets, and a detach changes the list.
+                  targets = [t for page in o.get_paginator("list_targets_for_policy").paginate(PolicyId=policy_id)
+                             for t in page["Targets"]]
               except ClientError as e:
                   if e.response["Error"]["Code"] in ("PolicyNotFoundException", "AWSOrganizationsNotInUseException"):
                       return 0
