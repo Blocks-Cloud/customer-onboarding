@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.7" # x-release-please-version
+  TemplateVersion: "0.2.8" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.7" # x-release-please-version
+      Version: "0.2.8" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -1899,18 +1899,20 @@ Resources:
                   CONNECT_TIMEOUT=5
                   READ_TIMEOUT=15
                   MAX_RESPONSE_BYTES=8000000
+                  DETAIL_MAX=400
+                  PROVIDER_TEXT_MAX=300
                   SECRET_RE=re.compile('sk-ant-[A-Za-z0-9_-]+')
                   STATUS_CODES={'invalid_input':400,'invalid_format':400,'token_expired':401,'provider_auth_failed':422,'missing_permission':422,'org_mismatch':409,'provider_unreachable':502,'provider_throttled':429,'provider_error':502,'secret_missing':404,'timeout':504}
                   log=logging.getLogger('blocks.ai_control.provider')
                   log.setLevel(logging.INFO)
                   class ProviderError(Exception):
-                   def __init__(self,code,detail='',status=None,message=''):super().__init__(code);self.code,self.detail,self.status,self.message=code,redact(str(detail))[:200],status,redact(str(message))[:200];self.checks=[]
+                   def __init__(self,code,detail='',status=None,message=''):super().__init__(code);self.code,self.detail,self.status,self.message=code,redact(str(detail))[:DETAIL_MAX],status,redact(str(message))[:200];self.checks=[]
                   def redact(text):return SECRET_RE.sub('***',text)
                   def key_hint(secret):return secret[-4:]
                   def log_event(event,_level=logging.INFO,**fields):log.log(_level,redact(json.dumps({'event':event,**fields},default=str)))
                   def ok(result):return{'schema_version':SCHEMA_VERSION,'ok':True,'result':result}
                   def fail(code,detail='',result=None):
-                   out={'schema_version':SCHEMA_VERSION,'ok':False,'error':code,'detail':redact(str(detail))[:200]}
+                   out={'schema_version':SCHEMA_VERSION,'ok':False,'error':code,'detail':redact(str(detail))[:DETAIL_MAX]}
                    if result is not None:out['result']=result
                    return out
                   def http_response(envelope):status=200 if envelope['ok']else STATUS_CODES.get(envelope['error'],502);return{'statusCode':status,'headers':{'content-type':'application/json','cache-control':'no-store'},'body':json.dumps(envelope)}
@@ -1952,9 +1954,13 @@ Resources:
                   def error_message(raw):
                    try:return str(((json.loads(raw or b'{}')or{}).get('error')or{}).get('message')or'')
                    except(ValueError,AttributeError):return''
+                  def error_detail(status,raw):
+                   try:error=(json.loads(raw or b'{}')or{}).get('error')or{};kind,message=error.get('type'),error.get('message');text=f"{kind}: {message}"if kind and message else str(kind or message or'')
+                   except(ValueError,AttributeError):return f"HTTP {status}"
+                   text=' '.join(redact(text).split())[:PROVIDER_TEXT_MAX];return f"HTTP {status} {text}"if text else f"HTTP {status}"
                   def raise_for_status(status,on_404='provider_error',raw=b''):
                    if 200<=status<300:return
-                   code={401:'provider_auth_failed',403:'missing_permission',404:on_404,429:'provider_throttled'}.get(status);raise ProviderError(code or'provider_error',f"HTTP {status}",status,error_message(raw))
+                   code={401:'provider_auth_failed',403:'missing_permission',404:on_404,429:'provider_throttled'}.get(status);detail=error_detail(status,raw)if code is None and 400<=status<500 else f"HTTP {status}";raise ProviderError(code or'provider_error',detail,status,error_message(raw))
                   import base64,json,logging,os,re,time,urllib.parse,urllib.request
                   from collections import namedtuple
                   from datetime import date,datetime,timedelta,timezone
@@ -1979,7 +1985,8 @@ Resources:
                   KEYS_PAGE_SIZE=1000
                   RECOVERY_DAYS=7
                   DEADLINE_MARGIN_SECONDS=10
-                  USAGE_GROUP_BY='api_key_id','workspace_id','model','service_tier','context_window','inference_geo'
+                  USAGE_GROUP_BY='api_key_id','model','service_tier','context_window','inference_geo'
+                  KEY_WORKSPACES_TTL=600
                   COST_GROUP_BY='model','api_key_id','workspace_id','service_tier','context_window','cost_type','token_type'
                   LEGACY_COST_GROUP_BY='workspace_id','description'
                   COST_FIELDS='model','api_key_id','workspace_id','service_tier','context_window','cost_type','token_type'
@@ -2135,8 +2142,21 @@ Resources:
                    longest,per_request=USAGE_BUCKETS[width]
                    if not start<end<=start+longest:raise ProviderError('invalid_input',f"the window must be longer than 0 and at most {longest.total_seconds()/3600:g} hours for {width} buckets")
                    return[('starting_at',stamp(start)),('ending_at',stamp(end)),('bucket_width',width),('limit',per_request)]+[('group_by[]',g)for g in USAGE_GROUP_BY]
-                  def usage_row(b,r):cache,tools=r.get('cache_creation')or{},r.get('server_tool_use')or{};return{'starting_at':b.get('starting_at'),'ending_at':b.get('ending_at'),**{g:r.get(g)for g in USAGE_GROUP_BY},'uncached_input_tokens':r.get('uncached_input_tokens',0),'cache_read_input_tokens':r.get('cache_read_input_tokens',0),'cache_creation_5m_tokens':cache.get('ephemeral_5m_input_tokens',0),'cache_creation_1h_tokens':cache.get('ephemeral_1h_input_tokens',0),'output_tokens':r.get('output_tokens',0),'web_search_requests':tools.get('web_search_requests',0)}
-                  def act_read_usage(ctx,client,secret,p):start,end,page=iso(p.get('start'),'start'),iso(p.get('end'),'end'),page_of(p);query=usage_query(start,end,p.get('bucket_width','1m'));buckets,next_page,_,truncated=paged(client,Listing('/v1/organizations/usage_report/messages',query),page);return{'rows':[usage_row(b,r)for b in buckets for r in b.get('results',[])],'next_page':next_page,'truncated':truncated}
+                  KEY_WORKSPACES={}
+                  KEY_MISSING={}
+                  def fresh(read_at):return read_at is not None and time.monotonic()-read_at<KEY_WORKSPACES_TTL
+                  def note_missing(org,ids,found):now,before=time.monotonic(),KEY_MISSING.get(org,{});KEY_MISSING[org]={**{i:t for(i,t)in before.items()if fresh(t)and i not in found},**{i:now for i in ids-found.keys()}}
+                  def fetch_key_workspaces(client,org,ids):
+                   try:keys=list_keys(client)
+                   except Exception as e:log_event('key_workspaces_unavailable',logging.WARNING,code=error_code(e));return
+                   found={k['id']:k['workspace_id']for k in keys};KEY_WORKSPACES[org]=time.monotonic(),found;note_missing(org,ids,found);return found
+                  def unknown(org,ids,cached):missing=KEY_MISSING.get(org,{});return{i for i in ids-cached.keys()if not fresh(missing.get(i))}
+                  def key_workspaces(client,org,ids):
+                   read_at,cached=KEY_WORKSPACES.get(org,(None,{}))
+                   if fresh(read_at)and not unknown(org,ids,cached):return cached
+                   found=fetch_key_workspaces(client,org,ids);return cached if found is None else found
+                  def usage_row(b,r,workspaces):cache,tools=r.get('cache_creation')or{},r.get('server_tool_use')or{};return{'starting_at':b.get('starting_at'),'ending_at':b.get('ending_at'),'workspace_id':workspaces.get(r.get('api_key_id')),**{g:r.get(g)for g in USAGE_GROUP_BY},'uncached_input_tokens':r.get('uncached_input_tokens',0),'cache_read_input_tokens':r.get('cache_read_input_tokens',0),'cache_creation_5m_tokens':cache.get('ephemeral_5m_input_tokens',0),'cache_creation_1h_tokens':cache.get('ephemeral_1h_input_tokens',0),'output_tokens':r.get('output_tokens',0),'web_search_requests':tools.get('web_search_requests',0)}
+                  def act_read_usage(ctx,client,secret,p):start,end,page=iso(p.get('start'),'start'),iso(p.get('end'),'end'),page_of(p);query=usage_query(start,end,p.get('bucket_width','1m'));buckets,next_page,_,truncated=paged(client,Listing('/v1/organizations/usage_report/messages',query),page);ids={r.get('api_key_id')for b in buckets for r in b.get('results',[])}-{None};workspaces=key_workspaces(client,secret.get('org_id'),ids)if ids else{};return{'rows':[usage_row(b,r,workspaces)for b in buckets for r in b.get('results',[])],'next_page':next_page,'truncated':truncated}
                   def cost_rows(buckets):return[{'day':str(b.get('starting_at',''))[:10],**{f:r.get(f)for f in COST_FIELDS},'amount_cents':r.get('amount'),'list_amount_cents':r.get('list_amount')}for b in buckets for r in b.get('results',[])]
                   def analytics_rows(rows):return[{'day':str(r.get('starting_at',''))[:10],**{f:(r.get('group')or{}).get(f)for f in COST_FIELDS},'amount_cents':(r.get('cost')or{}).get('amount'),'list_amount_cents':(r.get('cost')or{}).get('list_amount')}for r in rows]
                   def analytics_window_ok(start):today=datetime.now(timezone.utc).date();return start.date()>=ANALYTICS_FIRST_DAY and(today-start.date()).days<=ANALYTICS_MAX_DAYS
@@ -2280,7 +2300,7 @@ Resources:
                   def handler(event,lambda_ctx):
                    started,http=time.monotonic(),is_http_event(event);action,request_id=request_labels(event,http);envelope,answered=envelope_of(event,lambda_ctx,http,action)
                    if answered:return envelope
-                   log_event('done',action=action,request_id=request_id,ok=envelope['ok'],error=envelope.get('error'),duration_ms=int((time.monotonic()-started)*1000));return http_response(envelope)if http else envelope
+                   log_event('done',action=action,request_id=request_id,ok=envelope['ok'],error=envelope.get('error'),detail=None if envelope['ok']else envelope.get('detail'),duration_ms=int((time.monotonic()-started)*1000));return http_response(envelope)if http else envelope
                   # <<< render_provider_lambdas: end
           # Stack delete: the secrets go before the key and the role (this resource depends on both). Create and Update do nothing.
           ProviderSecretsCleanup:
@@ -2302,7 +2322,7 @@ Resources:
             UpdateReplacePolicy: Retain
             Properties:
               FunctionName: !Ref AnthropicProviderFunction
-              Description: !Sub "Provider code sha256:864b010c2b8f4200 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
+              Description: !Sub "Provider code sha256:898d6ae3241397e2 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
           AnthropicProviderIntakeAlias:
             Type: AWS::Lambda::Alias
             Condition: AnthropicEnabled

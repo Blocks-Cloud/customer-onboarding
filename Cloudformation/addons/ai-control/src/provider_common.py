@@ -16,6 +16,8 @@ SCHEMA_VERSION = "1"
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 15
 MAX_RESPONSE_BYTES = 8_000_000
+DETAIL_MAX = 400  # an error detail: "HTTP 400 invalid_request_error: " plus a provider message cut at PROVIDER_TEXT_MAX
+PROVIDER_TEXT_MAX = 300
 SECRET_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
 STATUS_CODES = {"invalid_input": 400, "invalid_format": 400, "token_expired": 401, "provider_auth_failed": 422, "missing_permission": 422,
                 "org_mismatch": 409, "provider_unreachable": 502, "provider_throttled": 429, "provider_error": 502, "secret_missing": 404,
@@ -30,7 +32,7 @@ class ProviderError(Exception):
 
     def __init__(self, code, detail="", status=None, message=""):
         super().__init__(code)
-        self.code, self.detail, self.status, self.message = code, redact(str(detail))[:200], status, redact(str(message))[:200]
+        self.code, self.detail, self.status, self.message = code, redact(str(detail))[:DETAIL_MAX], status, redact(str(message))[:200]
         self.checks = []  # store_credential: the checks that ran before this error
 
 
@@ -53,7 +55,7 @@ def ok(result):
 
 
 def fail(code, detail="", result=None):
-    out = {"schema_version": SCHEMA_VERSION, "ok": False, "error": code, "detail": redact(str(detail))[:200]}
+    out = {"schema_version": SCHEMA_VERSION, "ok": False, "error": code, "detail": redact(str(detail))[:DETAIL_MAX]}
     if result is not None:
         out["result"] = result
     return out
@@ -155,8 +157,24 @@ def error_message(raw):
         return ""
 
 
+def error_detail(status, raw):
+    """"HTTP 400 invalid_request_error: <message>" from an Anthropic error body: only error.type and error.message, redacted first,
+    whitespace collapsed, cut at PROVIDER_TEXT_MAX. A body that is not that shape gives "HTTP 400"."""
+    try:
+        error = (json.loads(raw or b"{}") or {}).get("error") or {}
+        kind, message = error.get("type"), error.get("message")
+        text = f"{kind}: {message}" if kind and message else str(kind or message or "")
+    except (ValueError, AttributeError):
+        return f"HTTP {status}"
+    text = " ".join(redact(text).split())[:PROVIDER_TEXT_MAX]
+    return f"HTTP {status} {text}" if text else f"HTTP {status}"
+
+
 def raise_for_status(status, on_404="provider_error", raw=b""):
+    """Only a 4xx with no code of its own gets Anthropic's text (error_detail). 401, 403, 404 and 429 keep a plain "HTTP <n>", also a
+    404 that maps to provider_error (the default on_404): the code already says what went wrong."""
     if 200 <= status < 300:
         return
     code = {401: "provider_auth_failed", 403: "missing_permission", 404: on_404, 429: "provider_throttled"}.get(status)
-    raise ProviderError(code or "provider_error", f"HTTP {status}", status, error_message(raw))
+    detail = error_detail(status, raw) if code is None and 400 <= status < 500 else f"HTTP {status}"
+    raise ProviderError(code or "provider_error", detail, status, error_message(raw))

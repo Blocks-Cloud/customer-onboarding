@@ -38,7 +38,9 @@ MAX_PAGES = 20
 KEYS_PAGE_SIZE = 1000
 RECOVERY_DAYS = 7
 DEADLINE_MARGIN_SECONDS = 10
-USAGE_GROUP_BY = ("api_key_id", "workspace_id", "model", "service_tier", "context_window", "inference_geo")
+# Anthropic allows at most 5 group_by dimensions on the usage report; workspace comes from the key list (key_workspaces).
+USAGE_GROUP_BY = ("api_key_id", "model", "service_tier", "context_window", "inference_geo")
+KEY_WORKSPACES_TTL = 600
 COST_GROUP_BY = ("model", "api_key_id", "workspace_id", "service_tier", "context_window", "cost_type", "token_type")
 LEGACY_COST_GROUP_BY = ("workspace_id", "description")
 COST_FIELDS = ("model", "api_key_id", "workspace_id", "service_tier", "context_window", "cost_type", "token_type")
@@ -459,9 +461,54 @@ def usage_query(start, end, width):
     return [("starting_at", stamp(start)), ("ending_at", stamp(end)), ("bucket_width", width), ("limit", per_request)] + [("group_by[]", g) for g in USAGE_GROUP_BY]
 
 
-def usage_row(b, r):
+KEY_WORKSPACES = {}  # organization id -> (monotonic time read, {api_key_id: workspace_id}) for every key, any status
+KEY_MISSING = {}  # organization id -> {api_key_id: monotonic time the key list was read without it}
+
+
+def fresh(read_at):
+    return read_at is not None and time.monotonic() - read_at < KEY_WORKSPACES_TTL
+
+
+def note_missing(org, ids, found):
+    """Remembers the ids the key list did not have, so the next reads within the TTL do not read the list again for them."""
+    now, before = time.monotonic(), KEY_MISSING.get(org, {})
+    KEY_MISSING[org] = {**{i: t for i, t in before.items() if fresh(t) and i not in found}, **{i: now for i in ids - found.keys()}}
+
+
+def fetch_key_workspaces(client, org, ids):
+    """{api_key_id: workspace_id} of every key, cached. None when the key list fails: usage still flows."""
+    try:
+        keys = list_keys(client)
+    except Exception as e:  # any failure: the caller keeps what it had, and an unknown key gets workspace_id null
+        log_event("key_workspaces_unavailable", logging.WARNING, code=error_code(e))
+        return None
+    found = {k["id"]: k["workspace_id"] for k in keys}
+    KEY_WORKSPACES[org] = (time.monotonic(), found)
+    note_missing(org, ids, found)
+    return found
+
+
+def unknown(org, ids, cached):
+    """The ids the cache does not know and the key list was not asked about within the TTL."""
+    missing = KEY_MISSING.get(org, {})
+    return {i for i in ids - cached.keys() if not fresh(missing.get(i))}
+
+
+def key_workspaces(client, org, ids):
+    """The workspace of each key. From the cache when it is fresh and knows every id (or the list lately did not have it), else read
+    once again. A failed read keeps the cached map: a key never moves to another workspace."""
+    read_at, cached = KEY_WORKSPACES.get(org, (None, {}))
+    if fresh(read_at) and not unknown(org, ids, cached):
+        return cached
+    found = fetch_key_workspaces(client, org, ids)
+    return cached if found is None else found
+
+
+def usage_row(b, r, workspaces):
+    """workspace_id from the key list: null for no key (Console) or a key the list does not know, as Anthropic reports it."""
     cache, tools = r.get("cache_creation") or {}, r.get("server_tool_use") or {}
-    return {"starting_at": b.get("starting_at"), "ending_at": b.get("ending_at"), **{g: r.get(g) for g in USAGE_GROUP_BY},
+    return {"starting_at": b.get("starting_at"), "ending_at": b.get("ending_at"), "workspace_id": workspaces.get(r.get("api_key_id")),
+            **{g: r.get(g) for g in USAGE_GROUP_BY},
             "uncached_input_tokens": r.get("uncached_input_tokens", 0), "cache_read_input_tokens": r.get("cache_read_input_tokens", 0),
             "cache_creation_5m_tokens": cache.get("ephemeral_5m_input_tokens", 0), "cache_creation_1h_tokens": cache.get("ephemeral_1h_input_tokens", 0),
             "output_tokens": r.get("output_tokens", 0), "web_search_requests": tools.get("web_search_requests", 0)}
@@ -471,7 +518,9 @@ def act_read_usage(ctx, client, secret, p):
     start, end, page = iso(p.get("start"), "start"), iso(p.get("end"), "end"), page_of(p)
     query = usage_query(start, end, p.get("bucket_width", "1m"))
     buckets, next_page, _, truncated = paged(client, Listing("/v1/organizations/usage_report/messages", query), page)
-    return {"rows": [usage_row(b, r) for b in buckets for r in b.get("results", [])], "next_page": next_page, "truncated": truncated}
+    ids = {r.get("api_key_id") for b in buckets for r in b.get("results", [])} - {None}
+    workspaces = key_workspaces(client, secret.get("org_id"), ids) if ids else {}
+    return {"rows": [usage_row(b, r, workspaces) for b in buckets for r in b.get("results", [])], "next_page": next_page, "truncated": truncated}
 
 
 def cost_rows(buckets):
@@ -839,5 +888,5 @@ def handler(event, lambda_ctx):
     envelope, answered = envelope_of(event, lambda_ctx, http, action)
     if answered:
         return envelope
-    log_event("done", action=action, request_id=request_id, ok=envelope["ok"], error=envelope.get("error"), duration_ms=int((time.monotonic() - started) * 1000))
+    log_event("done", action=action, request_id=request_id, ok=envelope["ok"], error=envelope.get("error"), detail=None if envelope["ok"] else envelope.get("detail"), duration_ms=int((time.monotonic() - started) * 1000))
     return http_response(envelope) if http else envelope

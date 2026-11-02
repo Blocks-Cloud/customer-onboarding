@@ -4,6 +4,16 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.8 (2026-11-02)
+
+### Changed
+- When Anthropic refuses a request from the provider Lambda `BlocksAIControlProvider-Anthropic` with a 4xx error that has no error code of its own, the answer to Blocks now includes Anthropic's error type and message (any key in it masked, whitespace collapsed, cut at 300 characters) instead of only the HTTP status. Authentication, permission, not-found and rate-limit errors still give only the HTTP status. The error detail in an answer can now be up to 400 characters instead of 200.
+- The provider Lambda's log line for each request in the control account now also carries the error detail when the request fails.
+
+### Fixed
+- Reading token usage no longer fails because Anthropic allows at most 5 grouping dimensions on its usage report. Usage is no longer grouped by workspace; the provider Lambda now takes each row's workspace from your Anthropic API key list instead. The workspace is empty for usage without an API key (Console) and for a key the list does not have, as Anthropic reports it.
+- The API key list used for workspaces is cached for 10 minutes. If it cannot be read, usage is still returned with the workspaces already known, and a key the list did not have is not looked up again within those 10 minutes.
+
 ## v0.2.7 (2026-11-02)
 
 ### Changed
