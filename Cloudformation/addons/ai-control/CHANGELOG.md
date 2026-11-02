@@ -4,6 +4,12 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.7 (2026-11-02)
+
+### Changed
+- The key intake now accepts only Anthropic service account keys (keys starting with `sk-ant-svc`) and no longer accepts Anthropic admin keys (`sk-ant-admin`). Any other key is refused with `invalid_format` before it is sent to Anthropic or stored. The checks after that are unchanged: the key must be able to read your Anthropic organization, its API keys and its usage.
+- The descriptions of the provider KMS key, the Lambda `BlocksAIControlProvider-Anthropic` and the key intake HTTP API `BlocksAIControlIntake` in the control account now refer to the stored credential as a service account key instead of an admin key. No permissions change.
+
 ## v0.2.6 (2026-11-01)
 
 ### Permissions

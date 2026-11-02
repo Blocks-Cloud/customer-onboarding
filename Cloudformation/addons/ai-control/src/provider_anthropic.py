@@ -1,7 +1,7 @@
 """BlocksAIControlProvider-Anthropic: the Blocks AI Control Lambda for Anthropic in the control account.
 
-Two ways in. The key intake HTTP API calls store_credential with the admin key (Blocks never sees it). Blocks calls every other action
-through BlocksAIControlInvokeRole. The admin key lives only in Secrets Manager; the log and every answer carry its last 4 characters at most.
+Two ways in. The key intake HTTP API calls store_credential with the service account key (Blocks never sees it). Blocks calls every other action
+through BlocksAIControlInvokeRole. The service account key lives only in Secrets Manager; the log and every answer carry its last 4 characters at most.
 """
 # render: strip begin
 from provider_common import PinnedClient, ProviderError, READ_TIMEOUT, SCHEMA_VERSION, fail, http_response, key_hint, log_event, ok, redact
@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 HOST = "api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 COST_BETA = "analytics-usage-cost-2026-08-24"
-ADMIN_KEY_RE = re.compile(r"^sk-ant-admin[0-9]{2}-[A-Za-z0-9_-]{20,300}$")
+SERVICE_ACCOUNT_KEY_RE = re.compile(r"^sk-ant-svc[0-9]{0,3}-[A-Za-z0-9_-]{20,300}$")  # service account key with organization access; Anthropic's org check decides the rest
 CONNECTION_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_TARGETS = 50
@@ -80,7 +80,8 @@ def secrets_manager_error(e):
     return ProviderError("provider_error", f"secrets manager: {aws_error(e)}")
 
 
-# ---- the stored admin key -------------------------------------------------------------------------------------------
+# ---- the stored service account key ---------------------------------------------------------------------------------
+# `admin_key` = the stored Anthropic credential (a service account key); the field name is the wire contract
 
 UNREADABLE_SECRET_CODES = ("ResourceNotFoundException", "InvalidRequestException",  # not there, or scheduled for deletion
                            "DecryptionFailure", "KMSInvalidStateException", "KMSDisabledException", "KMSNotFoundException")  # its key is gone or off
@@ -284,9 +285,9 @@ def checked(checks, name, step):
 
 def run_checks(admin_key, checks, deadline):
     """Appends one entry per check that ran; stops at the first that fails. Returns the organization and the client."""
-    if not ADMIN_KEY_RE.fullmatch(admin_key):
+    if not SERVICE_ACCOUNT_KEY_RE.fullmatch(admin_key):
         record(checks, "format", "invalid_format")
-        raise ProviderError("invalid_format", "this is not an Anthropic admin key")
+        raise ProviderError("invalid_format", "this is not an Anthropic service account key")
     record(checks, "format")
     client = anthropic(admin_key, deadline)
     hour_end = datetime.now(timezone.utc).replace(microsecond=0)
@@ -363,6 +364,7 @@ def store_credential(event, account, sm):
     if mode == "add":
         refuse_a_live_key(sm, connection_id)
     org, client, checks = verify_key(admin_key, claims, sm, deadline)
+    # `admin_key` = the stored Anthropic credential (a service account key); the field name is the wire contract
     save_secret(sm, connection_id, {"admin_key": admin_key, "org_id": org["org_id"]})
     active = active_keys_after_save(client)
     log_event("store_credential", connection_id=connection_id, mode=mode, key_hint=key_hint(admin_key), active_keys=active)
