@@ -18,7 +18,7 @@ READ_TIMEOUT = 15
 MAX_RESPONSE_BYTES = 8_000_000
 DETAIL_MAX = 400  # an error detail: "HTTP 400 invalid_request_error: " plus a provider message cut at PROVIDER_TEXT_MAX
 PROVIDER_TEXT_MAX = 300
-SECRET_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
+SECRET_RE = re.compile(r"sk-(?:ant-|admin-|proj-|svcacct-)[A-Za-z0-9_-]+")
 STATUS_CODES = {"invalid_input": 400, "invalid_format": 400, "token_expired": 401, "provider_auth_failed": 422, "missing_permission": 422,
                 "org_mismatch": 409, "provider_unreachable": 502, "provider_throttled": 429, "provider_error": 502, "secret_missing": 404,
                 "timeout": 504}
@@ -37,7 +37,7 @@ class ProviderError(Exception):
 
 
 def redact(text):
-    """Anything shaped like an Anthropic key becomes ***."""
+    """Anything shaped like an Anthropic or OpenAI key becomes ***."""
     return SECRET_RE.sub("***", text)
 
 
@@ -109,6 +109,7 @@ class PinnedClient:
 
     def __init__(self, host, headers, deadline=None):
         self.host, self.headers, self.deadline = host, headers, deadline
+        self.response_headers = {}  # the headers of the last answer, names in lower case
 
     def get_json(self, path, query=None, extra_headers=None, on_404="provider_error"):
         full = path + ("?" + urllib.parse.urlencode(query) if query else "")
@@ -135,11 +136,12 @@ class PinnedClient:
     def send(self, request):
         timeouts = self.timeouts()
         try:
-            status, _, raw = https_request(self.host, request, timeouts)
+            status, headers, raw = https_request(self.host, request, timeouts)
         except ProviderError as e:
             if self.cut_by_deadline(e):
                 raise ProviderError("timeout", "the time for this request ran out") from None
             raise
+        self.response_headers = {str(k).lower(): v for k, v in (headers or {}).items()}
         return status, raw
 
     def cut_by_deadline(self, e):
@@ -150,7 +152,7 @@ class PinnedClient:
 
 
 def error_message(raw):
-    """The message of an Anthropic error body, for the caller's decisions only (redacted, short)."""
+    """The message of an Anthropic or OpenAI error body, for the caller's decisions only (redacted, short)."""
     try:
         return str(((json.loads(raw or b"{}") or {}).get("error") or {}).get("message") or "")
     except (ValueError, AttributeError):
@@ -158,7 +160,7 @@ def error_message(raw):
 
 
 def error_detail(status, raw):
-    """"HTTP 400 invalid_request_error: <message>" from an Anthropic error body: only error.type and error.message, redacted first,
+    """"HTTP 400 invalid_request_error: <message>" from an Anthropic or OpenAI error body: only error.type and error.message, redacted first,
     whitespace collapsed, cut at PROVIDER_TEXT_MAX. A body that is not that shape gives "HTTP 400"."""
     try:
         error = (json.loads(raw or b"{}") or {}).get("error") or {}

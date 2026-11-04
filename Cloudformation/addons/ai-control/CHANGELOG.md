@@ -4,6 +4,29 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.10 (2026-11-04)
+
+### Permissions
+- Control account: new Lambda execution role `BlocksAIControlProviderOpenAIRole`, created only when the OpenAI provider is enabled. It has `logs:CreateLogStream` and `logs:PutLogEvents` on its own log group; `secretsmanager:CreateSecret`, `secretsmanager:UpdateSecret`, `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:DeleteSecret`, `secretsmanager:RestoreSecret` and `secretsmanager:TagResource` on secrets named `blocks/ai-control/openai/*` only; `secretsmanager:ListSecrets` (this action cannot be limited to resources); `cloudformation:DescribeStackResource` on its own stack only; and `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` and `kms:DescribeKey` on the provider KMS key only.
+- Control account: the key policy of the provider KMS key `alias/BlocksAIControlProviderKeys` now also lets `BlocksAIControlProviderOpenAIRole` use the key (`kms:Encrypt`, `kms:Decrypt` and `kms:GenerateDataKey` only through Secrets Manager, and `kms:DescribeKey`), next to `BlocksAIControlProviderAnthropicRole`. The control account can still administer the key but not use it.
+- Control account: API Gateway may invoke the OpenAI provider Lambda only through its `intake` alias and only from the key intake route `POST /providers/openai/credentials`.
+- No permission changes in the management account or in member accounts.
+
+### Added
+- New Lambda `BlocksAIControlProvider-OpenAI` in the control account, with its log group `/aws/lambda/BlocksAIControlProvider-OpenAI` kept for 365 days. It calls only `api.openai.com`. It is created only when Blocks enables the OpenAI provider for your stack (`openai` in the enabled providers); otherwise nothing OpenAI-related is created.
+- New key intake route `POST /providers/openai/credentials` on the existing key intake HTTP API `BlocksAIControlIntake`, with the same token checks, origin check and throttling as the Anthropic route. Your browser sends your OpenAI admin key straight to this API in your own account, never to Blocks.
+- The intake accepts only OpenAI organization admin keys (keys starting with `sk-admin-`); project and service account keys are refused with `invalid_format` before anything is stored. Before storing a key, the intake checks that it can read your OpenAI organization, list its projects, read a project spend limit and read usage. If the key lists its scopes and has no write scope (`api.all.write` or `api.management.write`), it is refused with `missing_permission`, because it could not set a spend limit. Adding a key never overwrites a stored key that still works; replacing one requires a key from the same OpenAI organization.
+- The OpenAI admin key is kept only in Secrets Manager in the control account under `blocks/ai-control/openai/`, encrypted with the provider KMS key. Logs and answers to Blocks contain at most its last 4 characters.
+- Through `BlocksAIControlInvokeRole`, Blocks can ask the OpenAI provider Lambda to test the stored key (including the write scope check and when the key expires, as OpenAI reports it), list your OpenAI projects with their current spend limit, read usage (1-minute buckets for up to 24 hours, or 1-hour buckets for up to 7 days) across completions, embeddings, moderations, audio, images, web search, file search and code interpreter, read daily cost in USD by project and line item (up to 31 days per request; OpenAI keeps this data for one year), and delete the stored key (kept recoverable for 7 days).
+- Through the same role, Blocks can stop (engage) or restart (release) up to 50 OpenAI projects per request. Engage only sets a monthly project spend limit of one cent (0.01 USD) on each named project, reads it back, and returns the limit it replaced. Release puts that earlier limit back, or removes the limit if the project had none, and only when the project's limit is still the one engage set; a limit someone else changed is left alone. Archived projects are always skipped. It never changes model permissions, rate limits, API keys or key scopes, and never archives a project. A request stops at the first rate limit from OpenAI or when its time runs out, and the projects not tried are reported as not attempted.
+- Deleting the stack schedules every stored OpenAI admin key for deletion (recoverable for 7 days). A failure of this cleanup is logged and never blocks the stack delete.
+- New outputs `OpenAIProviderIntakeUrl` and `OpenAIProviderFunctionArn` on the provider StackSet's stack in the control account when the OpenAI provider is enabled.
+
+### Changed
+- The provider StackSet `BlocksAIControlProviders-<id>` now reads its template (`Blocks-AIControl-Providers.yaml`) from a Blocks Amazon S3 URL (`TemplateURL`) instead of carrying it inside the main template, because with both providers it no longer fits the 51,200 byte limit of an inline template. The URL contains this release's version, so a published version never changes. It creates no account, OU or policy in your organization.
+- The provider KMS key and the key intake HTTP API `BlocksAIControlIntake` (with its access log group) are now created when any provider is enabled, not only Anthropic. For a stack with only Anthropic enabled, the resources in the control account are the same as before.
+- Logs and answers from the provider Lambdas now also mask anything shaped like an OpenAI key (`sk-admin-`, `sk-proj-`, `sk-svcacct-`), not only Anthropic keys. Updating the stack publishes a new version of `BlocksAIControlProvider-Anthropic` for this; its behaviour is otherwise unchanged.
+
 ## v0.2.9 (2026-11-04)
 
 ### Changed
