@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.8" # x-release-please-version
+  TemplateVersion: "0.2.9" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.8" # x-release-please-version
+      Version: "0.2.9" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -2108,7 +2108,8 @@ Resources:
                   def act_test(ctx,client,secret,p):
                    org=organization(client)
                    if org['org_id']!=secret.get('org_id'):raise ProviderError('org_mismatch','the stored key now belongs to a different organization')
-                   return{**org,'key_hint':key_hint(secret['admin_key']),'active_keys':count_active(list_keys(client))}
+                   keys=list_keys(client);found,expires_at=own_key_expiry(keys,secret['admin_key']);return{**org,'key_hint':key_hint(secret['admin_key']),'active_keys':count_active(keys),**({'key_expires_at':expires_at}if found else{})}
+                  def own_key_expiry(keys,admin_key):own=next((k for k in keys if is_self(k,admin_key)),None);return own is not None,own['expires_at']if own else None
                   def act_read_keys(ctx,client,secret,p):keys=list_keys(client);self_key_id=next((k['id']for k in keys if is_self(k,secret['admin_key'])),None);return{'keys':keys,'self_hint':key_hint(secret['admin_key']),'self_key_id':self_key_id}
                   def iso(value,name):
                    try:d=datetime.fromisoformat(str(value))
@@ -2322,7 +2323,7 @@ Resources:
             UpdateReplacePolicy: Retain
             Properties:
               FunctionName: !Ref AnthropicProviderFunction
-              Description: !Sub "Provider code sha256:898d6ae3241397e2 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
+              Description: !Sub "Provider code sha256:e20d562062d24471 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
           AnthropicProviderIntakeAlias:
             Type: AWS::Lambda::Alias
             Condition: AnthropicEnabled

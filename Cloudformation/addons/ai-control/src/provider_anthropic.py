@@ -380,7 +380,15 @@ def act_test(ctx, client, secret, p):
     org = organization(client)
     if org["org_id"] != secret.get("org_id"):
         raise ProviderError("org_mismatch", "the stored key now belongs to a different organization")
-    return {**org, "key_hint": key_hint(secret["admin_key"]), "active_keys": count_active(list_keys(client))}
+    keys = list_keys(client)
+    found, expires_at = own_key_expiry(keys, secret["admin_key"])
+    return {**org, "key_hint": key_hint(secret["admin_key"]), "active_keys": count_active(keys), **({"key_expires_at": expires_at} if found else {})}
+
+
+def own_key_expiry(keys, admin_key):
+    """(found, expires_at) for the stored credential in the key list. expires_at is Anthropic's value as sent: an RFC 3339 string, or None for a key that never expires."""
+    own = next((k for k in keys if is_self(k, admin_key)), None)
+    return (own is not None, own["expires_at"] if own else None)
 
 
 def act_read_keys(ctx, client, secret, p):

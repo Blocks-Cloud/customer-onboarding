@@ -4,6 +4,11 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.9 (2026-11-04)
+
+### Changed
+- When Blocks tests the stored Anthropic key through the provider Lambda `BlocksAIControlProvider-Anthropic`, the answer now also includes when that key expires, as Anthropic reports it (empty for a key that never expires). The expiry is left out when the stored key is not in your Anthropic API key list. No permissions change.
+
 ## v0.2.8 (2026-11-02)
 
 ### Changed
