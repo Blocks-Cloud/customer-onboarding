@@ -19,6 +19,12 @@ data "aws_iam_policy_document" "blocks_cross_account_trust" {
       variable = "sts:ExternalId"
       values   = [var.external_id]
     }
+    # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+    condition {
+      test     = "IpAddress"
+      variable = "aws:SourceIp"
+      values   = ["63.180.91.77/32", "52.58.150.93/32", "63.181.154.255/32"]
+    }
   }
   statement {
     effect = "Allow"
@@ -345,19 +351,6 @@ data "aws_iam_policy_document" "blocks_cost_optimization_write" {
     ]
     resources = [
       "arn:${local.partition}:cloudtrail:*:*:trail/blocks-org-trail-*",
-    ]
-  }
-
-  # CloudTrail restart customer org trail - StartLogging only, so Blocks can restart a stopped customer organization trail instead of creating a duplicate one; restart-only, cannot reconfigure (BLO-4870)
-  # Services: CloudTrail
-  statement {
-    sid    = "CloudTrailRestartCustomerOrgTrail"
-    effect = "Allow"
-    actions = [
-      "cloudtrail:StartLogging",
-    ]
-    resources = [
-      "*",
     ]
   }
 

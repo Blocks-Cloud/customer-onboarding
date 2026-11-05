@@ -18,7 +18,11 @@ Onboarding takes 2 steps:
 > Step 1 stack. Updating the stack doesn't change that date. Upgrade to Step 2 before then to keep access. The
 > `AccessExpiresAt` stack output shows the date in UTC.
 
-Step 2 removes the Step 1 stack when it deploys.
+Blocks can assume the Step 1 and Step 2 roles only with your external ID and only from Blocks' own IP
+addresses. The role trust policies list these addresses.
+
+Step 2 removes the Step 1 stack when it deploys. It finds that stack by the name Blocks gives you,
+`blocks-customer-step-1-<your resource ID>`. If you renamed the Step 1 stack, delete it yourself after Step 2.
 
 ## Prerequisites
 

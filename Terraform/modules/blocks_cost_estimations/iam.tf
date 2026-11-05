@@ -23,7 +23,7 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # Cost Explorer - Combined commitment analysis for BlocksEstimationsCustomReadPolicy
+  # Cost Explorer - Savings Plans purchase analysis and recommendations, plus coverage and utilization of existing Savings Plans
   # Services: Cost Explorer
   statement {
     sid    = "CommitmentAnalysisAndRecommendations"
@@ -277,8 +277,10 @@ resource "aws_iam_policy" "blocks_estimations_custom_read" {
 # ============================================================================
 # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
 # Coverage: secrets, communications, documents, databases, search, storage,
-# analytics, logs, identity, code, ML, instance access, and additional
-# sensitive operations.
+# analytics, logs, identity, code, deployment config, ML, GenAI, speech,
+# instance access, Lightsail, and additional sensitive operations.
+# Step 1 only: also denies security findings (DenySecurityFindings), which
+# Step 2 keeps readable.
 # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
@@ -750,6 +752,10 @@ resource "aws_iam_role" "blocks_estimations_read_role" {
           DateLessThan = {
             "aws:CurrentTime" = local.access_expires_at
           }
+          # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+          IpAddress = {
+            "aws:SourceIp" = ["63.180.91.77/32", "52.58.150.93/32", "63.181.154.255/32"]
+          }
         }
       },
       {
@@ -795,7 +801,8 @@ resource "aws_iam_role" "blocks_estimations_notifier_role" {
   name        = "BlocksEstimationsNotifierRole-${var.customer_resource_id}"
   description = "Used by Blocks.cloud to send deployment notifications. Must remain in place for Blocks to function correctly."
 
-  # Allow the Terraform runner (current user/role) to assume this role
+  # Trusts this account's root: any principal here whose IAM policy allows sts:AssumeRole
+  # on this role can assume it, including the Terraform runner that sends the notification
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

@@ -16,13 +16,13 @@
 # Safety comes from granting ONLY the narrow roles below.
 
 # Single custom role replacing roles/compute.viewer + roles/monitoring.viewer + the former blocksRecommenderRead: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md). Renamed from blocksRecommenderRead 2026-08-26 (no GCP customers live yet, so no migration constraint).
-# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata)
+# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata), Cloud Asset Inventory (search), Memorystore for Redis (instance metadata)
 resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
   count       = var.scope == "project" ? 1 : 0
   project     = var.project_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, Recommender cost recommendations, Cloud Audit Logs Admin Activity entries (action attribution), and billing-account metadata (org scope). Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Admin Activity audit logs, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -36,6 +36,9 @@ resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
     "compute.addresses.list",
     "compute.addresses.get",
     "compute.globalAddresses.list",
+    "compute.globalAddresses.get",
+    "compute.snapshots.get",
+    "compute.commitments.list",
     "compute.machineTypes.list",
     "compute.machineTypes.get",
     "monitoring.timeSeries.list",
@@ -46,8 +49,21 @@ resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
     "recommender.spendBasedCommitmentRecommendations.list",
+    "recommender.computeIdleResourceRecommendations.list",
+    "recommender.computeImageIdleResourceRecommendations.list",
+    "recommender.computeInstanceGroupManagerMachineTypeRecommendations.list",
+    "recommender.cloudsqlIdleInstanceRecommendations.list",
+    "recommender.cloudsqlOverprovisionedInstanceRecommendations.list",
+    "recommender.containerDiagnosisRecommendations.list",
+    "recommender.runServiceCostRecommendations.list",
+    "recommender.storageBucketSoftDeleteRecommendations.list",
+    "recommender.bigqueryCapacityCommitmentsRecommendations.list",
+    "recommender.bigqueryPartitionClusterRecommendations.list",
     "logging.logEntries.list",
     "storage.buckets.list",
+    "cloudasset.assets.searchAllResources",
+    "redis.instances.list",
+    "redis.instances.get",
   ]
 }
 
@@ -56,7 +72,7 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
   org_id      = var.org_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Cloud Monitoring metrics, Recommender cost recommendations, Cloud Audit Logs Admin Activity entries (action attribution), and billing-account metadata (org scope). Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Admin Activity audit logs, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -70,6 +86,9 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "compute.addresses.list",
     "compute.addresses.get",
     "compute.globalAddresses.list",
+    "compute.globalAddresses.get",
+    "compute.snapshots.get",
+    "compute.commitments.list",
     "compute.machineTypes.list",
     "compute.machineTypes.get",
     "monitoring.timeSeries.list",
@@ -80,8 +99,21 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "recommender.computeAddressIdleResourceRecommendations.list",
     "recommender.usageCommitmentRecommendations.list",
     "recommender.spendBasedCommitmentRecommendations.list",
+    "recommender.computeIdleResourceRecommendations.list",
+    "recommender.computeImageIdleResourceRecommendations.list",
+    "recommender.computeInstanceGroupManagerMachineTypeRecommendations.list",
+    "recommender.cloudsqlIdleInstanceRecommendations.list",
+    "recommender.cloudsqlOverprovisionedInstanceRecommendations.list",
+    "recommender.containerDiagnosisRecommendations.list",
+    "recommender.runServiceCostRecommendations.list",
+    "recommender.storageBucketSoftDeleteRecommendations.list",
+    "recommender.bigqueryCapacityCommitmentsRecommendations.list",
+    "recommender.bigqueryPartitionClusterRecommendations.list",
     "logging.logEntries.list",
     "storage.buckets.list",
+    "cloudasset.assets.searchAllResources",
+    "redis.instances.list",
+    "redis.instances.get",
     "billing.accounts.get",
     "billing.accounts.list",
     "billing.resourceAssociations.list",

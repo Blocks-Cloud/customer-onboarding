@@ -2,17 +2,17 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   SUMMARY:
 
-  This CloudFormation template grants Blocks secure, read-only access scoped to cost-optimization analysis across all linked accounts. The role attaches AWS-managed read policies (billing, organizations, account management, Savings Plans, and a base read policy) together with a custom data-protection deny policy that blocks every AWS read action known to return customer sensitive data:
-  Creates a read IAM role attached to AWS-managed read policies plus the data-protection deny policy.
+  This CloudFormation template grants Blocks secure, read-only access scoped to cost-optimization analysis across all linked accounts. The role attaches AWS-managed read policies (billing, organizations, account management, Savings Plans, and a base read policy), a custom read policy for read actions those policies miss, and a custom data-protection deny policy that blocks every AWS read action known to return customer sensitive data.
+  Creates the read IAM role. Blocks can assume it only with the External ID, only from Blocks IP addresses, and only for 90 days after deployment.
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.2.8" #  x-release-please-version
+  TemplateVersion: "0.2.15" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.8" #  x-release-please-version
+      Version: "0.2.15" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -391,8 +391,9 @@ Resources:
                   cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
 
   # Custom Resource: Enable StackSets Trusted Access & manage StackSet deployment
-  # Triggers Lambda to enable CloudFormation StackSets trusted access with AWS Organizations
-  # and deploy StackSet to management account
+  # Triggers the Lambda that detects the account type and sets the read role's access expiry.
+  # In a management account it also enables StackSets trusted access and deploys the
+  # read role StackSet to the organization root (all member accounts)
   EnableStackSets:
     Type: Custom::EnableStackSets
     Properties:
@@ -421,7 +422,7 @@ Resources:
             Action:
               - iam:SimulatePrincipalPolicy
             Resource: "*"
-          # Cost Explorer - Combined commitment analysis for BlocksEstimationsCustomReadPolicy
+          # Cost Explorer - Savings Plans purchase analysis and recommendations, plus coverage and utilization of existing Savings Plans
           # Services: Cost Explorer
           - Sid: CommitmentAnalysisAndRecommendations
             Effect: Allow
@@ -567,8 +568,10 @@ Resources:
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
   # Coverage: secrets, communications, documents, databases, search, storage,
-  # analytics, logs, identity, code, ML, instance access, and additional
-  # sensitive operations.
+  # analytics, logs, identity, code, deployment config, ML, GenAI, speech,
+  # instance access, Lightsail, and additional sensitive operations.
+  # Step 1 only: also denies security findings (DenySecurityFindings), which
+  # Step 2 keeps readable.
   # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
   # ============================================================================
   BlocksEstimationsDataProtectionPolicy:
@@ -868,9 +871,9 @@ Resources:
 
   # ==== END GENERATED IAM POLICIES ====
 
-  # IAM Role: Blocks Estimations Execution Role (Management Account)
-  # Cross-account role assumed by Blocks to execute cost optimization estimations
-  # Combines write policy with read-only policies
+  # IAM Role: Blocks Estimations Read Role (Management Account)
+  # Read-only cross-account role assumed by Blocks for cost estimations
+  # Combines AWS-managed read policies, the custom read policy and the data-protection deny policy
   BlocksEstimationsReadRole:
     Type: AWS::IAM::Role
     Properties:
@@ -893,6 +896,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": "{{EXTERNAL_ID}}"
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
               DateLessThan:
                 "aws:CurrentTime": !GetAtt EnableStackSets.AccessExpiresAt
           - Effect: Allow
@@ -991,7 +1000,7 @@ Outputs:
     Description: "Read-only cross-account role ARN. Return this role ARN to Blocks to complete the setup"
     Value: !GetAtt BlocksEstimationsReadRole.Arn
   BlocksEstimationsReadRoleName:
-    Description: "Cross-account role Name with read-only access to billing services, and 20+ AWS services for complete cost visibility and optimization"
+    Description: "Name of the read-only cross-account Blocks role for cost analysis"
     Value: !Ref BlocksEstimationsReadRole
   AccountType:
     Description: "Type of AWS account: management, member, or standalone"

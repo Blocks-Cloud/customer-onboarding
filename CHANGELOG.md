@@ -4,6 +4,36 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.15 (2026-11-05)
+
+- Maintenance release, no changes to deployed resources.
+
+## v0.2.14 (2026-11-04)
+
+- Maintenance release, no changes to deployed resources.
+
+## v0.2.13 (2026-11-04)
+
+### Permissions
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the trust policies of `BlocksEstimationsReadRole` (Step 1) and of `BlocksExecutionRole`, `BlocksReadRole` and `MajorTomReadRole` (Step 2) now also have an `IpAddress` condition on `aws:SourceIp`. Blocks can assume these roles only from its platform addresses `63.180.91.77/32`, `52.58.150.93/32` and `63.181.154.255/32`, in addition to the existing external ID check (and, for Step 1, the access expiry date). A leaked external ID can't be used to assume the roles from anywhere else. No actions were added or removed.
+- Step 2: Blocks membership, management account: `BlocksExecutionRole` no longer has `cloudtrail:StartLogging` on all trails (`Resource: "*"`), so Blocks can no longer restart one of your own stopped CloudTrail trails. Every CloudTrail write action Blocks has is now limited to its own `blocks-org-trail-*` trails.
+
+## v0.2.12 (2026-11-01)
+
+- Maintenance release, no changes to deployed resources.
+
+## v0.2.11 (2026-10-29)
+
+- Maintenance release, no changes to deployed resources.
+
+## v0.2.10 (2026-10-27)
+
+- Maintenance release, no changes to deployed resources.
+
+## v0.2.9 (2026-10-26)
+
+- Maintenance release, no changes to deployed resources.
+
 ## v0.2.8 (2026-10-22)
 
 ### Permissions

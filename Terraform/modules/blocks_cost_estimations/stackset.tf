@@ -1,6 +1,6 @@
 ############################
 # CloudFormation StackSet for Member Accounts
-# Deploys read-only IAM role to all organization member accounts
+# Deploys the read-only IAM role to all organization member accounts, or only to var.target_ou_ids
 ############################
 
 # Note: StackSets trusted access must be enabled before creating the StackSet.
@@ -39,7 +39,7 @@ resource "aws_cloudformation_stack_set" "cost_estimations" {
   }
 }
 
-# StackSet instances - deploy to all accounts in the organization root
+# StackSet instances - deploy to all accounts in the organization root, or only to var.target_ou_ids when set
 resource "aws_cloudformation_stack_set_instance" "cost_estimations" {
   count = local.is_management_account && local.deploy_stackset ? 1 : 0
 

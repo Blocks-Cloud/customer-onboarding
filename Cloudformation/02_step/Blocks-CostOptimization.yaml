@@ -12,12 +12,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.8" # x-release-please-version
+  TemplateVersion: "0.2.15" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.8" # x-release-please-version
+      Version: "0.2.15" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -1088,13 +1088,6 @@ Resources:
               - cloudtrail:UpdateTrail
               - cloudtrail:PutEventSelectors
             Resource: !Sub "arn:${AWS::Partition}:cloudtrail:*:*:trail/blocks-org-trail-*"
-          # CloudTrail restart customer org trail - StartLogging only, so Blocks can restart a stopped customer organization trail instead of creating a duplicate one; restart-only, cannot reconfigure (BLO-4870)
-          # Services: CloudTrail
-          - Sid: CloudTrailRestartCustomerOrgTrail
-            Effect: Allow
-            Action:
-              - cloudtrail:StartLogging
-            Resource: "*"
           # CloudTrail - Create service-linked role (AWSServiceRoleForCloudTrail) required when creating an organization trail
           # Services: IAM, CloudTrail
           - Sid: CloudTrailServiceLinkedRole
@@ -1496,6 +1489,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": "{{EXTERNAL_ID}}"
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"
@@ -1540,6 +1539,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": "{{EXTERNAL_ID}}"
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"
@@ -1582,6 +1587,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": "{{EXTERNAL_ID}}"
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"

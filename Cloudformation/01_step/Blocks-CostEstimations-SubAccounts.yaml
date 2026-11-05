@@ -2,13 +2,14 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   This template creates a cross-account read-only role for Blocks to analyze cost savings
   within a sub-account. It attaches AWS-managed read policies (billing, Savings Plans,
-  and a base read policy) together with a custom data-protection deny policy that blocks
+  and a base read policy), a custom read policy for read actions those policies miss,
+  and a custom data-protection deny policy that blocks
   every AWS read action known to return customer sensitive data, providing read access to
   billing, cost management, resource configuration, and optimization services across
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.2.8" # x-release-please-version
+  TemplateVersion: "0.2.15" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -55,7 +56,7 @@ Resources:
             Action:
               - iam:SimulatePrincipalPolicy
             Resource: "*"
-          # Cost Explorer - Combined commitment analysis for BlocksEstimationsCustomReadPolicy
+          # Cost Explorer - Savings Plans purchase analysis and recommendations, plus coverage and utilization of existing Savings Plans
           # Services: Cost Explorer
           - Sid: CommitmentAnalysisAndRecommendations
             Effect: Allow
@@ -201,8 +202,10 @@ Resources:
   # ============================================================================
   # IAM evaluation: Explicit Deny > Allow > Implicit Deny (denies always win)
   # Coverage: secrets, communications, documents, databases, search, storage,
-  # analytics, logs, identity, code, ML, instance access, and additional
-  # sensitive operations.
+  # analytics, logs, identity, code, deployment config, ML, GenAI, speech,
+  # instance access, Lightsail, and additional sensitive operations.
+  # Step 1 only: also denies security findings (DenySecurityFindings), which
+  # Step 2 keeps readable.
   # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
   # ============================================================================
   BlocksEstimationsDataProtectionPolicy:
@@ -524,6 +527,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
               DateLessThan:
                 "aws:CurrentTime": !Ref AccessExpiresAt
           - Effect: Allow

@@ -5,7 +5,7 @@ Description: >
   and read configuration data across compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.2.8" # x-release-please-version
+  TemplateVersion: "0.2.15" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
@@ -539,6 +539,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
@@ -583,6 +589,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"
@@ -625,6 +637,12 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
+              # Blocks platform egress IPs: AssumeRole is accepted only from these addresses.
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::${BlocksAccountId}:role/BlocksCustomerAccessRole"

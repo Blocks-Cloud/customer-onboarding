@@ -66,11 +66,11 @@ locals {
   # Region Validation
   ############################
 
-  # Validate region at plan time - must be us-east-1 for CUR/BCM exports
+  # Validate region at plan time - must be us-east-1 for the Organizations and StackSets calls
   # This creates a plan-time error if deployed to wrong region
   region_is_valid = local.region == "us-east-1"
   region_check = local.region_is_valid ? true : tobool(
-    "ERROR: Must deploy to us-east-1. Current region: ${local.region}. CUR and Organizations APIs require us-east-1."
+    "ERROR: Must deploy to us-east-1. Current region: ${local.region}. Organizations APIs require us-east-1."
   )
 
   ############################
