@@ -5,13 +5,14 @@ through BlocksAIControlInvokeRole. The admin key lives only in Secrets Manager; 
 
 The kill is one lever: a project spend limit of 1 cent (LEVERS). A kill target is a project. OpenAI refuses a hard limit below any spend alert of the
 project, so a project that has one also has its spend alerts brought down to 1 cent for the kill (provider_openai_alerts.py) and put back, amount by amount,
-on the release. Nothing else of the project is ever changed: no model permissions, no rate limits, no key scopes, no key delete and no project archive.
+on the release. Connect and test try a spend limit write on a project that does not exist (provider_openai_probe.py), which changes nothing. Nothing else of a project is ever changed: no model permissions, no rate limits, no key scopes, no key delete and no project archive.
 """
 # render: strip begin
 from provider_common import ProviderError, SCHEMA_VERSION, fail, http_response, key_hint, log_event, ok, redact
 from provider_openai_base import ADMIN_KEY_RE, CLEANUP_ID, CLEANUP_LOGICAL_ID, CLEANUP_TYPE, CONNECTION_RE, Context, INTAKE_DEADLINE_SECONDS, MAX_BODY_BYTES, MAX_TOKEN_SECONDS, PARAMS, RECOVERY_DAYS, SECRET_PREFIX, STORE_SCOPE, SURFACES, TOP_LEVEL
-from provider_openai_api import active_keys_after_save, count_active, list_admin_keys, list_projects, openai, organization, own_key_expiry, require_write_scope
-from provider_openai_kill import LEVERS, act_engage, act_release
+from provider_openai_api import active_keys_after_save, count_active, list_admin_keys, list_projects, openai, organization, own_key_expiry
+from provider_openai_kill import act_engage, act_release
+from provider_openai_probe import check_limits
 from provider_openai_reads import act_read_cost, act_read_keys, act_read_usage
 # render: strip end
 import base64
@@ -502,12 +503,11 @@ def usage_probe(client):
     return client.get_json("/v1/organization/usage/completions", query, on_404="missing_permission")
 
 
-def can_read_limits(client, admin_key):
-    """The key can list the projects, read a spend limit, and (when it lists its scopes) write one."""
-    first = next((p for p in list_projects(client) if p["status"] == "active"), None)
-    if first is not None:
-        LEVERS[0].read(client, first["id"])
-    require_write_scope(list_admin_keys(client), admin_key)
+def can_read_limits(client):
+    """The key can list the projects and admin keys, read every project's spend limit, and write one (tried on a project that does not exist)."""
+    projects = list_projects(client)
+    list_admin_keys(client)
+    check_limits(client, projects)
 
 
 def run_checks(admin_key, checks, deadline):
@@ -518,7 +518,7 @@ def run_checks(admin_key, checks, deadline):
     record(checks, "format")
     client = openai(admin_key, deadline)
     org = checked(checks, "organization", lambda: organization(client))
-    checked(checks, "api_keys", lambda: can_read_limits(client, admin_key))
+    checked(checks, "api_keys", lambda: can_read_limits(client))
     checked(checks, "usage", lambda: usage_probe(client))
     return org, client
 
@@ -527,10 +527,10 @@ def act_test(ctx, client, secret, p):
     org = organization(client)
     if org["org_id"] != secret.get("org_id"):
         raise ProviderError("org_mismatch", "the stored key now belongs to a different organization")
-    keys = list_admin_keys(client)
-    require_write_scope(keys, secret["admin_key"])
+    keys, projects = list_admin_keys(client), list_projects(client)
+    check_limits(client, projects)
     found, expires_at = own_key_expiry(keys, secret["admin_key"])
-    active = count_active(list_projects(client))
+    active = count_active(projects)
     return {**org, "key_hint": key_hint(secret["admin_key"]), "active_keys": active, **({"key_expires_at": expires_at} if found else {})}
 
 

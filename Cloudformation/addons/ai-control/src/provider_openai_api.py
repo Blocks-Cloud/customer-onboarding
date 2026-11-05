@@ -1,7 +1,7 @@
 """One part of the BlocksAIControlProvider-OpenAI Lambda (provider_openai.py joins them): the OpenAI Admin API as the provider Lambda uses it: the HTTP client, the organization, the project and admin key lists."""
 # render: strip begin
 from provider_common import PinnedClient, ProviderError, Request, json_object, key_hint, raise_for_status
-from provider_openai_base import HOST, KEYS_PAGE_SIZE, MAX_PAGES, WRITE_SCOPES, no_time_for_a_page
+from provider_openai_base import HOST, KEYS_PAGE_SIZE, MAX_PAGES, no_time_for_a_page
 # render: strip end
 import json
 import os
@@ -124,18 +124,6 @@ def own_key_expiry(keys, admin_key):
     if isinstance(expires, bool) or not isinstance(expires, (int, float)):
         return False, None
     return True, rfc3339(expires)
-
-
-def only_reads(scopes):
-    """True for a key that lists its scopes and has no write scope among them."""
-    return isinstance(scopes, list) and bool(scopes) and not set(scopes) & set(WRITE_SCOPES)
-
-
-def require_write_scope(keys, admin_key):
-    """A key that lists its scopes and has no write scope cannot set a spend limit: refused when it is connected, not when it is needed."""
-    scopes = (own_key(keys, admin_key) or {}).get("scopes")
-    if only_reads(scopes):
-        raise ProviderError("missing_permission", "the admin key can only read: it needs write access to set a project spend limit")
 
 def paged(client, listing, page=None):
     """(items, next_page, last answer, truncated): follows next_page until it ends. When the page cap or the client's deadline stops it

@@ -4,6 +4,13 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.12 (2026-11-05)
+
+### Fixed
+- The key intake and the stored key test of the provider Lambda `BlocksAIControlProvider-OpenAI` now refuse an OpenAI admin key that can only read. Before, such a key was accepted and stopping (engage) a project failed later, because the key could not set a spend limit. The earlier write scope check relied on scope information that OpenAI does not return, so it never refused a key.
+- To check that the key can set a spend limit, the provider Lambda now tries to set and remove a spend limit on a project ID that does not exist. This changes nothing in your OpenAI organization. A key that cannot write is refused with `missing_permission`, and the answer names the missing scope when OpenAI names it. An invalid key is reported as `provider_auth_failed`; a rate limit or another OpenAI error is reported as a failure that can be retried, never as a refusal.
+- The same checks now read the spend limit of every active project (up to 50) instead of only the first one. No permissions change, and no project is changed.
+
 ## v0.2.11 (2026-11-05)
 
 ### Fixed

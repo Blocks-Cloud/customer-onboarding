@@ -770,7 +770,6 @@ Resources:
           SECRET_PREFIX='blocks/ai-control/openai/'
           KILL_LIMIT={'threshold_amount':1,'currency':'USD','interval':'month'}
           LIMIT_FIELDS=tuple(KILL_LIMIT)
-          WRITE_SCOPES='api.all.write','api.management.write'
           KEYS_PAGE_SIZE=100
           COST_PAGE_SIZE=31
           SKIPPED_STATUSES={'archived':'skipped_archived'}
@@ -858,10 +857,6 @@ Resources:
            if expires is None:return True,None
            if isinstance(expires,bool)or not isinstance(expires,(int,float)):return False,None
            return True,rfc3339(expires)
-          def only_reads(scopes):return isinstance(scopes,list)and bool(scopes)and not set(scopes)&set(WRITE_SCOPES)
-          def require_write_scope(keys,admin_key):
-           scopes=(own_key(keys,admin_key)or{}).get('scopes')
-           if only_reads(scopes):raise ProviderError('missing_permission','the admin key can only read: it needs write access to set a project spend limit')
           def paged(client,listing,page=None):
            items,answer=[],{}
            for _ in range(MAX_PAGES):
@@ -1037,6 +1032,27 @@ Resources:
            return{'results':results}
           def act_engage(ctx,client,secret,p):ids=target_ids(p);by_id={x['id']:x for x in list_projects(client)};return run_each(ctx,ids,lambda pid:lambda:engage_project(client,pid,by_id.get(pid)))
           def act_release(ctx,client,secret,p):ids=target_ids(p);restores=restores_of(p,ids);return run_each(ctx,ids,lambda pid:lambda:release_project(client,pid,restores.get(pid)))
+          import json,re
+          NO_SUCH_PROJECT='proj_doesnotexist000000000000'
+          MAX_PROJECT_READS=MAX_TARGETS
+          SCOPES_RE=re.compile('Missing scopes?:\\s*([A-Za-z0-9_.,\\s]+?)(?:\\.\\s|\\s*$)')
+          SCOPE_RE=re.compile('[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+')
+          def error_text(raw):
+           try:error=(json.loads(raw or b'{}')or{}).get('error')
+           except(ValueError,AttributeError):return''
+           return str(error.get('message')if isinstance(error,dict)else error or'')
+          def missing_scopes(raw):found=SCOPES_RE.search(error_text(raw)+' ');return SCOPE_RE.findall(found.group(1))if found else[]
+          def decide(status,raw,allowed,what):
+           if status in allowed:return
+           if status==403:scopes=', '.join(missing_scopes(raw))or'not named by OpenAI';raise ProviderError('missing_permission',f"the admin key cannot {what}: missing scope {scopes}",403)
+           if status==401:raise ProviderError('provider_auth_failed','HTTP 401',401)
+           code='provider_throttled'if status==429 else'provider_error';raise ProviderError(code,f"HTTP {status} on the check that the admin key can {what}",status)
+          def answered(client,method,path,body=None):headers={**client.headers,**({'content-type':'application/json'}if body else{})};return client.send(Request(method,path,headers,json.dumps(body).encode()if body else None))
+          def read_limits(client,projects):
+           for project in[p for p in projects if p['status']=='active'][:MAX_PROJECT_READS]:decide(*answered(client,'GET',limit_path(project['id'])),{200,404},'read a project spend limit')
+          def probe_write(client):
+           for(method,body)in(('POST',KILL_LIMIT),('DELETE',None)):decide(*answered(client,method,limit_path(NO_SUCH_PROJECT),body),{404},'write a project spend limit')
+          def check_limits(client,projects):read_limits(client,projects);probe_write(client)
           import json
           from datetime import datetime,timedelta,timezone
           from decimal import Decimal,InvalidOperation
@@ -1273,17 +1289,14 @@ Resources:
           def purpose_ok(claims,account):return claims.get('provider')=='openai'and claims.get('mode')in('add','replace')
           PURPOSE_CHECKS=(scope_ok,'the token is not for storing a key'),(purpose_ok,'the token is not for adding an OpenAI key'),(connection_ok,'bad connection id')
           def usage_probe(client):end=int(time.time());query=[('start_time',end-3600),('end_time',end),('bucket_width','1h'),('limit',1)]+[('group_by',g)for g in SURFACES[0][1]];return client.get_json('/v1/organization/usage/completions',query,on_404='missing_permission')
-          def can_read_limits(client,admin_key):
-           first=next((p for p in list_projects(client)if p['status']=='active'),None)
-           if first is not None:LEVERS[0].read(client,first['id'])
-           require_write_scope(list_admin_keys(client),admin_key)
+          def can_read_limits(client):projects=list_projects(client);list_admin_keys(client);check_limits(client,projects)
           def run_checks(admin_key,checks,deadline):
            if not ADMIN_KEY_RE.fullmatch(admin_key):record(checks,'format','invalid_format');raise ProviderError('invalid_format','this is not an OpenAI admin key')
-           record(checks,'format');client=openai(admin_key,deadline);org=checked(checks,'organization',lambda:organization(client));checked(checks,'api_keys',lambda:can_read_limits(client,admin_key));checked(checks,'usage',lambda:usage_probe(client));return org,client
+           record(checks,'format');client=openai(admin_key,deadline);org=checked(checks,'organization',lambda:organization(client));checked(checks,'api_keys',lambda:can_read_limits(client));checked(checks,'usage',lambda:usage_probe(client));return org,client
           def act_test(ctx,client,secret,p):
            org=organization(client)
            if org['org_id']!=secret.get('org_id'):raise ProviderError('org_mismatch','the stored key now belongs to a different organization')
-           keys=list_admin_keys(client);require_write_scope(keys,secret['admin_key']);found,expires_at=own_key_expiry(keys,secret['admin_key']);active=count_active(list_projects(client));return{**org,'key_hint':key_hint(secret['admin_key']),'active_keys':active,**({'key_expires_at':expires_at}if found else{})}
+           keys,projects=list_admin_keys(client),list_projects(client);check_limits(client,projects);found,expires_at=own_key_expiry(keys,secret['admin_key']);active=count_active(projects);return{**org,'key_hint':key_hint(secret['admin_key']),'active_keys':active,**({'key_expires_at':expires_at}if found else{})}
           ACTIONS={'test':act_test,'read_keys':act_read_keys,'read_usage':act_read_usage,'read_cost':act_read_cost,'engage':act_engage,'release':act_release}
           # <<< render_provider_lambdas: end openai
   # Stack delete: the secrets go before the key and the role (this resource depends on both). Create and Update do nothing.
@@ -1331,7 +1344,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Ref OpenAIProviderFunction
-      Description: !Sub "Provider code sha256:d5152dac3aff7c3f v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
+      Description: !Sub "Provider code sha256:45b60865d02ca7c8 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
   OpenAIProviderIntakeAlias:
     Type: AWS::Lambda::Alias
     Condition: OpenAIEnabled

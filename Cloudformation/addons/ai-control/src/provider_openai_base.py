@@ -12,7 +12,6 @@ ADMIN_KEY_RE = re.compile(r"^sk-admin-[A-Za-z0-9_-]{20,300}$")  # an organizatio
 SECRET_PREFIX = "blocks/ai-control/openai/"
 KILL_LIMIT = {"threshold_amount": 1, "currency": "USD", "interval": "month"}  # the kill: a project spend limit of 1 cent
 LIMIT_FIELDS = tuple(KILL_LIMIT)
-WRITE_SCOPES = ("api.all.write", "api.management.write")  # an admin key that lists its scopes needs one of these to set a spend limit
 KEYS_PAGE_SIZE = 100
 COST_PAGE_SIZE = 31
 SKIPPED_STATUSES = {"archived": "skipped_archived"}

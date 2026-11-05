@@ -15,12 +15,12 @@ Description: >
   7. Creates an EventBridge rule that notifies Blocks about the state of this stack.
 
 Metadata:
-  TemplateVersion: "0.2.11" # x-release-please-version
+  TemplateVersion: "0.2.12" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.11" # x-release-please-version
+      Version: "0.2.12" # x-release-please-version
       # Name of the Blocks platform role that may assume BlocksAIControlInvokeRole (contract with the platform, D28).
       ExecutorRoleName: ai-control-executor-role
       # CI only: blocks_cli --mock-control-account sets this to "false" (no account, so no StackSet).
@@ -1704,7 +1704,7 @@ Resources:
       Tags:
         - Key: OwnedBy
           Value: Blocks.cloud
-      TemplateURL: "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/addons/ai-control/v0.2.11/Blocks-AIControl-Providers.yaml" # x-release-please-version
+      TemplateURL: "https://blocks-customer-templates-production.s3.eu-central-1.amazonaws.com/addons/ai-control/v0.2.12/Blocks-AIControl-Providers.yaml" # x-release-please-version
 
   # ---------------------------------------------------------------------------
   # Pingback to Blocks (own queue, D13-D15, D18)
