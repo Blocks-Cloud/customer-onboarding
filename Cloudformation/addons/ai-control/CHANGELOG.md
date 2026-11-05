@@ -4,6 +4,15 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.11 (2026-11-05)
+
+### Fixed
+- Stopping (engage) an OpenAI project that has spend alerts no longer fails. OpenAI refuses a project spend limit below any of the project's spend alerts, so such a project was left running. Now, when OpenAI refuses the one-cent limit for that reason, the provider Lambda `BlocksAIControlProvider-OpenAI` lowers each spend alert above one cent to one cent in steps, together with the project spend limit, so the limit is never below an alert. Each alert keeps its currency, interval and notification channel; only its amount changes. Projects without spend alerts are stopped as before.
+- The answer to Blocks for such a project carries the earlier limit and the earlier amount of each lowered alert. Up to 5 lowered alerts per project are supported; a project with more, or with two alerts whose IDs start with the same 8 characters, is reported as failed and nothing is changed.
+- If a stop fails half way (for example when the request runs out of time), the project's limit and alerts are put back as they were before. If that put back cannot finish, it is logged, and a later release completes it.
+- Restarting (release) such a project puts the earlier limit back (or removes the limit if the project had none), then puts each lowered alert back to its earlier amount. An alert you deleted in the meantime is skipped, and when you changed the project's limit yourself, only alerts still at one cent are put back; an alert you set in the meantime is left alone. A release that cannot put every alert back is reported as failed and can be retried.
+- The provider Lambda's logs in the control account now note when a project's spend alerts were lowered, when alerts could not be put back and when a failed stop could not be undone, with the project ID and alert counts only. No permissions change, and nothing else of a project is ever changed.
+
 ## v0.2.10 (2026-11-04)
 
 ### Permissions

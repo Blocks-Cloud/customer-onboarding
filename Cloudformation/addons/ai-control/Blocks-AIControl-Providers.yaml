@@ -869,6 +869,72 @@ Resources:
             if not page:return items,None,answer,False
             if no_time_for_a_page(client.deadline):break
            return items,page,answer,True
+          import json,time
+          KILL_AMOUNT=KILL_LIMIT['threshold_amount']
+          ALERT_FIELDS='threshold_amount','currency','interval','notification_channel'
+          RATIOS=10000,100,10,2
+          MAX_ROUNDS=40
+          RETRY_TRIES=4
+          RETRY_PAUSE=.5
+          MAX_SAVED_ALERTS=5
+          ID_CHARS=8
+          START_SECONDS=30
+          ROUND_SECONDS=15
+          SHAPE_ERRORS=KeyError,TypeError,ValueError,AttributeError
+          def time_left(client):return 1e9 if client.deadline is None else client.deadline-time.monotonic()
+          def alerts_path(project_id):return f"/v1/organization/projects/{project_id}/spend_alerts"
+          def list_alerts(client,project_id):
+           try:return listed(client,alerts_path(project_id),lambda a:a)
+           except SHAPE_ERRORS:raise ProviderError('provider_error','OpenAI answered with spend alerts of an unexpected shape')
+          def above_kill(alerts):return{a['id']:a for a in alerts if isinstance(a.get('id'),str)and type(a.get('threshold_amount'))is int and a['threshold_amount']>KILL_AMOUNT}
+          def key_of(alert_id):return alert_id[:ID_CHARS]
+          def code_of(e):return getattr(e,'code','provider_error')
+          def saved_amounts(alerts):
+           keys=[key_of(a['id'])for a in alerts if isinstance(a.get('id'),str)]
+           if len(set(keys))!=len(keys):raise ProviderError('provider_error','two spend alerts of the project have ids that start alike')
+           return{key_of(i):a['threshold_amount']for(i,a)in above_kill(alerts).items()}
+          def message_of(e):return(e.message or'').lower()if e.status==400 else''
+          def refused_by_alert(e):return'spend alert'in message_of(e)
+          def is_race(e):return'please retry'in message_of(e)or'changed while updating'in message_of(e)
+          def is_too_small(e):return'too small'in message_of(e)
+          def retrying(change):
+           for attempt in range(RETRY_TRIES):
+            try:return change()
+            except ProviderError as e:
+             if not is_race(e)or attempt==RETRY_TRIES-1:raise
+             time.sleep(RETRY_PAUSE)
+          def set_alert(client,project_id,alert,amount):
+           if not all(f in alert for f in ALERT_FIELDS):raise ProviderError('provider_error','a spend alert came without all its fields')
+           alert_id=alert['id'];body={**{f:alert[f]for f in ALERT_FIELDS},'threshold_amount':amount};return retrying(lambda:client.post_json(f"{alerts_path(project_id)}/{alert_id}",body))
+          def lower_alert(client,project_id,alert,amount):
+           for ratio in RATIOS:
+            new=max(KILL_AMOUNT,amount//ratio)
+            try:set_alert(client,project_id,alert,new);return new
+            except ProviderError as e:
+             if not is_too_small(e):raise
+           raise ProviderError('provider_error','OpenAI refused every step down of a spend alert')
+          def cover_limit(alerts,limit_amount,set_limit):
+           top=max(a['threshold_amount']for a in alerts.values())
+           if limit_amount is None or limit_amount>top:set_limit(top)
+          def lower_round(client,project_id,alerts,now):
+           for alert_id in[i for(i,v)in now.items()if v>KILL_AMOUNT]:now[alert_id]=lower_alert(client,project_id,alerts[alert_id],now[alert_id])
+          def step_down(client,project_id,alerts,set_limit):
+           now={i:a['threshold_amount']for(i,a)in alerts.items()}
+           for _ in range(MAX_ROUNDS):
+            if max(now.values())<=KILL_AMOUNT:return
+            if time_left(client)<ROUND_SECONDS:raise ProviderError('timeout','no time left for another round of the step down')
+            lower_round(client,project_id,alerts,now);set_limit(max(now.values()))
+           raise ProviderError('provider_error','a spend alert did not reach the kill value')
+          def pending_alerts(client,project_id,saved,ours):
+           now={}
+           for a in list_alerts(client,project_id):now.setdefault(key_of(a['id'])if isinstance(a.get('id'),str)else None,[]).append(a)
+           found={key:now.get(key,[])for key in saved};amount=lambda key:found[key][0].get('threshold_amount')if len(found[key])==1 else None;return{key:found[key][0]for(key,was)in saved.items()if type(amount(key))is int and(amount(key)==KILL_AMOUNT or ours and amount(key)<was)}
+          def restore_alerts(client,project_id,saved,ours):
+           for(key,alert)in pending_alerts(client,project_id,saved,ours).items():set_alert(client,project_id,alert,saved[key])
+           left=pending_alerts(client,project_id,saved,ours)
+           if left:log_event('spend_alert_not_restored',project_id=project_id,alerts=len(left))
+           return len(left)
+          def valid_saved_alerts(saved):return isinstance(saved,dict)and 1<=len(saved)<=MAX_SAVED_ALERTS and all(isinstance(i,str)and len(i)==ID_CHARS and KEY_ID_RE.fullmatch(i)and type(v)is int and v>KILL_AMOUNT for(i,v)in saved.items())
           import json
           from collections import namedtuple
           LeverState=namedtuple('LeverState','engaged enforcement restore')
@@ -892,9 +958,22 @@ Resources:
           def lever_state(client,project_id):states=[lever.state(client,project_id)for lever in LEVERS];return LeverState(all(s.engaged for s in states),states[0].enforcement,states[0].restore)
           def valid_restore(restore):
            if restore=='null':return True
-           try:limit=json.loads(restore)
+           try:value=json.loads(restore)
            except ValueError:return False
-           return isinstance(limit,dict)and set(limit)==set(LIMIT_FIELDS)and limit!=KILL_LIMIT and valid_limit_values(limit)
+           if isinstance(value,dict)and set(value)=={'limit','alerts'}:return valid_saved_alerts(value['alerts'])and(value['limit']is None or valid_limit(value['limit']))
+           return valid_limit(value)
+          def valid_limit(limit):return isinstance(limit,dict)and set(limit)==set(LIMIT_FIELDS)and limit!=KILL_LIMIT and valid_limit_values(limit)
+          def split_restore(restore):
+           value=json.loads(restore)
+           if isinstance(value,dict)and set(value)=={'limit','alerts'}:return'null'if value['limit']is None else json.dumps(value['limit']),value['alerts']
+           return restore,{}
+          def restore_text(limit_restore,saved):
+           text=json.dumps({'limit':json.loads(limit_restore),'alerts':saved},separators=(',',':'))
+           if len(text)>MAX_RESTORE_CHARS or not valid_restore(text):raise ProviderError('provider_error','the restore of the project would not fit')
+           return text
+          def limit_is_ours(state,limit,saved):
+           if state.engaged:return True
+           now=json.loads(state.restore);amount=now.get('threshold_amount')if now else None;return bool(saved)and type(amount)is int and now!=json.loads(limit)and amount<=max(saved.values())
           def valid_limit_values(limit):amount=limit['threshold_amount'];return type(amount)is int and amount>0 and all(isinstance(limit[f],str)for f in('currency','interval'))
           def is_project_id(value):return isinstance(value,str)and bool(KEY_ID_RE.fullmatch(value))
           def valid_ids(ids):return isinstance(ids,list)and 1<=len(ids)<=MAX_TARGETS and all(map(is_project_id,ids))
@@ -917,13 +996,36 @@ Resources:
            try:
             for lever in LEVERS:lever.engage(client,pid)
             after=lever_state(client,pid)
-           except ProviderError as e:return Step('failed',e.code,None,restore)
+           except ProviderError as e:return engage_through_alerts(client,pid,restore)if refused_by_alert(e)else Step('failed',e.code,None,restore)
            return Step('engaged'if after.engaged else'failed',None if after.engaged else'provider_error',after.enforcement,restore)
+          def put_back(client,pid,restore):
+           limit,saved=split_restore(restore)
+           for lever in LEVERS:lever.release(client,pid,limit)
+           return not lever_state(client,pid).engaged and not(saved and restore_alerts(client,pid,saved,True))
+          def failed_and_put_back(client,pid,step):
+           try:undone=put_back(client,pid,step.restore)
+           except(ProviderError,*SHAPE_ERRORS):undone=False
+           if not undone:log_event('kill_not_undone',project_id=pid)
+           return step
+          def engage_through_alerts(client,pid,restore):
+           if time_left(client)<START_SECONDS:return Step('failed','timeout',None,restore)
+           try:
+            listed=list_alerts(client,pid);alerts=above_kill(listed)
+            if not alerts:return Step('failed','provider_error',None,restore)
+            combined=restore_text(restore,saved_amounts(listed))
+           except(ProviderError,*SHAPE_ERRORS)as e:return Step('failed',code_of(e),None,restore)
+           log_event('spend_alerts_stepped_down',project_id=pid,alerts=len(alerts));limit=json.loads(restore);amount=limit.get('threshold_amount')if limit else None;set_limit=lambda value:retrying(lambda:client.post_json(limit_path(pid),{**KILL_LIMIT,'threshold_amount':value}))
+           try:cover_limit(alerts,amount if type(amount)is int else None,set_limit);step_down(client,pid,alerts,set_limit);after=lever_state(client,pid)
+           except(ProviderError,*SHAPE_ERRORS)as e:return failed_and_put_back(client,pid,Step('failed',code_of(e),None,combined))
+           if after.engaged:return Step('engaged',None,after.enforcement,combined)
+           return failed_and_put_back(client,pid,Step('failed','provider_error',after.enforcement,combined))
           def release_project(client,pid,restore):
            if restore is None:return Step('failed','invalid_input',None)
-           if not lever_state(client,pid).engaged:return Step('already_active',None,None)
-           for lever in LEVERS:lever.release(client,pid,restore)
-           after=lever_state(client,pid);return Step('failed','provider_error',after.enforcement)if after.engaged else Step('released',None,None)
+           limit,saved=split_restore(restore);ours=limit_is_ours(lever_state(client,pid),limit,saved);pending=saved and pending_alerts(client,pid,saved,ours)
+           if not(ours or pending):return Step('already_active',None,None)
+           if ours:
+            for lever in LEVERS:lever.release(client,pid,limit)
+           left=restore_alerts(client,pid,saved,ours)if saved else 0;after=lever_state(client,pid);return Step('failed','provider_error',after.enforcement)if after.engaged or left else Step('released',None,None)
           def project_result(pid,step):
            try:outcome,code,enforcement,restore=step()
            except ProviderError as e:return{'id':pid,'outcome':'failed','code':e.code}
@@ -1229,7 +1331,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Ref OpenAIProviderFunction
-      Description: !Sub "Provider code sha256:5533402f9b61edcf v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
+      Description: !Sub "Provider code sha256:d5152dac3aff7c3f v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
   OpenAIProviderIntakeAlias:
     Type: AWS::Lambda::Alias
     Condition: OpenAIEnabled

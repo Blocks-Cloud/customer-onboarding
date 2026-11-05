@@ -3,8 +3,9 @@
 Two ways in. The key intake HTTP API calls store_credential with the OpenAI admin key (Blocks never sees it). Blocks calls every other action
 through BlocksAIControlInvokeRole. The admin key lives only in Secrets Manager; the log and every answer carry its last 4 characters at most.
 
-The kill is one lever: a project spend limit of 1 cent (LEVERS). A kill target is a project. Nothing else of the project is ever changed:
-no model permissions, no rate limits, no key scopes, no key delete and no project archive.
+The kill is one lever: a project spend limit of 1 cent (LEVERS). A kill target is a project. OpenAI refuses a hard limit below any spend alert of the
+project, so a project that has one also has its spend alerts brought down to 1 cent for the kill (provider_openai_alerts.py) and put back, amount by amount,
+on the release. Nothing else of the project is ever changed: no model permissions, no rate limits, no key scopes, no key delete and no project archive.
 """
 # render: strip begin
 from provider_common import ProviderError, SCHEMA_VERSION, fail, http_response, key_hint, log_event, ok, redact
