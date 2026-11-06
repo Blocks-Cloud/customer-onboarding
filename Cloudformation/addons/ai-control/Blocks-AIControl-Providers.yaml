@@ -1066,7 +1066,12 @@ Resources:
            except ValueError:raise ProviderError('invalid_input',f"{name} is not a YYYY-MM-DD day")from None
           def target_of(client,project):
            if project['status']=='archived':return{**project,'restore':'null'}
-           state=lever_state(client,project['id']);return{**project,'status':'inactive'if state.engaged else'active','restore':state.restore}
+           state=lever_state(client,project['id']);restore=state.restore if state.engaged else restore_with_alerts(client,project['id'],state.restore);return{**project,'status':'inactive'if state.engaged else'active','restore':restore}
+          def restore_with_alerts(client,project_id,limit_restore):
+           alerts=list_alerts(client,project_id)
+           if not above_kill(alerts):return limit_restore
+           try:return restore_text(limit_restore,saved_amounts(alerts))
+           except ProviderError:return limit_restore
           def act_read_keys(ctx,client,secret,p):keys=[{'id':t['id'],'name':t['name'],'status':t['status'],'workspace_id':t['id'],'partial_key_hint':None,'restore':t['restore']}for t in(target_of(client,project)for project in list_projects(client))];return{'keys':keys,'self_hint':None,'self_key_id':None}
           def at(seconds):return rfc3339(seconds)if isinstance(seconds,(int,float))and not isinstance(seconds,bool)else None
           def usage_query(start,end,width,surface):
@@ -1344,7 +1349,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       FunctionName: !Ref OpenAIProviderFunction
-      Description: !Sub "Provider code sha256:45b60865d02ca7c8 v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
+      Description: !Sub "Provider code sha256:480e3651a4c4421e v${TemplateVersion} ${ProviderKeysKey} ${IntakeIssuer}"
   OpenAIProviderIntakeAlias:
     Type: AWS::Lambda::Alias
     Condition: OpenAIEnabled

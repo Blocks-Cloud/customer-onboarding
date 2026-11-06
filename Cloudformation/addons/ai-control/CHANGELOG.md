@@ -4,6 +4,13 @@
 > Customer-facing changes to the optional Blocks AI Control add-on stack. It is versioned and released
 > separately from Step 1 and Step 2; their changelog does not list these changes.
 
+## v0.2.13 (2026-11-06)
+
+### Fixed
+- Restarting (release) an OpenAI project now also puts its spend alerts back when the project was stopped with the earlier state that Blocks read from the project list. Before, the project list gave only the project's spend limit as the state to put back, so such a release restored the limit and left the project's spend alerts at one cent.
+- When the provider Lambda `BlocksAIControlProvider-OpenAI` lists your OpenAI projects, the state to put back for an active project now carries its spend limit together with the amount of each spend alert above one cent. Projects without such alerts, projects with more than 5 of them, and projects with two alerts whose IDs start with the same 8 characters still get the spend limit alone, as before.
+- Listing projects now also reads each active project's spend alerts, and fails if those alerts cannot be read, the same as when a project's spend limit cannot be read. No permissions change, and nothing in your OpenAI organization is changed by the list.
+
 ## v0.2.12 (2026-11-05)
 
 ### Fixed

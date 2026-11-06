@@ -3,7 +3,8 @@
 from provider_common import ProviderError
 from provider_openai_base import COST_PAGE_SIZE, Listing, SURFACES, SURFACE_FIELDS, USAGE_BUCKETS, USAGE_FIELDS, no_time_for_a_page, page_of, valid_page
 from provider_openai_api import list_projects, paged, rfc3339
-from provider_openai_kill import lever_state
+from provider_openai_alerts import above_kill, list_alerts, saved_amounts
+from provider_openai_kill import lever_state, restore_text
 # render: strip end
 import json
 from datetime import datetime, timedelta, timezone
@@ -31,7 +32,20 @@ def target_of(client, project):
     if project["status"] == "archived":
         return {**project, "restore": "null"}
     state = lever_state(client, project["id"])
-    return {**project, "status": "inactive" if state.engaged else "active", "restore": state.restore}
+    restore = state.restore if state.engaged else restore_with_alerts(client, project["id"], state.restore)
+    return {**project, "status": "inactive" if state.engaged else "active", "restore": restore}
+
+
+def restore_with_alerts(client, project_id, limit_restore):
+    """The restore of an active project: the limit alone, or with its spend alerts above the kill value (what the kill brings down, the release puts back).
+    More alerts than a restore holds, or ids that start alike, leave the limit alone for that project. A listing that fails fails the read, as a limit that cannot be read does."""
+    alerts = list_alerts(client, project_id)
+    if not above_kill(alerts):
+        return limit_restore
+    try:
+        return restore_text(limit_restore, saved_amounts(alerts))
+    except ProviderError:
+        return limit_restore
 
 
 def act_read_keys(ctx, client, secret, p):
