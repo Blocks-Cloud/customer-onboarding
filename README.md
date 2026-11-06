@@ -30,6 +30,9 @@ Step 2 removes the Step 1 stack when it deploys. It finds that stack by the name
 - Step 1: any AWS account. In an organization's management account, it also deploys the read role
   to member accounts through a StackSet, and AWS Organizations **All Features** must be enabled.
 - Step 2: the **organization management account**, with AWS Organizations **All Features** enabled.
+  If Blocks has your management account on record, it must be that account. Step 2 checks this before
+  it creates anything else. In a standalone account, a member account or a different management account,
+  the stack fails and shows the reason. Blocks receives the result of the check either way, so it can help you.
 - **Contact Blocks** to receive your configuration values.
 
 ## Deployment

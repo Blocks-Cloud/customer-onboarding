@@ -5,19 +5,20 @@ Description: >
   SUMMARY: This template enables Blocks to perform comprehensive cost analysis and optimization execution across your organization.
 
   ACTIONS (in order of execution):
+  0. Checks this is the management account and reports it to Blocks.
   1. Enables AWS Organizations trusted access for Cost Optimization Hub and Compute Optimizer via Lambda function.
   2. Deploys BlocksExecutionRole to all member accounts via StackSet for organization-wide optimization.
   3. Creates BlocksExecutionRole in management account with permissions for Savings Plans/RIs, Budgets, EventBridge, CloudWatch, Cost Optimization Hub, and AWS Organizations management.
-  4. Creates 4 empty member accounts in the locked-down BlocksOptimization OU where Blocks buys Savings Plans for you. Root email: your management root email +bc1-<id>/+bc2-<id>/+bc3-<id>/+bd1-<id>; you own root.
+  4. Creates 4 empty member accounts in the locked-down BlocksOptimization OU where Blocks buys Savings Plans for you. Root email: your management root email +bc1-<id6>/+bc2-<id6>/+bc3-<id6>/+bd1-<id6>; you own root.
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.15" # x-release-please-version
+  TemplateVersion: "0.2.16" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.15" # x-release-please-version
+      Version: "0.2.16" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -27,18 +28,6 @@ Rules:
             - !Ref AWS::Region
             - us-east-1
         AssertDescription: "You must deploy to region us-east-1 only. Since Data exports is only available in us-east-1"
-
-  EnforceManagementAccount:
-    Assertions:
-      - Assert:
-          Fn::Or:
-            - Fn::Equals:
-                - !Ref AWS::AccountId
-                - "{{MANAGEMENT_ACCOUNT_ID}}"
-            - Fn::Equals:
-                - "{{MANAGEMENT_ACCOUNT_ID}}"
-                - "SKIP"
-        AssertDescription: "This stack must be deployed in the AWS Organization management account only. The current account does not match the expected management account."
 
 Resources:
   BlocksOnboardingLambdaRole:
@@ -71,6 +60,9 @@ Resources:
                   - cost-optimization-hub:ListEnrollmentStatuses
                   - compute-optimizer:UpdateEnrollmentStatus
                 Resource: "*"
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: "arn:aws:sqs:us-east-1:{{BLOCKS_ACCOUNT_ID}}:Blocks-Onboarding-Queue"
               # Service-Linked Role creation for Cost Optimization Hub, Compute Optimizer, and CloudFormation StackSets
               - Effect: Allow
                 Action:
@@ -167,6 +159,114 @@ Resources:
                   - lambda:GetFunction
                   - lambda:InvokeFunction
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:EnableStackSets-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+
+  # Lambda Function: Account Check
+  # Verifies this is the AWS Organization management account and reports the result to the Blocks onboarding queue
+  AccountCheckLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "Lambda function that checks the stack runs in the AWS Organization management account and reports the result to Blocks"
+      FunctionName: AccountCheck-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt BlocksOnboardingLambdaRole.Arn
+      Timeout: 60
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/{{BLOCKS_ACCOUNT_ID}}/Blocks-Onboarding-Queue"
+          CUSTOMER_RESOURCE_ID = "{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
+          EXTERNAL_ID = "{{EXTERNAL_ID}}"
+          EXPECTED_MANAGEMENT_ACCOUNT_ID = None if "{{MANAGEMENT_ACCOUNT_ID}}" in ("", "SKIP") else "{{MANAGEMENT_ACCOUNT_ID}}"
+
+          def find_management_account():
+              try:
+                  return boto3.client('organizations').describe_organization()['Organization']['MasterAccountId']
+              except ClientError as e:
+                  if e.response['Error']['Code'] == 'AWSOrganizationsNotInUseException':
+                      return None
+                  raise
+
+          def report(props, status, code, account_id, management_account_id, reason):
+              message = {
+                  "source": "blocks.step2-check",
+                  "step": "2",
+                  "customerResourceId": CUSTOMER_RESOURCE_ID,
+                  "externalId": EXTERNAL_ID,
+                  "templateVersion": props.get('TemplateVersion', ''),
+                  "step2Check": {
+                      "status": status,
+                      "code": code,
+                      "accountId": account_id,
+                      "managementAccountId": management_account_id,
+                      "expectedManagementAccountId": EXPECTED_MANAGEMENT_ACCOUNT_ID,
+                      "reason": reason,
+                  },
+              }
+              try:
+                  # Short timeouts so a hung send still leaves time for cfnresponse inside the 60 s Lambda
+                  config = Config(connect_timeout=5, read_timeout=5, retries={'max_attempts': 2})
+                  boto3.client('sqs', region_name='us-east-1', config=config).send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps(message))
+              except Exception as e:
+                  print(f"Could not report the account check to Blocks: {e}")
+
+          def failure(account_id, management_account_id):
+              if not management_account_id:
+                  return 'no_organization', (f"Account {account_id} is not part of an AWS Organization. Create an organization "
+                                             f"with all features and deploy this stack in its management account.")
+              if management_account_id != account_id:
+                  target = f" {EXPECTED_MANAGEMENT_ACCOUNT_ID}" if EXPECTED_MANAGEMENT_ACCOUNT_ID else ""
+                  return 'not_management_account', (f"Deployed in member account {account_id}. Deploy this stack in your "
+                                                    f"AWS Organization management account{target}.")
+              if EXPECTED_MANAGEMENT_ACCOUNT_ID and account_id != EXPECTED_MANAGEMENT_ACCOUNT_ID:
+                  return 'management_account_mismatch', (f"Deployed in management account {account_id}, but Blocks expects "
+                                                         f"management account {EXPECTED_MANAGEMENT_ACCOUNT_ID}.")
+              return None, ''
+
+          def handler(event, context):
+              print(f"Received event: {event}")
+              physical_id = f"AccountCheck-{CUSTOMER_RESOURCE_ID}"
+
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physicalResourceId=physical_id)
+                  return
+
+              props = event.get('ResourceProperties', {})
+              account_id = props.get('AccountId')
+              try:
+                  management_account_id = find_management_account()
+                  code, reason = failure(account_id, management_account_id)
+                  if code is None:
+                      report(props, 'passed', None, account_id, management_account_id, '')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'Status': 'passed',
+                          'AccountId': account_id,
+                          'ManagementAccountId': management_account_id,
+                      }, physicalResourceId=physical_id)
+                      return
+                  report(props, 'failed', code, account_id, management_account_id, reason)
+              except Exception as e:
+                  print(f"Error: {e}")
+                  code, reason = 'check_error', f"Could not check the AWS Organization: {e}"
+                  report(props, 'failed', code, account_id, None, reason)
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": reason}, physicalResourceId=physical_id, reason=reason)
+
+
+  # Custom Resource: Account Check
+  # Runs first; every other resource depends on it so nothing is built in the wrong account
+  AccountCheck:
+    Type: Custom::AccountCheck
+    Properties:
+      ServiceToken: !GetAtt AccountCheckLambda.Arn
+      AccountId: !Ref AWS::AccountId
+      TemplateVersion: !FindInMap [TemplateConfig, Constants, Version]
 
   EnableOrgServicesLambda:
     Type: AWS::Lambda::Function
@@ -363,6 +463,7 @@ Resources:
   # Triggers Lambda to enable Cost Optimization Hub and Compute Optimizer
   EnableOrgServices:
     Type: Custom::EnableOrgServices
+    DependsOn: AccountCheck
     Properties:
       ServiceToken: !GetAtt EnableOrgServicesLambda.Arn
       # Force re-execution on template updates by including version
@@ -431,6 +532,7 @@ Resources:
   # Provides organizational boundary for cost optimization governance
   BlocksOptimizationOU:
     Type: AWS::Organizations::OrganizationalUnit
+    DependsOn: AccountCheck
     Properties:
       Name: "BlocksOptimization-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       ParentId: !GetAtt EnableOrgServices.OrganizationRootId
@@ -449,6 +551,7 @@ Resources:
   # Applies at organization root level to enforce governance across all accounts
   BlocksSavingsPlansDenyPolicy:
     Type: AWS::Organizations::Policy
+    DependsOn: AccountCheck
     Properties:
       Type: SERVICE_CONTROL_POLICY
       Name: BlocksSavingsPlansDenyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
@@ -499,6 +602,7 @@ Resources:
   # Creates frozen sandbox environment for Blocks-only operations
   BlocksGovernanceDenyPolicy:
     Type: AWS::Organizations::Policy
+    DependsOn: AccountCheck
     Properties:
       Type: SERVICE_CONTROL_POLICY
       Name: BlocksGovernanceDenyPolicy-{{BLOCKS_CUSTOMER_RESOURCE_ID}}
@@ -788,8 +892,8 @@ Resources:
                   check_headroom(orgs, len(missing))
                   mgmt_id = orgs.describe_organization()["Organization"]["MasterAccountId"]
                   local, domain = root_email(orgs, mgmt_id) if missing else (None, None)
-                  # +<slug>-<resource id> keeps the email unique per deployment (AWS reserves account emails for 90 days after closure).
-                  emails = {a["name"]: f"{local}+{a['email_slug']}-{RESOURCE_ID.lower()}@{domain}" for a in missing}
+                  # Last 6 chars of the resource id keep the email unique per deployment (AWS reserves closed-account emails for 90 days); the full id stays in the account name.
+                  emails = {a["name"]: f"{local}+{a['email_slug']}-{RESOURCE_ID.lower()[-6:]}@{domain}" for a in missing}
                   too_long = [e for e in emails.values() if len(e) > MAX_EMAIL_LENGTH]
                   if too_long:
                       raise Exception(
@@ -824,7 +928,9 @@ Resources:
   # SubAccountStackSet on purpose: its AutoDeployment to the root delivers BlocksExecutionRole asynchronously.
   CreateBlocksAccounts:
     Type: Custom::CreateBlocksAccounts
-    DependsOn: BlocksGovernanceDenyPolicy
+    DependsOn:
+      - AccountCheck
+      - BlocksGovernanceDenyPolicy
     Properties:
       ServiceToken: !GetAtt CreateBlocksAccountsLambda.Arn
       OrganizationalUnitId: !Ref BlocksOptimizationOU
@@ -834,7 +940,9 @@ Resources:
 
   SubAccountStackSet:
     Type: AWS::CloudFormation::StackSet
-    DependsOn: BlocksSavingsPlansDenyPolicy
+    DependsOn:
+      - AccountCheck
+      - BlocksSavingsPlansDenyPolicy
     Properties:
       StackSetName: "Blocks-CostOptimization-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Deploys the Blocks IAM roles to all member accounts for organization-wide cost analysis and optimization. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
@@ -1469,6 +1577,7 @@ Resources:
   # Combines write policy with read-only policies
   BlocksExecutionRole:
     Type: AWS::IAM::Role
+    DependsOn: AccountCheck
     Properties:
       RoleName: "BlocksExecutionRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Used by Blocks.cloud to execute cost optimization actions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
@@ -1517,6 +1626,7 @@ Resources:
   # Read-only cross-account role for cost analysis and monitoring
   BlocksReadRole:
     Type: AWS::IAM::Role
+    DependsOn: AccountCheck
     Properties:
       RoleName: "BlocksReadRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Read-only role for Blocks.cloud cost analysis and monitoring. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
@@ -1565,6 +1675,7 @@ Resources:
   # Read-only AI role for cost analysis and monitoring
   MajorTomReadRole:
     Type: AWS::IAM::Role
+    DependsOn: AccountCheck
     Properties:
       RoleName: "MajorTomReadRole-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Read-only AI role for Blocks.cloud cost analysis and monitoring. Must remain in place for MajorTom to function correctly."
@@ -1679,6 +1790,7 @@ Resources:
                   "blocksOptimizationOUId": "${BlocksOptimizationOU}",
                   "blocksManagedAccountIds": "${CreateBlocksAccounts.AccountIds}",
                   "blocksManagedAccountsError": "${CreateBlocksAccounts.AccountCreationError}",
+                  "managementAccountId": "${AccountCheck.ManagementAccountId}",
                   "externalId": "{{EXTERNAL_ID}}",
                   "step": "2"
                 }
@@ -1721,7 +1833,9 @@ Resources:
   # Management account event forwarding is handled by MgmtEventForwardingStackSet (self-managed).
   EventForwardingStackSet:
     Type: AWS::CloudFormation::StackSet
-    DependsOn: SubAccountStackSet
+    DependsOn:
+      - AccountCheck
+      - SubAccountStackSet
     Properties:
       StackSetName: "Blocks-EventForwarding-{{BLOCKS_CUSTOMER_RESOURCE_ID}}"
       Description: "Deploys EventBridge rules to forward CloudTrail management write events to Blocks across all regions. Must remain in place for Blocks to function correctly. Email support@blocks.cloud for assistance."
@@ -1873,6 +1987,7 @@ Resources:
   MgmtEventForwardingStackSet:
     Type: AWS::CloudFormation::StackSet
     DependsOn:
+      - AccountCheck
       - BlocksEventBridgeCrossAccountRole
       - EventForwardingStackSet
     Properties:
@@ -1919,6 +2034,10 @@ Resources:
           Value: !FindInMap [TemplateConfig, Constants, Version]
 
 Outputs:
+  ManagementAccountId:
+    Description: "AWS Organization management account ID verified by the account check"
+    Value: !GetAtt AccountCheck.ManagementAccountId
+
   BlocksExecutionRoleArn:
     Description: "Cross-account role ARN for execution of cost optimization actions"
     Value: !GetAtt BlocksExecutionRole.Arn

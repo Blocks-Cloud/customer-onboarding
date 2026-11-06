@@ -4,6 +4,20 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.16 (2026-11-06)
+
+### Permissions
+- Step 2: Blocks membership, management account, CloudFormation only: `BlocksOnboardingLambdaRole` (the role used by the stack's own setup Lambdas, not assumable by Blocks) now has `sqs:SendMessage`, limited to Blocks' `Blocks-Onboarding-Queue`. The new account check uses it to send its result to Blocks. No other actions were added or removed.
+
+### Added
+- Step 2: Blocks membership, CloudFormation only: a new `ManagementAccountId` stack output shows the AWS Organization management account the account check verified. The deployment notification sent to Blocks now includes the same ID.
+
+### Changed
+- Step 2: Blocks membership, CloudFormation only: the management account check is now an `AccountCheck` custom resource (new Lambda `AccountCheck-<id>`) instead of a template rule. It runs before any other resource is created and checks with AWS Organizations that the stack is in your organization's management account. If the account is standalone, a member account, or a different management account than Blocks expects, the stack fails with a plain reason before anything else is built, and the result (pass or fail) is sent to Blocks so it can help you fix the deployment.
+
+### Fixed
+- Step 2: Blocks membership, CloudFormation only: the root emails of the 4 Blocks-managed accounts now end in the last 6 characters of your Blocks resource ID (`+bc1-<id6>`, `+bc2-<id6>`, `+bc3-<id6>`, `+bd1-<id6>`) instead of the full ID. Management account root emails up to 53 characters now fit AWS's 64-character limit (previously 44), so the accounts are created instead of being skipped with an error. Existing accounts are still matched by name and are not changed.
+
 ## v0.2.15 (2026-11-05)
 
 - Maintenance release, no changes to deployed resources.

@@ -9,7 +9,7 @@ Description: >
   compute, storage, database, and monitoring services.
 
 Metadata:
-  TemplateVersion: "0.2.15" # x-release-please-version
+  TemplateVersion: "0.2.16" # x-release-please-version
 
 Parameters:
   BlocksCustomerId:
