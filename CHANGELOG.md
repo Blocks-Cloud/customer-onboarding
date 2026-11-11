@@ -4,6 +4,10 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.17 (2026-11-10)
+
+- Maintenance release, no changes to deployed resources.
+
 ## v0.2.16 (2026-11-06)
 
 ### Permissions
