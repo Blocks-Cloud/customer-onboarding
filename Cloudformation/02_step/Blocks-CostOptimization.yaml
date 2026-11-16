@@ -860,6 +860,8 @@ Resources:
               # surfaced loudly through AccountCreationError (stack output + Blocks notification).
               data = {"AccountIds": "", "AccountCreationError": ""}
               ids = []
+              # Echo the incoming id on Update: a changed id is a replacement, and its cleanup Delete moves the accounts out of the OU.
+              physical_id = event.get("PhysicalResourceId") or f"CreateBlocksAccounts-{RESOURCE_ID}"
               try:
                   props = event["ResourceProperties"]
                   ou_id, root_id = props["OrganizationalUnitId"], props["OrganizationRootId"]
@@ -869,7 +871,7 @@ Resources:
                       # to root instead, so the OU is empty and CloudFormation can delete it (this resource
                       # !Refs the OU, so it is deleted first). A redeploy then recreates the OU and adopts them.
                       move_to_root(orgs, context, root_id, ou_id)
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalResourceId=physical_id)
                       return
 
                   present, suspended = existing_accounts(orgs)
@@ -920,7 +922,7 @@ Resources:
                   data["AccountCreationError"] = " ".join(f"CreateBlocksAccounts: {e}".split()).replace('"', "'")[:512]
                   print(f"ERROR {data['AccountCreationError']}")
               data["AccountIds"] = ",".join(ids)
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalResourceId=physical_id)
 
   # Custom Resource: Create Blocks-managed accounts
   # Runs after the OU and its governance SCP exist. CreateAccount lands at the org root; the Lambda moves each
