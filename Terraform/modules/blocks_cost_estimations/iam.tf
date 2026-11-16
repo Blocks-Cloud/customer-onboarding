@@ -10,13 +10,48 @@
 # Custom read permissions for Blocks cost estimations not covered by AWS managed policies
 # Note: Most read permissions come from AWS managed policies attached to the role; the statements below add read actions not covered by those managed policies.
 data "aws_iam_policy_document" "blocks_estimations_custom_read" {
-  # IAM - Policy simulation for access analysis
+  # IAM - Blocks checks after deployment that this role has the permissions it needs and that no SCP or permissions boundary blocks them. Limited to the Blocks read role itself, so it cannot simulate any other user or role
   # Services: IAM
   statement {
-    sid    = "IamPolicySimulationRead"
+    sid    = "IamPolicySimulationOwnRole"
     effect = "Allow"
     actions = [
       "iam:SimulatePrincipalPolicy",
+    ]
+    resources = [
+      "arn:aws:iam::*:role/BlocksEstimationsReadRole-*",
+    ]
+  }
+
+  # Metadata reads the Step 1 cost scanner and savings-gap scan call that job-function/ViewOnlyAccess (the Step 1 CloudFormation base policy) does not include
+  # Services: Cost Explorer, Resource Groups Tagging, ElastiCache, OpenSearch Serverless, OpenSearch, MSK, Redshift, ECR, Kinesis, S3, CloudTrail, EFS, CloudWatch, Amazon MQ
+  statement {
+    sid    = "CostScannerMetadataReads"
+    effect = "Allow"
+    actions = [
+      "ce:GetCommitmentPurchaseAnalysis",
+      "tag:GetResources",
+      "elasticache:ListTagsForResource",
+      "aoss:ListCollections",
+      "aoss:BatchGetCollection",
+      "aoss:ListTagsForResource",
+      "es:DescribeReservedInstances",
+      "kafka:DescribeCluster",
+      "kafka:DescribeClusterV2",
+      "kafka:ListClustersV2",
+      "redshift:DescribeReservedNodes",
+      "ecr:DescribeImages",
+      "kinesis:DescribeStreamSummary",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketTagging",
+      "s3:GetReplicationConfiguration",
+      "s3:GetBucketObjectLockConfiguration",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:GetEventSelectors",
+      "elasticfilesystem:DescribeLifecycleConfiguration",
+      "cloudwatch:DescribeAlarms",
+      "mq:ListBrokers",
+      "mq:DescribeBroker",
     ]
     resources = [
       "*",
@@ -188,7 +223,7 @@ data "aws_iam_policy_document" "blocks_estimations_custom_read" {
     ]
   }
 
-  # Service Quotas - Read the Organizations account quota (L-E619E033) to check headroom before creating accounts in the customer org. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
+  # Service Quotas - Read the Organizations account quota (L-E619E033) so Blocks can tell you in advance whether your organization has room for the accounts the Step 2 billing transfer creates. Step 1 creates nothing. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
   # Services: Service Quotas
   statement {
     sid    = "OrganizationsAccountQuotaRead"
@@ -282,6 +317,9 @@ resource "aws_iam_policy" "blocks_estimations_custom_read" {
 # Step 1 only: also denies security findings (DenySecurityFindings), which
 # Step 2 keeps readable.
 # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
+# Several comments below describe actions granted by AWS-managed ReadOnlyAccess. The Step 1
+# CloudFormation templates attach job-function/ViewOnlyAccess instead, which grants fewer of them;
+# those denies are kept as cover in case AWS adds the actions to ViewOnlyAccess later.
 # ============================================================================
 data "aws_iam_policy_document" "blocks_data_protection" {
   # TIER 1: Secrets & Credentials
@@ -539,7 +577,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. cloudformation:GetTemplate returns the full template body, infrastructure code that can carry hardcoded secrets; stack metadata (DescribeStacks/ListStackResources) stays readable. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
+  # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. cloudformation:GetTemplate returns the full template body, infrastructure code that can carry hardcoded secrets; stack metadata (DescribeStacks/ListStackResources) stays readable. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is not denied by this policy: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. The Step 1 CloudFormation templates deny it, together with ecs:DescribeTasks, in the read role's inline BlocksStep1Guardrails policy, and skip ECS Fargate rightsizing until Step 2.
   statement {
     sid    = "DenyCodeAccess"
     effect = "Deny"
@@ -679,7 +717,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     ]
   }
 
-  # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Inherited from AWS-managed ReadOnlyAccess; cost estimation never needs them, so Blocks denies itself any view of a customer's security posture before a relationship exists. Step 2 keeps them readable because Blocks actively helps with security there.
+  # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Cost estimation never needs them, so Step 1 denies them. Configuration metadata (for example security group rules) and Trusted Advisor checks, which Blocks uses for cost recommendations, stay readable. Step 2 keeps them readable because Blocks actively helps with security there.
   statement {
     sid    = "DenySecurityFindings"
     effect = "Deny"

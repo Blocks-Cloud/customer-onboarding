@@ -2,17 +2,17 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   SUMMARY:
 
-  This CloudFormation template grants Blocks secure, read-only access scoped to cost-optimization analysis across all linked accounts. The role attaches AWS-managed read policies (billing, organizations, account management, Savings Plans, and a base read policy), a custom read policy for read actions those policies miss, and a custom data-protection deny policy that blocks every AWS read action known to return customer sensitive data.
+  This CloudFormation template grants Blocks secure, read-only access scoped to cost-optimization analysis across all linked accounts. The role attaches AWS-managed read policies (billing, organizations, Savings Plans, and job-function/ViewOnlyAccess, which returns resource metadata), a custom read policy for read actions those policies miss, a custom data-protection deny policy that denies read actions known to return customer data (a deny list cannot be exhaustive), and an inline guardrail policy for reads a cost estimate does not need.
   Creates the read IAM role. Blocks can assume it only with the External ID, only from Blocks IP addresses, and only for 90 days after deployment.
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.2.17" #  x-release-please-version
+  TemplateVersion: "0.2.18" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.17" #  x-release-please-version
+      Version: "0.2.18" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -415,12 +415,41 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          # IAM - Policy simulation for access analysis
+          # IAM - Blocks checks after deployment that this role has the permissions it needs and that no SCP or permissions boundary blocks them. Limited to the Blocks read role itself, so it cannot simulate any other user or role
           # Services: IAM
-          - Sid: IamPolicySimulationRead
+          - Sid: IamPolicySimulationOwnRole
             Effect: Allow
             Action:
               - iam:SimulatePrincipalPolicy
+            Resource: "arn:aws:iam::*:role/BlocksEstimationsReadRole-*"
+          # Metadata reads the Step 1 cost scanner and savings-gap scan call that job-function/ViewOnlyAccess (the Step 1 CloudFormation base policy) does not include
+          # Services: Cost Explorer, Resource Groups Tagging, ElastiCache, OpenSearch Serverless, OpenSearch, MSK, Redshift, ECR, Kinesis, S3, CloudTrail, EFS, CloudWatch, Amazon MQ
+          - Sid: CostScannerMetadataReads
+            Effect: Allow
+            Action:
+              - ce:GetCommitmentPurchaseAnalysis
+              - tag:GetResources
+              - elasticache:ListTagsForResource
+              - aoss:ListCollections
+              - aoss:BatchGetCollection
+              - aoss:ListTagsForResource
+              - es:DescribeReservedInstances
+              - kafka:DescribeCluster
+              - kafka:DescribeClusterV2
+              - kafka:ListClustersV2
+              - redshift:DescribeReservedNodes
+              - ecr:DescribeImages
+              - kinesis:DescribeStreamSummary
+              - s3:GetBucketVersioning
+              - s3:GetBucketTagging
+              - s3:GetReplicationConfiguration
+              - s3:GetBucketObjectLockConfiguration
+              - cloudtrail:GetTrailStatus
+              - cloudtrail:GetEventSelectors
+              - elasticfilesystem:DescribeLifecycleConfiguration
+              - cloudwatch:DescribeAlarms
+              - mq:ListBrokers
+              - mq:DescribeBroker
             Resource: "*"
           # Cost Explorer - Savings Plans purchase analysis and recommendations, plus coverage and utilization of existing Savings Plans
           # Services: Cost Explorer
@@ -521,7 +550,7 @@ Resources:
               - support:DescribeTrustedAdvisorCheckResult
               - support:DescribeTrustedAdvisorCheckSummaries
             Resource: "*"
-          # Service Quotas - Read the Organizations account quota (L-E619E033) to check headroom before creating accounts in the customer org. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
+          # Service Quotas - Read the Organizations account quota (L-E619E033) so Blocks can tell you in advance whether your organization has room for the accounts the Step 2 billing transfer creates. Step 1 creates nothing. GetAWSDefaultServiceQuota is the fallback: GetServiceQuota returns NoSuchResourceException until an applied override exists
           # Services: Service Quotas
           - Sid: OrganizationsAccountQuotaRead
             Effect: Allow
@@ -573,6 +602,9 @@ Resources:
   # Step 1 only: also denies security findings (DenySecurityFindings), which
   # Step 2 keeps readable.
   # Note: Step 1 has no S3 CUR exception (CUR access lives in Step 2 only).
+  # Several comments below describe actions granted by AWS-managed ReadOnlyAccess. The Step 1
+  # CloudFormation templates attach job-function/ViewOnlyAccess instead, which grants fewer of them;
+  # those denies are kept as cover in case AWS adds the actions to ViewOnlyAccess later.
   # ============================================================================
   BlocksEstimationsDataProtectionPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -757,7 +789,7 @@ Resources:
               - iam:GetServiceSpecificCredential
               - iam:GetLoginProfile
             Resource: "*"
-          # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. cloudformation:GetTemplate returns the full template body, infrastructure code that can carry hardcoded secrets; stack metadata (DescribeStacks/ListStackResources) stays readable. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is deliberately NOT denied: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. Denying it silently drops every ECS Fargate finding, so customers who keep plaintext secrets in containerDefinitions[].environment re-add it in their own deny layer instead.
+          # TIER 9: Code & Artifacts - blocks retrieval of source code, container image layers, package assets, and Lambda function definitions. cloudformation:GetTemplate returns the full template body, infrastructure code that can carry hardcoded secrets; stack metadata (DescribeStacks/ListStackResources) stays readable. The Lambda actions cover both direct reads and listing, since ListFunctions and ListVersionsByFunction also return FunctionConfiguration with Environment.Variables. ecs:DescribeTaskDefinition is not denied by this policy: the ECS Fargate rightsizing detector reads the task-level cpu/memory from it. The Step 1 CloudFormation templates deny it, together with ecs:DescribeTasks, in the read role's inline BlocksStep1Guardrails policy, and skip ECS Fargate rightsizing until Step 2.
           - Sid: DenyCodeAccess
             Effect: Deny
             Action:
@@ -849,7 +881,7 @@ Resources:
               - states:GetExecutionHistory
               - states:DescribeExecution
             Resource: "*"
-          # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Inherited from AWS-managed ReadOnlyAccess; cost estimation never needs them, so Blocks denies itself any view of a customer's security posture before a relationship exists. Step 2 keeps them readable because Blocks actively helps with security there.
+          # Step 1 only: security findings, vulnerability reports, audit evidence and identity-directory contents. Cost estimation never needs them, so Step 1 denies them. Configuration metadata (for example security group rules) and Trusted Advisor checks, which Blocks uses for cost recommendations, stay readable. Step 2 keeps them readable because Blocks actively helps with security there.
           - Sid: DenySecurityFindings
             Effect: Deny
             Action:
@@ -904,18 +936,62 @@ Resources:
                   - 63.181.154.255/32
               DateLessThan:
                 "aws:CurrentTime": !GetAtt EnableStackSets.AccessExpiresAt
+          # Blocks' scanner runs with EKS Pod Identity, whose session tags are transitive: every role it
+          # chains into must allow sts:TagSession, or AssumeRole is denied. Same IP and expiry limits as above.
           - Effect: Allow
             Principal:
               AWS: !Sub "arn:${AWS::Partition}:iam::{{BLOCKS_ACCOUNT_ID}}:role/BlocksCustomerAccessRole"
             Action:
               - sts:TagSession
+            Condition:
+              IpAddress:
+                "aws:SourceIp":
+                  - 63.180.91.77/32
+                  - 52.58.150.93/32
+                  - 63.181.154.255/32
+              DateLessThan:
+                "aws:CurrentTime": !GetAtt EnableStackSets.AccessExpiresAt
+
+      # Inline because the managed deny policy above is at its 6,144-character limit.
+      Policies:
+        - PolicyName: BlocksStep1Guardrails
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Reads that ViewOnlyAccess or AWSOrganizationsReadOnlyAccess grant but a cost estimate does not need.
+              # DescribeTaskDefinition and DescribeTasks return container environment variables, which can hold
+              # secrets; Blocks skips ECS Fargate rightsizing until Step 2. DescribeVpnConnections returns the
+              # tunnel configuration, including IPsec pre-shared keys. DescribePolicy returns service control
+              # policy contents. LookupEvents returns CloudTrail activity history. account:Get* returns account
+              # contact details, alternate contacts and the root email; the AWS Organizations and billing read
+              # policies grant some of these. Account emails still come back in organizations:ListAccounts,
+              # which Blocks needs for the account list.
+              - Sid: DenyReadsNotNeededForCostEstimation
+                Effect: Deny
+                Action:
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ec2:DescribeVpnConnections
+                  - organizations:DescribePolicy
+                  - cloudtrail:LookupEvents
+                  - account:Get*
+                Resource: "*"
+              # The custom read policy allows stack events and resources for deployment debugging. This limits
+              # them to Blocks' own onboarding stacks: events of other stacks can carry resource properties.
+              - Sid: OwnOnboardingStacksOnly
+                Effect: Deny
+                Action:
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                NotResource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${AWS::StackName}/*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/StackSet-Blocks-CostEstimations-*"
 
       ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSBillingReadOnlyAccess
         - !Ref BlocksEstimationsDataProtectionPolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSOrganizationsReadOnlyAccess
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSAccountManagementReadOnlyAccess
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSSavingsPlansReadOnlyAccess
         - !Ref BlocksEstimationsCustomReadPolicy
 

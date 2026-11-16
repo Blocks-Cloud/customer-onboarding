@@ -4,6 +4,19 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.18 (2026-11-13)
+
+### Permissions
+- Step 1: Savings estimation, management and member accounts, CloudFormation only: `BlocksEstimationsReadRole` now uses the AWS managed policy `job-function/ViewOnlyAccess` instead of `ReadOnlyAccess`. `ViewOnlyAccess` returns resource metadata and grants far fewer reads. The Terraform module's role keeps `ReadOnlyAccess`.
+- Step 1: Savings estimation, management account, CloudFormation only: `BlocksEstimationsReadRole` no longer has the AWS managed policy `AWSAccountManagementReadOnlyAccess`.
+- Step 1: Savings estimation, management and member accounts: the custom read policy now allows `ce:GetCommitmentPurchaseAnalysis`, `tag:GetResources`, `elasticache:ListTagsForResource`, `aoss:ListCollections`, `aoss:BatchGetCollection`, `aoss:ListTagsForResource`, `es:DescribeReservedInstances`, `kafka:DescribeCluster`, `kafka:DescribeClusterV2`, `kafka:ListClustersV2`, `redshift:DescribeReservedNodes`, `ecr:DescribeImages`, `kinesis:DescribeStreamSummary`, `s3:GetBucketVersioning`, `s3:GetBucketTagging`, `s3:GetReplicationConfiguration`, `s3:GetBucketObjectLockConfiguration`, `cloudtrail:GetTrailStatus`, `cloudtrail:GetEventSelectors`, `elasticfilesystem:DescribeLifecycleConfiguration`, `cloudwatch:DescribeAlarms`, `mq:ListBrokers` and `mq:DescribeBroker`. These are configuration and metadata reads the cost estimate needs that `ViewOnlyAccess` doesn't include.
+- Step 1: Savings estimation, management and member accounts: `iam:SimulatePrincipalPolicy` is now limited to `BlocksEstimationsReadRole-*` (previously all resources). Blocks uses it only to check that its own read role has the permissions it needs and isn't blocked by an SCP or permissions boundary. It can no longer simulate any other user or role.
+- Step 1: Savings estimation, management and member accounts, CloudFormation only: a new inline policy `BlocksStep1Guardrails` on `BlocksEstimationsReadRole` denies `ecs:DescribeTaskDefinition`, `ecs:DescribeTasks` (container environment variables, which can hold secrets), `ec2:DescribeVpnConnections` (VPN tunnel configuration, including pre-shared keys), `organizations:DescribePolicy` (service control policy contents), `cloudtrail:LookupEvents` (CloudTrail activity history) and `account:Get*` (account contact details, alternate contacts and the root email). It also limits `cloudformation:DescribeStackEvents` and `cloudformation:DescribeStackResources` to Blocks' own onboarding stacks. Account emails still appear in `organizations:ListAccounts`, which Blocks needs for the account list.
+- Step 1: Savings estimation, management and member accounts, CloudFormation only: the `sts:TagSession` statement in the `BlocksEstimationsReadRole` trust policy now has the same conditions as `sts:AssumeRole`: Blocks' platform addresses only, and only until the access expiry date. Before this change it had no conditions.
+
+### Changed
+- Step 1: Savings estimation, CloudFormation only: Blocks skips ECS Fargate rightsizing in the Step 1 estimate, because it no longer reads ECS task definitions. Step 2 still includes it.
+
 ## v0.2.17 (2026-11-10)
 
 - Maintenance release, no changes to deployed resources.
