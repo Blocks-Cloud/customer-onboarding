@@ -1,20 +1,19 @@
 # ============================================================================
 # Blocks.cloud — GCP Cost Estimations onboarding (Step 1, read-only)
 #
-# IaC analog of CloudShell/gcp/step1/blocks-gcp-step1.sh. Everything
+# IaC analog of the Blocks Cloud Shell onboarding script. Everything
 # here is read-only; nothing can modify your resources:
 #   - A Workload Identity Pool + AWS provider that ONLY accepts Blocks'
 #     shared cost-scanner AWS identity (CEL attribute condition pinning the
 #     Blocks scanner role — confused-deputy protection; no keys are created
 #     or exchanged)
 #   - A read-only service account
-#   - Narrow viewer-role bindings at your chosen scope (iam.tf, generated
-#     from iam-policies/gcp/ — single source of truth)
+#   - Narrow viewer-role bindings at your chosen scope (iam.tf, generated)
 #
 # Tenant isolation is this pool + service account (which only the customer
 # owns), not the pinned AWS role: that role is Blocks' shared scanner identity,
 # the same for every customer — the GCP analog of the shared
-# BlocksCustomerAccessRole on the AWS side. See docs/gcp-onboarding-design.md §4.
+# BlocksCustomerAccessRole on the AWS side.
 # ============================================================================
 
 data "google_project" "host" {
@@ -48,8 +47,6 @@ locals {
 # folder/org grant is inherited hierarchy-wide — API enablement is PER-PROJECT.
 # For scope = folder|org, every child project you want covered must have these
 # same APIs enabled, notably recommender.googleapis.com (off by default).
-# Automated per-project enablement is deferred until the Blocks scanner fans out
-# across the hierarchy (BLO-3814); see docs/gcp-onboarding-design.md §5.
 resource "google_project_service" "required" {
   for_each = toset(local.required_apis)
 
@@ -73,8 +70,8 @@ resource "google_iam_workload_identity_pool" "blocks_scanner" {
 # role name — only that identity can authenticate through this provider
 # (confused-deputy protection). Shape `assertion.account == '<acct>' &&
 # attribute.aws_role in [<roles>]`: admitting a further Blocks role later is one
-# more list entry plus one impersonation binding, not a new condition shape
-# (BLO-5100 decision 4). attribute.aws_role is mapped to the BARE role name; the
+# more list entry plus one impersonation binding, not a new condition shape.
+# attribute.aws_role is mapped to the BARE role name; the
 # condition and the SA impersonation grant both key on it. The default AWS
 # mapping would resolve attribute.aws_role to the full assumed-role ARN, so it
 # is set explicitly here to match var.scanner_pod_role_name.
@@ -128,7 +125,7 @@ resource "google_service_account" "blocks_scanner" {
     # silently skip the dataset grant in bigquery.tf. Fail loudly instead.
     precondition {
       condition     = (var.billing_export_project_id == "") == (var.billing_export_dataset_id == "")
-      error_message = "Set billing_export_project_id and billing_export_dataset_id together, or leave both empty (see docs/gcp-billing-export.md)."
+      error_message = "Set billing_export_project_id and billing_export_dataset_id together, or leave both empty."
     }
   }
 }

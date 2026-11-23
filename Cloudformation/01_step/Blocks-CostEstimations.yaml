@@ -7,12 +7,12 @@ Description: >
   Deploys the same role to all linked accounts via a StackSet to gain organization-wide cost visibility.
 
 Metadata:
-  TemplateVersion: "0.2.18" #  x-release-please-version
+  TemplateVersion: "0.2.20" #  x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.18" #  x-release-please-version
+      Version: "0.2.20" #  x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -644,12 +644,9 @@ Resources:
               - ses:List*
               - ses:Get*
               - ses:Describe*
-              - sesv2:List*
-              - sesv2:Get*
-              - pinpoint:Get*
-              - pinpoint:List*
-              - pinpoint-email:*
-              - pinpoint-sms-voice:*
+              - mobiletargeting:Get*
+              - mobiletargeting:List*
+              - sms-voice:*
               - chime:GetMessage*
               - chime:GetConversation*
               - chime:ListMessages
@@ -698,12 +695,7 @@ Resources:
               - rds:DownloadDBLogFilePortion
               - rds:DownloadCompleteDBLogFile
               - rds-data:*
-              - redshift-data:ExecuteStatement
-              - redshift-data:BatchExecuteStatement
-              - redshift-data:GetStatementResult
-              - redshift-data:GetStatementResultV2
-              - redshift-data:DescribeStatement
-              - redshift-data:ListStatements
+              - redshift-data:*
               - dynamodb:PartiQLSelect
             Resource: "*"
           # TIER 4: Search data plane - HTTP reads against OpenSearch/Elasticsearch domains return index documents. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. Cost analysis needs the control plane only (see statements/read/opensearch.json).
@@ -763,12 +755,10 @@ Resources:
             Effect: Deny
             Action:
               - logs:StartQuery
-              - logs:GetQueryResults
-            Resource: "*"
-            Condition:
-              StringNotLike:
-                "logs:LogGroupName": "/aws/containerinsights/*/performance"
-          # Deny direct log access
+            NotResource:
+              - !Sub "arn:${AWS::Partition}:logs:*:*:log-group:/aws/containerinsights/*/performance"
+              - !Sub "arn:${AWS::Partition}:logs:*:*:log-group:/aws/containerinsights/*/performance:*"
+          # Deny direct log access, and listing query IDs (whose results GetQueryResults would return)
           - Sid: DenyLogEventsAccess
             Effect: Deny
             Action:
@@ -776,6 +766,7 @@ Resources:
               - logs:FilterLogEvents
               - logs:GetLogRecord
               - logs:StartLiveTail
+              - logs:DescribeQueries
             Resource: "*"
           # TIER 8: User Directories & Identity
           - Sid: DenyUserDirectoryAccess

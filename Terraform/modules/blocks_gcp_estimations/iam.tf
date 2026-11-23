@@ -1,10 +1,8 @@
 # Role grants for the Blocks scanner service account. The section between the
-# markers is generated from iam-policies/gcp/ (single source of truth shared
-# with the Cloud Shell onboarding script) — edit the roleset JSON and re-run
-# generate_gcp_iam.py --inject; never edit the generated section by hand.
+# markers is generated (shared with the Cloud Shell onboarding script); never
+# edit it by hand.
 
 # ==== BEGIN GENERATED GCP IAM ====
-# Source: iam-policies/gcp/ — regenerate with generate_gcp_iam.py
 # DO NOT EDIT MANUALLY
 # Roleset: BlocksGcpEstimationsRead (step1, read_only)
 # Scope is var.scope (project|folder|org) — count guards select the
@@ -15,14 +13,14 @@
 # permissions, so unlike AWS there is no broad-allow + deny-shield pattern here.
 # Safety comes from granting ONLY the narrow roles below.
 
-# Single custom role replacing roles/compute.viewer + roles/monitoring.viewer + the former blocksRecommenderRead: strict least-privilege, auditable in-repo, independent of the predefined-role catalog (decision Q2, docs/gcp-onboarding-design.md). Renamed from blocksRecommenderRead 2026-08-26 (no GCP customers live yet, so no migration constraint).
-# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Audit Logs (Admin Activity), Cloud Storage (bucket metadata), Cloud Asset Inventory (search), Memorystore for Redis (instance metadata)
+# Single custom role replacing roles/compute.viewer + roles/monitoring.viewer: strict least-privilege, auditable in-repo, independent of the predefined-role catalog.
+# Planes: Compute inventory, Cloud Monitoring, Recommender, Cloud Storage (bucket metadata), Cloud Asset Inventory (search), Memorystore for Redis (instance metadata)
 resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
   count       = var.scope == "project" ? 1 : 0
   project     = var.project_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Admin Activity audit logs, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -59,7 +57,6 @@ resource "google_project_iam_custom_role" "blocks_estimations_read_project" {
     "recommender.storageBucketSoftDeleteRecommendations.list",
     "recommender.bigqueryCapacityCommitmentsRecommendations.list",
     "recommender.bigqueryPartitionClusterRecommendations.list",
-    "logging.logEntries.list",
     "storage.buckets.list",
     "cloudasset.assets.searchAllResources",
     "redis.instances.list",
@@ -72,7 +69,7 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
   org_id      = var.org_id
   role_id     = "blocksEstimationsRead_${replace(var.customer_resource_id, "-", "_")}"
   title       = "Blocks Cost Estimations Read"
-  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Admin Activity audit logs, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
+  description = "Read access for Blocks.cloud cost estimations: Compute inventory, Monitoring metrics, Recommender cost recommendations, Storage and Memorystore metadata, Cloud Asset Inventory search (full config, incl. Cloud Run env vars), billing metadata. Managed by Blocks onboarding."
   stage       = "GA"
   permissions = [
     "compute.regions.list",
@@ -109,7 +106,6 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "recommender.storageBucketSoftDeleteRecommendations.list",
     "recommender.bigqueryCapacityCommitmentsRecommendations.list",
     "recommender.bigqueryPartitionClusterRecommendations.list",
-    "logging.logEntries.list",
     "storage.buckets.list",
     "cloudasset.assets.searchAllResources",
     "redis.instances.list",
@@ -119,6 +115,44 @@ resource "google_organization_iam_custom_role" "blocks_estimations_read_org" {
     "billing.resourceAssociations.list",
     "resourcemanager.projects.list",
   ]
+}
+
+# Audit-log read for the findings-resolver: the _Required bucket's _AllLogs view only (Admin Activity, System Event, Access Transparency). Application logs and Data Access logs stay unreadable.
+# Planes: Cloud Audit Logs (_Required bucket: Admin Activity, System Event, Access Transparency)
+resource "google_project_iam_member" "blocks_scanner_logging_view_accessor_project" {
+  count   = var.scope == "project" ? 1 : 0
+  project = var.project_id
+  role    = "roles/logging.viewAccessor"
+  member  = "serviceAccount:${google_service_account.blocks_scanner.email}"
+
+  condition {
+    title      = "blocks-required-audit-view-only"
+    expression = "resource.name.endsWith(\"/buckets/_Required/views/_AllLogs\")"
+  }
+}
+
+resource "google_folder_iam_member" "blocks_scanner_logging_view_accessor_folder" {
+  count  = var.scope == "folder" ? 1 : 0
+  folder = var.folder_id
+  role   = "roles/logging.viewAccessor"
+  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
+
+  condition {
+    title      = "blocks-required-audit-view-only"
+    expression = "resource.name.endsWith(\"/buckets/_Required/views/_AllLogs\")"
+  }
+}
+
+resource "google_organization_iam_member" "blocks_scanner_logging_view_accessor_org" {
+  count  = var.scope == "org" ? 1 : 0
+  org_id = var.org_id
+  role   = "roles/logging.viewAccessor"
+  member = "serviceAccount:${google_service_account.blocks_scanner.email}"
+
+  condition {
+    title      = "blocks-required-audit-view-only"
+    expression = "resource.name.endsWith(\"/buckets/_Required/views/_AllLogs\")"
+  }
 }
 
 # Bind custom role: blocksEstimationsRead
@@ -143,7 +177,7 @@ resource "google_organization_iam_member" "blocks_scanner_blocks_estimations_rea
   member = "serviceAccount:${google_service_account.blocks_scanner.email}"
 }
 
-# Lets the Blocks scanner impersonate this SA, scoped to attribute.aws_role/<scanner pod-role name> — not the whole pool. The pool provider's CEL attribute condition (structural, in the script/module) pins Blocks' shared scanner pod-role ARN; tenant isolation is the customer-owned pool + SA (BLO-3815, docs/gcp-onboarding-design.md §4)
+# Lets the Blocks scanner impersonate this SA, scoped to attribute.aws_role/<scanner pod-role name> — not the whole pool. The pool provider's CEL attribute condition (structural, in the script/module) pins Blocks' shared scanner pod-role ARN; tenant isolation is the customer-owned pool + SA
 resource "google_service_account_iam_member" "blocks_scanner_wif_user" {
   service_account_id = google_service_account.blocks_scanner.name
   role               = "roles/iam.workloadIdentityUser"

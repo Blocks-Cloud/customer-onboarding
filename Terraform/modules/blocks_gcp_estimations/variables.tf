@@ -125,10 +125,10 @@ variable "org_id" {
 }
 
 ############################
-# Billing-export dataset (optional; BLO-3942)
+# Billing-export dataset (optional)
 # Set BOTH to grant the scanner read on your Cloud Billing BigQuery export
-# dataset, or leave BOTH empty to skip. See docs/gcp-billing-export.md and
-# bigquery.tf. These are deployment choices (like scope/project) — not
+# dataset, or leave BOTH empty to skip. See bigquery.tf.
+# These are deployment choices (like scope/project) — not
 # Blocks-owned values — so they are plain variables, never {{ TOKEN }}s.
 ############################
 
@@ -145,7 +145,7 @@ variable "billing_export_project_id" {
 
 variable "billing_export_dataset_id" {
   type        = string
-  description = "BigQuery dataset ID of the Cloud Billing export. A detailed, EU/US multi-region export is required for resource-level spend (see docs/gcp-billing-export.md). Set together with billing_export_project_id; leave empty to skip."
+  description = "BigQuery dataset ID of the Cloud Billing export. A detailed, EU/US multi-region export is required for resource-level spend. Set together with billing_export_project_id; leave empty to skip."
   default     = ""
 
   validation {

@@ -1,18 +1,17 @@
 # ============================================================================
-# Blocks.cloud — GCP billing-export dataset read (BLO-3942)
+# Blocks.cloud — GCP billing-export dataset read
 #
 # Grants the read-only scanner service account roles/bigquery.dataViewer on the
 # customer's Cloud Billing BigQuery export dataset, so Blocks can read spend
 # from the detailed usage-cost export — the GCP analog of read access to the
-# AWS CUR bucket (FOCUS cost-plane, BLO-3664).
+# AWS CUR bucket.
 #
 # Why this is hand-authored here and NOT in the generated iam.tf: iam.tf is the
 # single-source-of-truth section the roleset generator owns, and that generator
 # only models project|folder|org scope dispatch. This grant is DATASET-scoped —
 # its target is a per-deployment (project, dataset) pair the customer supplies,
 # orthogonal to that scope axis — so it is structural, in the same category as
-# the WIF pool and service account (see iam-policies/gcp/README.md, "generated
-# vs structural", and decision D1 of the FOCUS cost-plane spike, BLO-3939).
+# the WIF pool and service account.
 #
 # The binding is ADDITIVE (google_bigquery_dataset_iam_member): it adds exactly
 # this one member to this one role and leaves the customer's existing dataset
@@ -22,7 +21,7 @@
 # declaration owns the whole dataset ACL and will DELETE this member on its next
 # apply — move the grant into that declaration instead of applying both.
 # Enabling a detailed, EU/US multi-region export is a console-only manual
-# step — see docs/gcp-billing-export.md.
+# step.
 # ============================================================================
 
 locals {

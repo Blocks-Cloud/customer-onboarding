@@ -13,12 +13,12 @@ Description: >
   5. Creates EventBridge rule to notify Blocks upon stack completion.
 
 Metadata:
-  TemplateVersion: "0.2.18" # x-release-please-version
+  TemplateVersion: "0.2.20" # x-release-please-version
 
 Mappings:
   TemplateConfig:
     Constants:
-      Version: "0.2.18" # x-release-please-version
+      Version: "0.2.20" # x-release-please-version
 
 Rules:
   EnforceUsEast1:
@@ -860,6 +860,8 @@ Resources:
               # surfaced loudly through AccountCreationError (stack output + Blocks notification).
               data = {"AccountIds": "", "AccountCreationError": ""}
               ids = []
+              # Echo the incoming id on Update: a changed id is a replacement, and its cleanup Delete moves the accounts out of the OU.
+              physical_id = event.get("PhysicalResourceId") or f"CreateBlocksAccounts-{RESOURCE_ID}"
               try:
                   props = event["ResourceProperties"]
                   ou_id, root_id = props["OrganizationalUnitId"], props["OrganizationRootId"]
@@ -869,7 +871,7 @@ Resources:
                       # to root instead, so the OU is empty and CloudFormation can delete it (this resource
                       # !Refs the OU, so it is deleted first). A redeploy then recreates the OU and adopts them.
                       move_to_root(orgs, context, root_id, ou_id)
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalResourceId=physical_id)
                       return
 
                   present, suspended = existing_accounts(orgs)
@@ -920,7 +922,7 @@ Resources:
                   data["AccountCreationError"] = " ".join(f"CreateBlocksAccounts: {e}".split()).replace('"', "'")[:512]
                   print(f"ERROR {data['AccountCreationError']}")
               data["AccountIds"] = ",".join(ids)
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, data)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, data, physicalResourceId=physical_id)
 
   # Custom Resource: Create Blocks-managed accounts
   # Runs after the OU and its governance SCP exist. CreateAccount lands at the org root; the Lambda moves each
@@ -1340,12 +1342,9 @@ Resources:
               - ses:List*
               - ses:Get*
               - ses:Describe*
-              - sesv2:List*
-              - sesv2:Get*
-              - pinpoint:Get*
-              - pinpoint:List*
-              - pinpoint-email:*
-              - pinpoint-sms-voice:*
+              - mobiletargeting:Get*
+              - mobiletargeting:List*
+              - sms-voice:*
               - chime:GetMessage*
               - chime:GetConversation*
               - chime:ListMessages
@@ -1394,12 +1393,7 @@ Resources:
               - rds:DownloadDBLogFilePortion
               - rds:DownloadCompleteDBLogFile
               - rds-data:*
-              - redshift-data:ExecuteStatement
-              - redshift-data:BatchExecuteStatement
-              - redshift-data:GetStatementResult
-              - redshift-data:GetStatementResultV2
-              - redshift-data:DescribeStatement
-              - redshift-data:ListStatements
+              - redshift-data:*
               - dynamodb:PartiQLSelect
             Resource: "*"
           # TIER 4: Search data plane - HTTP reads against OpenSearch/Elasticsearch domains return index documents. Not granted by any Blocks statement; inherited from AWS-managed ReadOnlyAccess, so an explicit Deny is the only way to close it. Cost analysis needs the control plane only (see statements/read/opensearch.json).
@@ -1462,12 +1456,10 @@ Resources:
             Effect: Deny
             Action:
               - logs:StartQuery
-              - logs:GetQueryResults
-            Resource: "*"
-            Condition:
-              StringNotLike:
-                "logs:LogGroupName": "/aws/containerinsights/*/performance"
-          # Deny direct log access
+            NotResource:
+              - !Sub "arn:${AWS::Partition}:logs:*:*:log-group:/aws/containerinsights/*/performance"
+              - !Sub "arn:${AWS::Partition}:logs:*:*:log-group:/aws/containerinsights/*/performance:*"
+          # Deny direct log access, and listing query IDs (whose results GetQueryResults would return)
           - Sid: DenyLogEventsAccess
             Effect: Deny
             Action:
@@ -1475,6 +1467,7 @@ Resources:
               - logs:FilterLogEvents
               - logs:GetLogRecord
               - logs:StartLiveTail
+              - logs:DescribeQueries
             Resource: "*"
           # TIER 8: User Directories & Identity
           - Sid: DenyUserDirectoryAccess

@@ -4,6 +4,19 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.20 (2026-11-23)
+
+### Permissions
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the data protection policies now deny `mobiletargeting:Get*`, `mobiletargeting:List*` (Amazon Pinpoint) and `sms-voice:*` (SMS and voice messaging). Before this change these reads were not denied, because the policy listed `pinpoint:Get*`, `pinpoint:List*`, `pinpoint-email:*` and `pinpoint-sms-voice:*`, which are not IAM action prefixes and matched nothing. Those four entries and `sesv2:Get*`, `sesv2:List*` are removed. SES v2 and Pinpoint email calls are authorized as `ses:` actions, so they stay denied by the existing `ses:Get*` and `ses:List*` entries.
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the data protection policies now deny `redshift-data:*` instead of six separate actions (`ExecuteStatement`, `BatchExecuteStatement`, `GetStatementResult`, `GetStatementResultV2`, `DescribeStatement`, `ListStatements`). The deny now covers the whole Redshift Data API. The shorter form keeps the Step 1 policy under the IAM size limit.
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the CloudWatch Logs Insights deny on `logs:StartQuery` now applies to every log group except the Container Insights performance log groups (`/aws/containerinsights/*/performance`). Before this change it was written with a condition key CloudWatch Logs does not have, so it denied queries on all log groups, including the Container Insights ones it was meant to allow.
+- Step 1: Savings estimation and Step 2: Blocks membership, management and member accounts: the data protection policies now deny `logs:DescribeQueries`, so Blocks can't list the IDs of Logs Insights queries other principals started. `logs:GetQueryResults` is no longer denied, because IAM can't limit it to specific log groups. It returns results only for a query ID the caller supplies, and Blocks can no longer list those IDs.
+
+## v0.2.19 (2026-11-20)
+
+### Fixed
+- Step 2: Blocks membership, CloudFormation only: redeploying or updating the Step 2 stack no longer moves the 4 Blocks-managed accounts out of the `BlocksOptimization` OU to the organization root, where the Savings Plans SCP blocked them from buying Savings Plans. The accounts now stay in the OU across redeploys.
+
 ## v0.2.18 (2026-11-13)
 
 ### Permissions

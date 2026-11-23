@@ -579,12 +579,9 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "ses:List*",
       "ses:Get*",
       "ses:Describe*",
-      "sesv2:List*",
-      "sesv2:Get*",
-      "pinpoint:Get*",
-      "pinpoint:List*",
-      "pinpoint-email:*",
-      "pinpoint-sms-voice:*",
+      "mobiletargeting:Get*",
+      "mobiletargeting:List*",
+      "sms-voice:*",
       "chime:GetMessage*",
       "chime:GetConversation*",
       "chime:ListMessages",
@@ -645,12 +642,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "rds:DownloadDBLogFilePortion",
       "rds:DownloadCompleteDBLogFile",
       "rds-data:*",
-      "redshift-data:ExecuteStatement",
-      "redshift-data:BatchExecuteStatement",
-      "redshift-data:GetStatementResult",
-      "redshift-data:GetStatementResultV2",
-      "redshift-data:DescribeStatement",
-      "redshift-data:ListStatements",
+      "redshift-data:*",
       "dynamodb:PartiQLSelect",
     ]
     resources = [
@@ -757,19 +749,14 @@ data "aws_iam_policy_document" "blocks_data_protection" {
     effect = "Deny"
     actions = [
       "logs:StartQuery",
-      "logs:GetQueryResults",
     ]
-    resources = [
-      "*",
+    not_resources = [
+      "arn:${local.partition}:logs:*:*:log-group:/aws/containerinsights/*/performance",
+      "arn:${local.partition}:logs:*:*:log-group:/aws/containerinsights/*/performance:*",
     ]
-    condition {
-      test     = "StringNotLike"
-      variable = "logs:LogGroupName"
-      values   = ["/aws/containerinsights/*/performance"]
-    }
   }
 
-  # Deny direct log access
+  # Deny direct log access, and listing query IDs (whose results GetQueryResults would return)
   statement {
     sid    = "DenyLogEventsAccess"
     effect = "Deny"
@@ -778,6 +765,7 @@ data "aws_iam_policy_document" "blocks_data_protection" {
       "logs:FilterLogEvents",
       "logs:GetLogRecord",
       "logs:StartLiveTail",
+      "logs:DescribeQueries",
     ]
     resources = [
       "*",
