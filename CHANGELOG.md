@@ -4,6 +4,14 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.21 (2026-11-25)
+
+### Permissions
+- Step 1: Savings estimation, management and member accounts, CloudFormation only: the `BlocksStep1Guardrails` inline policy on `BlocksEstimationsReadRole` now also denies `cloudformation:GetTemplateSummary`. `ViewOnlyAccess` grants it, and it returns a stack's parameter defaults and template Metadata, which can hold hardcoded secrets.
+- Step 1: Savings estimation, management and member accounts, CloudFormation only: `BlocksStep1Guardrails` now also denies `glacier:GetJobOutput` (archive contents), `ssm:GetCommandInvocation` (Run Command output) and `timestream:Select` (table rows). No attached policy grants them today; the deny keeps it that way if an AWS managed policy adds them later.
+- Step 1: Savings estimation, management account, CloudFormation only: `EnableStackSetsLambdaRole` (the role used by the stack's own setup Lambda, not assumable by Blocks) can now call `iam:CreateServiceLinkedRole` only for the StackSets service-linked roles (`stacksets.cloudformation.amazonaws.com` and `member.org.stacksets.cloudformation.amazonaws.com`). Before this change it could create a service-linked role for any service.
+- Step 1: Savings estimation, management account, CloudFormation only: `EnableStackSetsLambdaRole` can now read the StackSet template (`s3:GetObject`, `s3:GetObjectVersion`) only from Blocks' three template buckets, named exactly, instead of any bucket whose name starts with `blocks-customer-templates`. Bucket names are global, so the prefix also matched look-alike buckets someone else could register.
+
 ## v0.2.20 (2026-11-23)
 
 ### Permissions
