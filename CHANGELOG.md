@@ -4,6 +4,14 @@
 > **This changelog starts at v0.2.5.** Older releases are available as git tags. The v0.2.5 section is a
 > baseline of what that release deploys; later releases list only their changes, permissions first.
 
+## v0.2.22 (2026-11-25)
+
+### Permissions
+- Step 1: Savings estimation, management account, CloudFormation only: `EnableStackSetsLambdaRole` (the role used by the stack's own setup Lambda, not assumable by Blocks) can again call `iam:CreateServiceLinkedRole` without the `iam:AWSServiceName` condition added in v0.2.21. This is the same grant as v0.2.20. AWS does not match that condition when StackSets trusted access is turned on, so the condition blocked the setup.
+
+### Fixed
+- Step 1: Savings estimation, CloudFormation only: v0.2.21 failed to deploy in organizations that had not yet turned on StackSets trusted access, because the setup Lambda could not create the StackSets service-linked role. Step 1 now deploys in these organizations again.
+
 ## v0.2.21 (2026-11-25)
 
 ### Permissions
